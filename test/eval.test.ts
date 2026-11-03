@@ -19,9 +19,7 @@ import { makeDoc, model } from './helpers.ts';
  * with the reason. Remove an entry when a fix makes it pass; the test fails
  * until the list matches, so it cannot silently go stale.
  */
-const expectedMisses: Record<string, string> = {
-  'small-graphics-second-box #1': 'A tick in the second checkbox is classified as a minor shift of lines or graphics (≤ 4 pt) and hidden; it is only counted in the notice.',
-};
+const expectedMisses: Record<string, string> = {};
 /** Extra (unexplained) items per case that come with the misses above. */
 const expectedExtra: Record<string, number> = {};
 

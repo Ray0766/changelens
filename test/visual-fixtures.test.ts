@@ -83,11 +83,14 @@ test('light grey shading and a light hairline are found', { skip }, async () => 
   assert.ok(g.some((c) => c.new.rects[0].rect.h <= 6 && c.new.rects[0].rect.w > 400), 'hairline');
 });
 
-test('every place of an aggregated bold change is skipped by the colour check', { skip }, async () => {
+test('every place of a bold change is skipped by the colour check', { skip }, async () => {
   const { changes } = onPage(await visual(), 7);
   const r = await visual();
+  // Four first sentences set in bold. Not a document-wide substitution, so
+  // each place is its own format change (an aggregated one would carry the
+  // rects of every place; the skip set works from rects either way).
   const fmt = r.changes.filter((c) => c.kind === 'format' && c.new.pages.includes(6));
-  assert.equal(fmt.length, 1);
+  assert.equal(fmt.length, 4, list(fmt));
   assert.equal(changes.filter((c) => c.kind === 'graphic').length, 0, list(changes));
 });
 
