@@ -198,6 +198,7 @@ const SETS: Record<string, string> = {
   tuning: 'Tuning set',
   'held-out-1': 'Held-out round 1 (since used for fixes)',
   'held-out-2': 'Held-out round 2 (since used for fixes)',
+  'held-out-3': 'Held-out round 3 (blind until its recorded run)',
   extra: 'Extra pairs (demos, LibreOffice)',
 };
 const pairs: { id: string; before: string; after: string; meta: CaseMeta }[] = [];

@@ -1,0 +1,55 @@
+{
+  "description": "Synthetic. Steering-group slide deck for an invented tram project, exported from LibreOffice Impress (7 -> 8 landscape slides, drawn shapes for the status dots and the bar chart). Edits: the spending figure on slide 2 (41.2 -> 43.9); the status dot of \"Depot extension\" on slide 3 changes colour from amber to green (its comment is unchanged); on slide 4 the \"Track works\" bar of the vector bar chart is taller (14.6 -> 17.3 on the axis, no value label; consistent with slide 2); a new slide 5 \"Change request CR-12\" is inserted (title and three bullets); on old slide 5 / new slide 6 \"January\" becomes \"February\"; on old slide 6 / new slide 7 the date 14 November becomes 28 November. Not edits: the slide numbers in the footer of old slides 5-7 change to 6-8.",
+  "synthetic": true,
+  "set": "held-out-3",
+  "blind": true,
+  "author": "d",
+  "producer": "LibreOffice Impress 24.2 (flat ODP -> PDF), 16:9 slides",
+  "truth": [
+    {
+      "type": "number",
+      "old": "41.2",
+      "new": "43.9",
+      "oldPage": 2,
+      "newPage": 2
+    },
+    {
+      "type": "graphic",
+      "oldPage": 3,
+      "newPage": 3,
+      "oldRect": [272.1, 311, 22.7, 22.7],
+      "newRect": [272.1, 311, 22.7, 22.7],
+      "note": "Status dot of \"Depot extension\" recoloured from amber to green; no text changed."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 4,
+      "newPage": 4,
+      "oldRect": [255.1, 145.5, 62.4, 206],
+      "newRect": [255.1, 145.5, 62.4, 206],
+      "note": "The \"Track works\" bar is taller (14.6 -> 17.3 on the axis). Rect = the new bar; the old bar is the lower part of it."
+    },
+    {
+      "type": "insert",
+      "new": "Change request CR-12",
+      "newPage": 5,
+      "maxItems": 4,
+      "note": "A whole slide is inserted (title and three bullets); it may legitimately be reported as one item per text block."
+    },
+    {
+      "type": "replace",
+      "old": "January",
+      "new": "February",
+      "oldPage": 5,
+      "newPage": 6
+    },
+    {
+      "type": "number",
+      "old": "14 November",
+      "new": "28 November",
+      "oldPage": 6,
+      "newPage": 7,
+      "note": "Only the day changes (14 -> 28); the month is included because \"28\" also occurs in \"2028\" on the slide."
+    }
+  ]
+}

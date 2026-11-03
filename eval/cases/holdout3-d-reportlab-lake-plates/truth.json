@@ -1,0 +1,48 @@
+{
+  "description": "Synthetic. Six-page water-quality report for an invented lake, drawn with reportlab: page 2 a vector grouped bar chart, page 3 a station table with zebra shading, page 4 a full-page photo plate (raster image, no text, no footer), page 5 a vector line chart, page 6 conclusions. Edits: on page 2 the August bar of station C is taller (no value label); on page 3 the temperature anomaly of station D changes sign (−0.4 -> +0.4) and the Total P cell of station E (38) gets an amber shading, matching the unchanged table note; a new full-page depth-map plate (vector shapes, no text, no footer) is inserted as new page 5; on the oxygen chart (old page 5, new page 6) the point for 3 August is lower (5.2 -> 4.1 mg/l; no value label). Not edits: old pages 5-6 become new pages 6-7 (footer page numbers change); the photo plate on page 4 is identical in both versions.",
+  "synthetic": true,
+  "set": "held-out-3",
+  "blind": true,
+  "author": "d",
+  "producer": "reportlab 5 (canvas API; vector charts, JPEG photo plate), A4",
+  "truth": [
+    {
+      "type": "graphic",
+      "oldPage": 2,
+      "newPage": 2,
+      "oldRect": [379.5, 270.9, 26, 241],
+      "newRect": [379.5, 270.9, 26, 241],
+      "note": "Station C, August bar: 18.6 -> 24.1 µg/l on the axis. Rect = full height of the taller (new) bar."
+    },
+    {
+      "type": "number",
+      "old": "−0.4",
+      "new": "+0.4",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Sign change; U+2212 minus in the old version, plus sign in the new one."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 3,
+      "newPage": 3,
+      "oldRect": [462, 260, 71, 22],
+      "newRect": [462, 260, 71, 22],
+      "note": "Amber background added to the Total P cell of station E; the value 38 is unchanged."
+    },
+    {
+      "type": "graphic",
+      "newPage": 5,
+      "newRect": [48, 48, 499.3, 745.9],
+      "note": "Inserted page without any text (vector depth map, no footer). There is no old counterpart."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 5,
+      "newPage": 6,
+      "oldRect": [352.2, 312.9, 69.5, 60.5],
+      "newRect": [352.2, 312.9, 69.5, 60.5],
+      "note": "One data point of the line chart moved down (3 August, 5.2 -> 4.1 mg/l), changing the two line segments next to it."
+    }
+  ]
+}

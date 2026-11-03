@@ -1,0 +1,64 @@
+{
+  "description": "合成样例 synthetic sample. 中英双语董事会会议纪要 Bilingual board minutes of an invented company (Chromium, 3 → 4 pages). Edits: on page 1 the vote on resolution 1 is corrected (For 7 → 6, Abstain 1 → 2) and the English sentence about the revised capital expenditure schedule is deleted from resolution 2; page 2 (resolutions 3–5 and the key-figure table, with negative numbers) is pasted twice, so it appears as new pages 2 and 3 with identical content; on the action-item page (old 3 → new 4) the owner of A3 and the due date of A4 change and a sentence about electronic signatures is added. Consequences, not edits: the page count and the page numbers in the footer change; the action-item page moves from 3 to 4.",
+  "synthetic": true,
+  "set": "held-out-3",
+  "blind": true,
+  "author": "c",
+  "producer": "Chromium (Playwright page.pdf)",
+  "truth": [
+    {
+      "type": "number",
+      "old": "For 7",
+      "new": "For 6",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Vote on resolution 1 (the only vote on page 1 that is not 8/0/0)."
+    },
+    {
+      "type": "number",
+      "old": "Abstain 1",
+      "new": "Abstain 2",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "delete",
+      "old": "The CFO will circulate a revised capital expenditure schedule before 30 November 2026.",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "insert",
+      "new": "澄岭新材料（佛山）有限公司",
+      "oldPage": 2,
+      "newPage": [
+        2,
+        3
+      ],
+      "note": "Old page 2 appears twice (new pages 2 and 3, word for word identical). One insert of a whole page; either copy may be reported as the added one."
+    },
+    {
+      "type": "replace",
+      "old": "李文博 Li Wenbo",
+      "new": "郑雅琳 Zheng Yalin",
+      "oldPage": 3,
+      "newPage": 4,
+      "note": "Owner of action item A3. 李文博 also appears on page 1 (in attendance), which is unchanged."
+    },
+    {
+      "type": "number",
+      "old": "2026-12-15",
+      "new": "2027-01-15",
+      "oldPage": 3,
+      "newPage": 4,
+      "note": "Due date of action item A4."
+    },
+    {
+      "type": "insert",
+      "new": "Directors who attended by video will sign these minutes electronically.",
+      "oldPage": 3,
+      "newPage": 4,
+      "note": "New bilingual paragraph; the Chinese half (以视频方式出席的董事将以电子签名方式签署本纪要。) belongs to the same insertion."
+    }
+  ]
+}
