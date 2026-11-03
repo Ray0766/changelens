@@ -215,11 +215,15 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
   const out: Notice[] = [];
   const side = (s: 'old' | 'new') => t(lang, s === 'old' ? 'oldVersion' : 'newVersion');
   const manual = r.pageLinks.filter((l) => l.manual);
-  const paired = (s: 'old' | 'new', p: number) => manual.some((l) => (s === 'old' ? l.oldPage : l.newPage) === p);
+  const images = r.pageLinks.filter((l) => l.image);
+  const paired = (s: 'old' | 'new', p: number) => [...manual, ...images].some((l) => (s === 'old' ? l.oldPage : l.newPage) === p);
+  // A page without text reported as added or removed is explained by that change.
+  const pageChanged = (s: 'old' | 'new', p: number) => r.changes.some((c) => (c.pageChange === 'added' || c.pageChange === 'removed') && c[s].pages.includes(p));
   for (const s of ['old', 'new'] as const) {
     const cov = r.coverage?.[s];
     if (!cov) continue;
-    const textless = cov.textless.filter((p) => !paired(s, p));
+    // Pages without text that were neither paired (by hand or by position) nor reported as added/removed.
+    const textless = cov.textless.filter((p) => !paired(s, p) && !pageChanged(s, p));
     if (textless.length) out.push({ level: 'warn', text: t(lang, 'noticeTextless', { side: side(s), pages: pageRuns(lang, textless) }), action: 'pair' });
     if (cov.unreadable.length)
       out.push({ level: 'warn', text: t(lang, 'noticeUnreadable', { side: side(s), pages: pageRuns(lang, cov.unreadable.map((u) => u.page)), n: cov.unreadable.reduce((n, u) => n + u.count, 0) }) });
@@ -233,6 +237,8 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
   for (const u of r.coverage?.new.uncertain ?? []) out.push({ level: 'warn', text: t(lang, 'noticeUncertain', { pages: pageRuns(lang, [u.page]), pct: Math.round(u.matched * 100) + '%' }), action: 'pair' });
   if (r.stats?.unalignedTokens) out.push({ level: 'warn', text: t(lang, 'noticeUnaligned') });
   for (const l of manual) out.push({ level: 'info', text: t(lang, 'noticePaired', { pair: pairLabel(lang, l.oldPage, l.newPage) }) });
+  if (images.length)
+    out.push({ level: 'info', text: t(lang, 'noticeImagePaired', { pairs: images.map((l) => pairLabel(lang, l.oldPage, l.newPage)).join(lang === 'zh' ? '、' : ', ') }), action: 'pair' });
   if (r.ignored?.furniture) out.push({ level: 'info', text: t(lang, 'noticeFurniture', { n: r.ignored.furniture }), action: 'furniture' });
   if (r.ignored?.renumbered) out.push({ level: 'info', text: t(lang, 'noticeRenumbered', { n: r.ignored.renumbered }), action: 'minor' });
   if (r.ignored?.minorShifts) out.push({ level: 'info', text: t(lang, 'noticeMinor', { n: r.ignored.minorShifts, pt: SHIFT_PT }), action: 'minor' });

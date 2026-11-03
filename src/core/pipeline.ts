@@ -97,6 +97,11 @@ export async function addVisualChanges(
       try {
         const [ra, rb] = await Promise.all([cacheOld.get(op)!, cacheNew.get(np)!]);
         found.push(...compareRasters(result, op, np, ra, rb, { whole: pair.whole }));
+        // A page without text compared as an image with a page chosen by
+        // position and look: shown in the page map and the notices.
+        const textless = result.coverage?.old.textless.includes(op) || result.coverage?.new.textless.includes(np);
+        if (textless && !result.pageLinks.some((l) => l.oldPage === op && l.newPage === np && (l.manual || l.weight >= 3)))
+          result.pageLinks.push({ oldPage: op, newPage: np, weight: 0, image: true });
       } catch {
         skipped.old.add(op);
         skipped.new.add(np);

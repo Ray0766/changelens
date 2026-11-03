@@ -9,7 +9,8 @@ import { extractText } from '../src/pdf/extract.ts';
 import { buildDocModel } from '../src/core/tokenize.ts';
 import { compareDocs } from '../src/core/compare.ts';
 import { addVisualChanges, countChanges } from '../src/core/pipeline.ts';
-import { describeChange } from '../src/core/describe.ts';
+import { describeChange, notices } from '../src/core/describe.ts';
+import { pageMapSvg } from '../src/core/report.ts';
 import type { Change, CompareResult } from '../src/core/types.ts';
 
 const dir = new URL('./fixtures/', import.meta.url).pathname;
@@ -106,6 +107,16 @@ test('an inserted page without text is reported, and the chart page after it is 
   assert.equal(c.old.caret?.page, 1);
   // Old p. 2 and new p. 3 hold the same chart: compared, nothing to report.
   assert.ok(!r.changes.some((x) => x.old.pages.includes(1)));
+});
+
+test('pages without text that were paired by position are noted as such, not as "not compared"', { skip }, async () => {
+  const r = await run('figpages-before.pdf', 'figpages-after.pdf');
+  const n = notices('en', r);
+  // The inserted page is a change; the chart pages were compared as images.
+  assert.ok(!n.some((x) => x.level === 'warn'), JSON.stringify(n));
+  assert.ok(n.some((x) => x.level === 'info' && x.text.includes('old p. 2 ↔ new p. 3') && x.action === 'pair'), JSON.stringify(n));
+  // The page map draws that pairing.
+  assert.match(pageMapSvg(r, 'en'), /<line class="image"/);
 });
 
 test('a removed page without text is reported', { skip }, async () => {

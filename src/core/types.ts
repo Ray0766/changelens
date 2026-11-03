@@ -250,6 +250,8 @@ export interface PageLink {
   weight: number;
   /** Set by the reviewer rather than derived from matched text. */
   manual?: boolean;
+  /** Pages without text paired by their position (and look) and compared as images only. */
+  image?: boolean;
 }
 
 export interface Anchor {

@@ -89,10 +89,12 @@ export function pageMapSvg(result: CompareResult, lang: Lang): string {
   const x = (i: number) => 90 + i * step;
   const maxW = Math.max(1, ...result.pageLinks.map((l) => l.weight));
   const links = result.pageLinks
-    .filter((l) => l.weight >= 3 || l.manual)
+    .filter((l) => l.weight >= 3 || l.manual || l.image)
     .map((l) =>
       l.manual
         ? `<line class="manual" x1="${x(l.oldPage) + pw / 2}" y1="${yOld + ph}" x2="${x(l.newPage) + pw / 2}" y2="${yNew}" stroke="${COLORS.move}" stroke-width="2.5" stroke-dasharray="4 3"/>`
+        : l.image
+        ? `<line class="image" x1="${x(l.oldPage) + pw / 2}" y1="${yOld + ph}" x2="${x(l.newPage) + pw / 2}" y2="${yNew}" stroke="currentColor" stroke-opacity="0.6" stroke-width="1.5" stroke-dasharray="2 3"/>`
         : `<line x1="${x(l.oldPage) + pw / 2}" y1="${yOld + ph}" x2="${x(l.newPage) + pw / 2}" y2="${yNew}" stroke="currentColor" stroke-opacity="${(0.25 + 0.6 * (l.weight / maxW)).toFixed(2)}" stroke-width="${(1 + 2 * (l.weight / maxW)).toFixed(1)}"/>`,
     )
     .join('');
