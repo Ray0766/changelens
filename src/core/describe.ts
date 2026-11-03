@@ -40,9 +40,9 @@ type CountKey = (w: 'addedWords' | 'deletedWords' | 'rewrote') => 'addedWords' |
 
 const percentUnit = (s: string) => /[%％]$/.test(s.trim());
 
-/** "+2.5", "-0.25": a difference shown with at most two decimals. */
+/** "+2.5", "-0.25", "+0.025": a difference shown with at most four decimals (rates such as "0,125 %" have three). */
 function signed(d: number): string {
-  const s = (Math.round(Math.abs(d) * 100) / 100).toString();
+  const s = (Math.round(Math.abs(d) * 10000) / 10000).toString();
   return (d > 0 ? '+' : d < 0 ? '-' : '') + s;
 }
 
@@ -88,6 +88,8 @@ export function describeChange(lang: Lang, c: Change): string {
   const short = 48;
   const countKey = (words: 'addedWords' | 'deletedWords' | 'rewrote') =>
     c.cjk ? (({ addedWords: 'addedChars', deletedWords: 'deletedChars', rewrote: 'rewroteChars' }) as const)[words] : words;
+  if (c.consequence === 'repeatedLine')
+    return t(lang, c.kind === 'insert' ? 'repeatedLineAdded' : 'repeatedLineRemoved', { text: truncate(c.kind === 'insert' ? c.new.text : c.old.text, short) });
   switch (c.kind) {
     case 'insert':
       if (c.duplicateOf !== undefined) return t(lang, 'duplicateOf', { page: pageLabel(lang, [c.duplicateOf]) });
@@ -241,6 +243,7 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
     out.push({ level: 'info', text: t(lang, 'noticeImagePaired', { pairs: images.map((l) => pairLabel(lang, l.oldPage, l.newPage)).join(lang === 'zh' ? '、' : ', ') }), action: 'pair' });
   if (r.ignored?.furniture) out.push({ level: 'info', text: t(lang, 'noticeFurniture', { n: r.ignored.furniture }), action: 'furniture' });
   if (r.ignored?.renumbered) out.push({ level: 'info', text: t(lang, 'noticeRenumbered', { n: r.ignored.renumbered }), action: 'minor' });
+  if (r.ignored?.repeatedLines) out.push({ level: 'info', text: t(lang, 'noticeRepeatedLines', { n: r.ignored.repeatedLines }), action: 'minor' });
   if (r.ignored?.minorShifts) out.push({ level: 'info', text: t(lang, 'noticeMinor', { n: r.ignored.minorShifts, pt: SHIFT_PT }), action: 'minor' });
   if (r.ignored?.caseOnly) out.push({ level: 'info', text: t(lang, 'noticeCase', { n: r.ignored.caseOnly }) });
   if (r.options.ignorePunctuation) out.push({ level: 'info', text: t(lang, 'noticePunct') });

@@ -228,8 +228,12 @@ export interface Change {
   pageChange?: 'added' | 'removed' | 'resized';
   /** (pageChange 'added' / 'removed') The page is blank: no text and no ink at all. */
   blankPage?: boolean;
-  /** Not an edit but a consequence of one (e.g. list items renumbered after an insertion). */
-  consequence?: 'renumber';
+  /**
+   * Not an edit but a consequence of one: list items renumbered after an
+   * insertion, or a line repeated at the top of a page (a table's header
+   * row) that came or went because a page break moved.
+   */
+  consequence?: 'renumber' | 'repeatedLine';
   /** Inserted content that repeats text found elsewhere in the new version (0-based page). */
   duplicateOf?: number;
   /** (Moves) Number of edits inside the moved text; each is listed as its own change. */
@@ -280,7 +284,14 @@ export interface CompareResult {
   /** What could not be compared as text — shown so "no changes" is never a false all-clear. */
   coverage: { old: Coverage; new: Coverage };
   /** Differences that exist but were filtered out by the options. */
-  ignored: { furniture: number; caseOnly: number; minorShifts: number; renumbered: number };
+  ignored: {
+    furniture: number;
+    caseOnly: number;
+    minorShifts: number;
+    renumbered: number;
+    /** Lines repeated at the top of a page that came or went with a moved page break (see `consequence`). */
+    repeatedLines?: number;
+  };
   /** Minor layout shifts, kept apart from `changes` (shown on request). */
   minor: Change[];
   stats: {

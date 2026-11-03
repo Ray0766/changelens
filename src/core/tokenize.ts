@@ -213,8 +213,10 @@ export function joinTokens(tokens: Token[]): string {
     const t = tokens[k];
     if (k > 0 && t.spaceBefore) {
       const prev = tokens[k - 1];
-      // A line break between two CJK characters is not a space.
-      const cjkBreak = prev.line !== t.line && prev.block === t.block && (isWideToken(prev) || isWideToken(t));
+      // A line break between two CJK characters is not a space, also where
+      // the paragraph goes on over a page break.
+      const wide = isWideToken(prev) || isWideToken(t);
+      const cjkBreak = prev.line !== t.line && ((prev.block === t.block && wide) || (prev.page !== t.page && isWideToken(prev) && isWideToken(t)));
       if (!cjkBreak) s += ' ';
     }
     s += t.text;
@@ -255,11 +257,13 @@ function neighbour(chars: Char[], i: number, dir: 1 | -1): string {
  * `start` to j must be a 1–3 digit number ("2025 100" is not grouped), every
  * group exactly three digits that no letter follows, and all spaces inside
  * one text run (a gap between runs, such as a table column, never joins).
- * PDF.js often reports no-break and thin spaces as plain spaces, so a plain
- * space only joins in an amount-like context: three or more groups, a
- * decimal part, or a currency sign, code or % next to the number. "100 200" and "10 500" alone
- * stay two numbers: in a table row or a list they are usually separate
- * figures, and joining them would invent an amount.
+ * PDF.js often reports no-break and thin spaces as plain spaces (Chromium
+ * and LibreOffice already write them as plain spaces), so a plain space only
+ * joins in an amount-like context: two or more groups after a 1–2 digit
+ * lead ("1 234 567"), groups that start with a zero ("120 000"), a decimal
+ * part, or a currency sign, code or % next to the number. "100 200", "10 500"
+ * and "120 135 150" stay separate numbers: in a table row or a list they are
+ * usually separate figures, and joining them would invent an amount.
  */
 function groupEnd(chars: Char[], start: number, j: number): number {
   if (j <= start || !GROUP_SPACE.has(chars[j].ch)) return -1;
@@ -287,7 +291,11 @@ function groupEnd(chars: Char[], start: number, j: number): number {
   const amount = (w: string) => CURRENCY.has(w) || w === '%' || w === '\u2030' || AMOUNT_WORD.test(w);
   // A decimal part after the last group ("12 500,50") marks one amount too.
   const decimal = (chars[e]?.n === ',' || chars[e]?.n === '.') && chars[e].run === run && DIGIT.test(chars[e + 1]?.n ?? '');
-  const context = special || decimal || groups >= 2 || amount(neighbour(chars, start - 1, -1)) || amount(neighbour(chars, e, 1));
+  // Several groups after a short lead ("1 234 567"), or groups that start
+  // with a zero ("120 000": a figure of its own is not written "000"). A
+  // run of 3-digit figures ("120 135 150", "250 400 550") stays apart.
+  const grouped = (lead.length <= 2 && groups >= 2) || Array.from({ length: groups }, (_, g) => chars[j + 4 * g + 1].n).every((d) => d === '0');
+  const context = special || decimal || grouped || amount(neighbour(chars, start - 1, -1)) || amount(neighbour(chars, e, 1));
   return context ? e : -1;
 }
 
@@ -462,7 +470,7 @@ export function buildDocModel(doc: DocText): DocModel {
 
   for (const page of doc.pages) {
     const raw = groupLines(page.index, page.runs.map(upright));
-    let prev: { rect: Rect; size: number; angle: number } | null = null;
+    let prev: { rect: Rect; size: number; angle: number; last: Tok } | null = null;
     for (const rl of raw) {
       const chars = lineChars(rl);
       const toks = tokenizeChars(chars);
@@ -473,11 +481,14 @@ export function buildDocModel(doc: DocText): DocModel {
       const rect = union(toks.map((t) => charsRect(t.chars)));
       const size = mostCommon(rl.runs.filter((r) => r.str.trim()).map((r) => Math.round(r.fontSize * 10) / 10));
       // New paragraph when the vertical gap is large or the font size jumps.
+      // With a wide line spacing (double spacing, loose CJK layouts) a line
+      // that carries on the sentence of the line above stays in its
+      // paragraph although the gap is large.
       const gap = prev ? rect.y - (prev.rect.y + prev.rect.h) : Infinity;
       const newBlock =
         !prev ||
         prev.angle !== frame.angle ||
-        gap > 0.75 * size ||
+        (gap > 0.75 * size && !(gap <= 1.5 * size && carriesOnLine(prev.last, toks[0]))) ||
         gap < -2 * size ||
         Math.abs(size - prev.size) > 0.15 * Math.max(size, prev.size);
       if (newBlock) blockId++;
@@ -515,7 +526,7 @@ export function buildDocModel(doc: DocText): DocModel {
       const zone = marginZone(rect, turn({ x: 0, y: 0, w: page.width, h: page.height }, frame, -1));
       if (zone) line.zone = zone;
       lines.push(line);
-      prev = { rect, size, angle: frame.angle };
+      prev = { rect, size, angle: frame.angle, last: toks[toks.length - 1] };
     }
   }
 
@@ -532,6 +543,22 @@ export function buildDocModel(doc: DocText): DocModel {
     lines: joined.lines,
     runs: doc.pages.map((p) => p.runs),
   };
+}
+
+/**
+ * A line that ends in the middle of a sentence followed by one that carries
+ * it on: Chinese or Japanese text after a character, a figure or a comma
+ * ("…双方可另行签" / "订补充协议…"), or Latin text continuing in lower
+ * case after a word, a figure, a comma or a hyphen. A line ending with a
+ * full stop, colon or closing mark, a heading followed by a capital, a list
+ * item followed by its bullet or number, all start a new paragraph as
+ * before.
+ */
+function carriesOnLine(last: Tok, first: Tok): boolean {
+  const open = /^[,;，、；（(“‘《「\-\u2010\u00ad]$/.test(last.text);
+  if (first.kind === 'cjk') return last.kind !== 'punct' || open;
+  if (first.kind === 'word' && /^\p{Ll}/u.test(first.text)) return last.kind === 'word' || last.kind === 'number' || open;
+  return false;
 }
 
 /** The direction most characters on a page run in (0 for ordinary text). */
@@ -581,7 +608,18 @@ function joinHyphenation(tokens: Token[], lines: Line[]): { tokens: Token[]; lin
     const word = tokens[line.end - 2];
     const cont = tokens[next.start];
     if (!hy || !word || !cont || drop.has(word.i)) continue;
-    if (!HYPHENS.has(hy.text) || hy.spaceBefore || word.kind !== 'word' || cont.kind !== 'word') continue;
+    if (!HYPHENS.has(hy.text) || hy.spaceBefore || word.kind !== 'word') continue;
+    // A compound broken at its own hyphen before a capital or a figure
+    // ("Baden-" + "Württemberg", "COVID-" + "19") keeps the hyphen: such
+    // a part never loses it.
+    if (hy.text !== SHY && (cont.kind === 'number' || (cont.kind === 'word' && /^\p{Lu}/u.test(cont.text)))) {
+      word.text += hy.text + cont.text;
+      word.rects = [...word.rects, ...hy.rects, ...cont.rects];
+      drop.add(hy.i);
+      drop.add(cont.i);
+      continue;
+    }
+    if (cont.kind !== 'word') continue;
     // A soft hyphen always marks a broken word; a visible one only before a
     // lower-case continuation that is not the conjunction of a suspended compound.
     if (hy.text !== SHY && (!/^\p{Ll}/u.test(cont.text) || suspendedCompound(tokens, cont, next))) continue;
