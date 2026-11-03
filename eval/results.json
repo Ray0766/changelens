@@ -2,31 +2,35 @@
   "results": {
     "duplicate-page": {
       "description": "Page 2 appears twice in the new version.",
-      "holdout": false,
+      "set": "tuning",
       "changelens": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 0,
         "items": 1,
-        "ms": 863.874977
+        "ms": 1547.425935
       },
       "textLines": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 2,
         "items": 3,
-        "ms": 0.7441290000001572
+        "ms": 0.638582999999926
       },
       "pixelPages": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 5,
         "items": 6,
-        "ms": 153.54028900000003
+        "ms": 322.71743000000015
       },
+      "misses": [],
       "pages": "3→4",
       "reported": [
         {
@@ -39,31 +43,35 @@
     },
     "font-swap": {
       "description": "Same text, body font changed from a serif to a sans-serif face (causing re-flow).",
-      "holdout": false,
+      "set": "tuning",
       "changelens": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 0,
         "items": 1,
-        "ms": 350.835556
+        "ms": 554.836186
       },
       "textLines": {
         "found": 0,
         "located": 0,
+        "separate": 0,
         "total": 1,
         "extra": 1,
         "items": 1,
-        "ms": 0.3001630000001114
+        "ms": 0.5222539999999753
       },
       "pixelPages": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 0,
         "items": 1,
-        "ms": 52.89966299999992
+        "ms": 131.2556669999999
       },
+      "misses": [],
       "pages": "1→1",
       "reported": [
         {
@@ -76,31 +84,35 @@
     },
     "graphic-moved": {
       "description": "An approval stamp (frame plus the word APPROVED) moves from the left to the right; nothing else changes.",
-      "holdout": false,
+      "set": "tuning",
       "changelens": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 0,
         "items": 1,
-        "ms": 316.49050899999975
+        "ms": 641.9651490000001
       },
       "textLines": {
         "found": 0,
         "located": 0,
+        "separate": 0,
         "total": 1,
         "extra": 0,
         "items": 0,
-        "ms": 0.0748700000003737
+        "ms": 0.09919300000001385
       },
       "pixelPages": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 1,
         "items": 2,
-        "ms": 41.698347999999896
+        "ms": 127.17400700000007
       },
+      "misses": [],
       "pages": "1→1",
       "reported": [
         {
@@ -113,31 +125,35 @@
     },
     "holdout-header-change": {
       "description": "Held-out. Only the running header changes from DRAFT to FINAL on every page.",
-      "holdout": true,
+      "set": "held-out-1",
       "changelens": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 0,
         "items": 1,
-        "ms": 326.8274080000001
+        "ms": 532.6890620000004
       },
       "textLines": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 0,
         "items": 1,
-        "ms": 0.12705899999991743
+        "ms": 0.14618400000017573
       },
       "pixelPages": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 0,
         "items": 1,
-        "ms": 58.394516000000294
+        "ms": 132.37033399999927
       },
+      "misses": [],
       "pages": "1→1",
       "reported": [
         {
@@ -150,31 +166,35 @@
     },
     "holdout-long-table": {
       "description": "Held-out. Asset register spanning pages: row inserted near the top, one amount changed further down, accounting negative \"(1,200)\" becomes positive.",
-      "holdout": true,
+      "set": "held-out-1",
       "changelens": {
         "found": 3,
         "located": 3,
+        "separate": 3,
         "total": 3,
         "extra": 0,
         "items": 3,
-        "ms": 578.3700629999998
+        "ms": 1191.9630349999998
       },
       "textLines": {
         "found": 3,
         "located": 3,
+        "separate": 3,
         "total": 3,
         "extra": 2,
         "items": 5,
-        "ms": 0.20894200000020646
+        "ms": 0.34744599999976344
       },
       "pixelPages": {
         "found": 3,
         "located": 3,
+        "separate": 3,
         "total": 3,
         "extra": 27,
         "items": 30,
-        "ms": 60.44160699999975
+        "ms": 226.4217520000002
       },
+      "misses": [],
       "pages": "2→2",
       "reported": [
         {
@@ -199,31 +219,35 @@
     },
     "holdout-two-columns": {
       "description": "Held-out. Two-column page; a phrase in the second column changes.",
-      "holdout": true,
+      "set": "held-out-1",
       "changelens": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 0,
         "items": 1,
-        "ms": 260.638915
+        "ms": 558.7900879999997
       },
       "textLines": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 0,
         "items": 1,
-        "ms": 0.06449000000066007
+        "ms": 0.09536899999966408
       },
       "pixelPages": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 0,
         "items": 1,
-        "ms": 44.9883890000001
+        "ms": 98.52941900000042
       },
+      "misses": [],
       "pages": "1→1",
       "reported": [
         {
@@ -236,31 +260,35 @@
     },
     "holdout-zh-letter": {
       "description": "Held-out. 中文通知：无空格的日期、电话号码修改，新增一句。",
-      "holdout": true,
+      "set": "held-out-1",
       "changelens": {
         "found": 4,
         "located": 4,
+        "separate": 4,
         "total": 4,
         "extra": 0,
         "items": 4,
-        "ms": 239.2124990000002
+        "ms": 329.00362099999984
       },
       "textLines": {
-        "found": 1,
-        "located": 1,
+        "found": 4,
+        "located": 4,
+        "separate": 1,
         "total": 4,
         "extra": 0,
         "items": 1,
-        "ms": 0.1657920000006925
+        "ms": 0.07007900000007794
       },
       "pixelPages": {
-        "found": 1,
-        "located": 1,
+        "found": 4,
+        "located": 4,
+        "separate": 1,
         "total": 4,
         "extra": 0,
         "items": 1,
-        "ms": 24.971545999999762
+        "ms": 56.13009899999997
       },
+      "misses": [],
       "pages": "1→1",
       "reported": [
         {
@@ -289,63 +317,809 @@
         }
       ]
     },
+    "holdout2-a-invoice-bank-details": {
+      "description": "Synthetic invoice (EN, 1 page). Digits of one line amount transposed (totals unchanged), the minus sign of a discount removed, bank name and last IBAN digit changed, and a new no-wrap notice line that is cut off at the right page edge.",
+      "set": "held-out-2",
+      "changelens": {
+        "found": 6,
+        "located": 6,
+        "separate": 6,
+        "total": 6,
+        "extra": 0,
+        "items": 6,
+        "ms": 605.8095099999991
+      },
+      "textLines": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 6,
+        "extra": 0,
+        "items": 5,
+        "ms": 0.2017890000006446
+      },
+      "pixelPages": {
+        "found": 6,
+        "located": 6,
+        "separate": 5,
+        "total": 6,
+        "extra": 0,
+        "items": 5,
+        "ms": 159.28289100000075
+      },
+      "misses": [],
+      "pages": "1→1",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "€1,180.00",
+          "new": "€1,810.00"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "−€62.40",
+          "new": "€62.40"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "Nordhafen Sparkasse",
+          "new": "Elbtal Direktbank"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "31",
+          "new": "37"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Payments made to any account other than the one stated above"
+        },
+        {
+          "kind": "overflow",
+          "numeric": false,
+          "old": "",
+          "new": "invoice numbe"
+        }
+      ]
+    },
+    "holdout2-a-lease-clause-added": {
+      "description": "Synthetic tenancy agreement (EN, 3 → 4 pages). A long new clause 5.9 is added at the end of section 5, pushing everything after it down and onto a new fourth page (no renumbering); the start month and the monthly rent change on page 1; one sentence is removed from the middle of a long paragraph in section 7.",
+      "set": "held-out-2",
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 4,
+        "extra": 0,
+        "items": 4,
+        "ms": 2178.752668000001
+      },
+      "textLines": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 4,
+        "extra": 4,
+        "items": 8,
+        "ms": 0.4298369999996794
+      },
+      "pixelPages": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 4,
+        "extra": 4,
+        "items": 8,
+        "ms": 521.4289209999988
+      },
+      "misses": [],
+      "pages": "3→4",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "February",
+          "new": "March"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "£1,450.00",
+          "new": "£1,495.00"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "5.9 that the Tenant may keep one cat or one small dog at the"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": ". Such visits shall not take place on Sundays or public holi",
+          "new": ""
+        }
+      ]
+    },
+    "holdout2-a-services-supplier-renamed": {
+      "description": "Synthetic services agreement (EN, 3 pages). The supplier’s name changes in every occurrence across all pages, the subcontracting paragraph moves from section 2 (page 1) to section 11 (page 3), the late-payment interest rate changes, the limitation-of-liability paragraph becomes bold, and one digit of the company number in 6.5 pt small print changes.",
+      "set": "held-out-2",
+      "changelens": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 5,
+        "extra": 0,
+        "items": 5,
+        "ms": 2233.357667
+      },
+      "textLines": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 5,
+        "extra": 6,
+        "items": 13,
+        "ms": 0.4413299999996525
+      },
+      "pixelPages": {
+        "found": 5,
+        "located": 4,
+        "separate": 4,
+        "total": 5,
+        "extra": 0,
+        "items": 6,
+        "ms": 486.469959
+      },
+      "misses": [],
+      "pages": "3→3",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "Quillfield",
+          "new": "Brackenridge"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "4%",
+          "new": "8%"
+        },
+        {
+          "kind": "format",
+          "numeric": false,
+          "old": "Neither party limits its liability for death or personal inj",
+          "new": "Neither party limits its liability for death or personal inj"
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "Subcontracting. The Supplier may not subcontract any part of",
+          "new": "Subcontracting. The Supplier may not subcontract any part of"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "08412763",
+          "new": "08412768"
+        }
+      ]
+    },
+    "holdout2-a-zh-en-project-schedule": {
+      "description": "合成样例 / synthetic. 中英混排项目进度计划（2页）：T3 完成比例、T4 结束日期（ISO 格式）和 T5 负责人修改；甘特图中 T4 的条形加长；里程碑列表新增一项（中英两种日期格式）。",
+      "set": "held-out-2",
+      "changelens": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 5,
+        "extra": 0,
+        "items": 5,
+        "ms": 823.0807999999997
+      },
+      "textLines": {
+        "found": 4,
+        "located": 4,
+        "separate": 3,
+        "total": 5,
+        "extra": 0,
+        "items": 3,
+        "ms": 0.12732899999900837
+      },
+      "pixelPages": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 5,
+        "extra": 0,
+        "items": 5,
+        "ms": 186.5150969999995
+      },
+      "misses": [],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "60%",
+          "new": "75%"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "2027-04-09",
+          "new": "2027-04-23"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "王磊 Wang Lei",
+          "new": "孙悦 Sun Yue"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "数据迁移演练完成 Data migration rehearsal complete — 2027年4月21日"
+        }
+      ]
+    },
+    "holdout2-a-zh-policy-footnote": {
+      "description": "合成样例。两页中文差旅报销办法：第1页长段落中间删除一句、住宿限额表中一个数字修改、7 pt 脚注中一位数字修改；第2页报销系统名称和施行日期修改。",
+      "set": "held-out-2",
+      "changelens": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 5,
+        "extra": 0,
+        "items": 5,
+        "ms": 876.1590829999986
+      },
+      "textLines": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 5,
+        "extra": 1,
+        "items": 5,
+        "ms": 0.14397299999836832
+      },
+      "pixelPages": {
+        "found": 5,
+        "located": 5,
+        "separate": 4,
+        "total": 5,
+        "extra": 0,
+        "items": 4,
+        "ms": 142.2953129999987
+      },
+      "misses": [],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "未经批准乘坐头等舱或公务舱的，超出经济舱票价的差额由个人承担。",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "480",
+          "new": "520"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "10",
+          "new": "15"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "TravelDesk",
+          "new": "ExpensePoint"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "18",
+          "new": "28"
+        }
+      ]
+    },
+    "holdout2-a-zh-price-list": {
+      "description": "合成样例。三页中文价目表：第1页一个单价修改；第2页删除一行停产产品（后续行上移，表头在每页重复）；第3页说明中折扣比例、交货仓库和生效日期修改。",
+      "set": "held-out-2",
+      "changelens": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 5,
+        "extra": 0,
+        "items": 5,
+        "ms": 1360.5077779999992
+      },
+      "textLines": {
+        "found": 5,
+        "located": 5,
+        "separate": 3,
+        "total": 5,
+        "extra": 2,
+        "items": 5,
+        "ms": 0.2097799999974086
+      },
+      "pixelPages": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 5,
+        "extra": 31,
+        "items": 36,
+        "ms": 429.3192479999998
+      },
+      "misses": [],
+      "pages": "3→3",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "1,280.00",
+          "new": "1,820.00"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "CC-22 机械硬盘（增强型） HD-E 8TB 块 2,755.50",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "5%",
+          "new": "3%"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "杭州滨江",
+          "new": "苏州吴中"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "18",
+          "new": "28"
+        }
+      ]
+    },
+    "holdout2-b-footnote-duplicate": {
+      "description": "Synthetic. Three-page data sheet. A footnote is added (superscript marker in the body text and the note at the foot of page 2), the storage paragraph of page 1 is pasted again on page 3 (the original stays on page 1), and a lap width changes on page 3.",
+      "set": "held-out-2",
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 4,
+        "extra": 0,
+        "items": 4,
+        "ms": 1080.6380830000016
+      },
+      "textLines": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 4,
+        "extra": 0,
+        "items": 4,
+        "ms": 0.11404399999810266
+      },
+      "pixelPages": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 4,
+        "extra": 0,
+        "items": 4,
+        "ms": 257.4284059999991
+      },
+      "misses": [],
+      "pages": "3→3",
+      "reported": [
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "1"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "1 Cold-bend test on samples conditioned for one day at the s"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "80",
+          "new": "100"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Store rolls upright on a flat, dry surface, away from direct"
+        }
+      ]
+    },
+    "holdout2-b-justified-rewrap": {
+      "description": "Synthetic. Two-page letter in justified serif text. One word inserted at the start of a long justified paragraph re-wraps all its lines; one sentence changes only its text colour to red; on page 2 a word is replaced and a sentence deleted in a justified paragraph.",
+      "set": "held-out-2",
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 4,
+        "extra": 0,
+        "items": 4,
+        "ms": 1020.0411029999996
+      },
+      "textLines": {
+        "found": 3,
+        "located": 3,
+        "separate": 2,
+        "total": 4,
+        "extra": 0,
+        "items": 2,
+        "ms": 0.15021899999919697
+      },
+      "pixelPages": {
+        "found": 4,
+        "located": 4,
+        "separate": 3,
+        "total": 4,
+        "extra": 0,
+        "items": 3,
+        "ms": 233.55687100000068
+      },
+      "misses": [],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "independently"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "Claims received after 15 May 2027 will not be paid",
+          "new": "Claims received after 15 May 2027 will not be paid"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "quarterly",
+          "new": "every six months"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": ". Late reports may delay the second instalment",
+          "new": ""
+        }
+      ]
+    },
+    "holdout2-b-landscape-logo": {
+      "description": "Synthetic. Three pages: portrait, landscape (wide monthly table), portrait. The logo on page 1 (drawn shapes, no text) is replaced by a different logo; on the landscape page one budget in the right-most column and one responsible person change; on page 3 one word in a job title changes.",
+      "set": "held-out-2",
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 4,
+        "extra": 0,
+        "items": 4,
+        "ms": 1128.4604450000006
+      },
+      "textLines": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 4,
+        "extra": 0,
+        "items": 3,
+        "ms": 0.12559799999871757
+      },
+      "pixelPages": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 4,
+        "extra": 0,
+        "items": 4,
+        "ms": 230.81558099999893
+      },
+      "misses": [],
+      "pages": "3→3",
+      "reported": [
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "7,240",
+          "new": "8,150"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "J. Moreau",
+          "new": "A. Brennan"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "Director",
+          "new": "Head"
+        }
+      ]
+    },
+    "holdout2-b-list-renumber": {
+      "description": "Synthetic. Two-page procedure. A numbered step is inserted as step 3 (old steps 3–8 renumber to 4–9 automatically: not edits), the written cross-reference on page 2 is updated from step 3 to step 4, one bullet is deleted, and one heading changes from regular to bold weight.",
+      "set": "held-out-2",
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 4,
+        "extra": 0,
+        "items": 4,
+        "ms": 719.7958819999985
+      },
+      "textLines": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 4,
+        "extra": 0,
+        "items": 3,
+        "ms": 0.12000400000033551
+      },
+      "pixelPages": {
+        "found": 4,
+        "located": 4,
+        "separate": 3,
+        "total": 4,
+        "extra": 0,
+        "items": 3,
+        "ms": 132.8639809999986
+      },
+      "misses": [],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "format",
+          "numeric": false,
+          "old": "Equipment to check before entry",
+          "new": "Equipment to check before entry"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "Intrinsically safe torch with spare batteries",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Ventilate the chamber with the portable blower for at least "
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "3",
+          "new": "4"
+        }
+      ]
+    },
+    "holdout2-b-thead-pricelist": {
+      "description": "Synthetic. Three-page price list whose table header row repeats on every page (<thead>). A row is inserted on page 1 (one row spills to page 2), a row is deleted on page 2, a unit price and one word in a description change on page 3. The repeated header rows and the shifted page-1/2 boundary are not edits.",
+      "set": "held-out-2",
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 4,
+        "extra": 0,
+        "items": 4,
+        "ms": 1896.5156009999992
+      },
+      "textLines": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 4,
+        "extra": 2,
+        "items": 6,
+        "ms": 0.2330069999989064
+      },
+      "pixelPages": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 4,
+        "extra": 7,
+        "items": 11,
+        "ms": 326.28211499999816
+      },
+      "misses": [],
+      "pages": "3→3",
+      "reported": [
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "HL-3085 Centrifuge tube rack, 50 places, autoclavable 1 9.75"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "HL-3041 Syringe filter, 1.0 μm glass fibre, 25 mm 20 56.35",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "tear-off",
+          "new": "zip closure"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "58.30",
+          "new": "59.45"
+        }
+      ]
+    },
+    "holdout2-b-zh-margins": {
+      "description": "Synthetic. 合成样例：三页中文设备租赁协议（两端对齐）。第 1 页在长段落开头插入“书面”二字导致整段重新换行；第 2 页文字未改，仅左右页边距各加宽 11 mm（换行全部变化，不算修改）；第 3 页修改一个天数和一种送达方式。",
+      "set": "held-out-2",
+      "changelens": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 3,
+        "extra": 0,
+        "items": 3,
+        "ms": 1153.7560750000011
+      },
+      "textLines": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 3,
+        "extra": 2,
+        "items": 5,
+        "ms": 0.2030239999985497
+      },
+      "pixelPages": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 3,
+        "extra": 2,
+        "items": 5,
+        "ms": 284.0751840000012
+      },
+      "misses": [],
+      "pages": "3→3",
+      "reported": [
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "书面"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "15",
+          "new": "10"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "电子邮件",
+          "new": "挂号信"
+        }
+      ]
+    },
     "identical": {
       "description": "Identical documents (no change).",
-      "holdout": false,
+      "set": "tuning",
       "changelens": {
         "found": 0,
         "located": 0,
+        "separate": 0,
         "total": 0,
         "extra": 0,
         "items": 0,
-        "ms": 248.66011100000014
+        "ms": 505.3684149999972
       },
       "textLines": {
         "found": 0,
         "located": 0,
+        "separate": 0,
         "total": 0,
         "extra": 0,
         "items": 0,
-        "ms": 0.06290599999920232
+        "ms": 0.07724900000175694
       },
       "pixelPages": {
         "found": 0,
         "located": 0,
+        "separate": 0,
         "total": 0,
         "extra": 0,
         "items": 0,
-        "ms": 43.228885999999875
+        "ms": 130.62316699999792
       },
+      "misses": [],
       "pages": "1→1",
       "reported": []
     },
     "inserted-page": {
       "description": "A new page is inserted after page 2; every later page moves down by one.",
-      "holdout": false,
+      "set": "tuning",
       "changelens": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 0,
         "items": 1,
-        "ms": 926.6617839999999
+        "ms": 1327.3341220000002
       },
       "textLines": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 3,
         "items": 4,
-        "ms": 0.22790100000020175
+        "ms": 0.16121999999813852
       },
       "pixelPages": {
         "found": 1,
         "located": 1,
+        "separate": 1,
         "total": 1,
         "extra": 7,
         "items": 8,
-        "ms": 169.03529099999923
+        "ms": 293.4634790000018
       },
+      "misses": [],
       "pages": "4→5",
       "reported": [
         {
@@ -358,31 +1132,35 @@
     },
     "mixed-zh-en": {
       "description": "中英文混排：版本号、框架名、周数修改，删除一段。",
-      "holdout": false,
+      "set": "tuning",
       "changelens": {
         "found": 4,
         "located": 4,
+        "separate": 4,
         "total": 4,
         "extra": 0,
         "items": 4,
-        "ms": 205.49904100000003
+        "ms": 317.68869599999744
       },
       "textLines": {
-        "found": 2,
-        "located": 2,
+        "found": 4,
+        "located": 4,
+        "separate": 2,
         "total": 4,
         "extra": 0,
         "items": 2,
-        "ms": 0.08856900000046153
+        "ms": 0.08403700000053504
       },
       "pixelPages": {
         "found": 4,
         "located": 4,
+        "separate": 4,
         "total": 4,
         "extra": 0,
         "items": 4,
-        "ms": 26.017530999999508
+        "ms": 65.67141800000172
       },
+      "misses": [],
       "pages": "1→1",
       "reported": [
         {
@@ -412,32 +1190,36 @@
       ]
     },
     "move-and-edits": {
-      "description": "Paragraph 2 moved from page 1 to page 2, one phrase changed, one sentence deleted.",
-      "holdout": false,
+      "description": "Paragraph 2 moved from page 1 to the end of page 2 (wholly onto the other page), one phrase changed, one sentence deleted.",
+      "set": "tuning",
       "changelens": {
         "found": 3,
         "located": 3,
+        "separate": 3,
         "total": 3,
         "extra": 0,
         "items": 3,
-        "ms": 615.9458649999997
+        "ms": 915.1875639999962
       },
       "textLines": {
         "found": 2,
         "located": 2,
+        "separate": 2,
         "total": 3,
         "extra": 3,
         "items": 5,
-        "ms": 0.13774800000010146
+        "ms": 0.11280899999837857
       },
       "pixelPages": {
         "found": 3,
-        "located": 3,
+        "located": 2,
+        "separate": 3,
         "total": 3,
-        "extra": 1,
-        "items": 4,
-        "ms": 51.65867299999991
+        "extra": 0,
+        "items": 3,
+        "ms": 112.61665399999765
       },
+      "misses": [],
       "pages": "2→2",
       "reported": [
         {
@@ -447,46 +1229,103 @@
           "new": "within one hour"
         },
         {
+          "kind": "delete",
+          "numeric": false,
+          "old": "Certificates are renewed every year and a copy is sent to th",
+          "new": ""
+        },
+        {
           "kind": "move",
           "numeric": false,
           "old": "Routine inspections take place every quarter. During each in",
           "new": "Routine inspections take place every quarter. During each in"
+        }
+      ]
+    },
+    "move-beside-deletion": {
+      "description": "As move-and-edits, but the paragraph lands directly after the sentence that was deleted (top of page 2).",
+      "set": "tuning",
+      "changelens": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 3,
+        "extra": 0,
+        "items": 3,
+        "ms": 885.7188100000058
+      },
+      "textLines": {
+        "found": 2,
+        "located": 2,
+        "separate": 2,
+        "total": 3,
+        "extra": 2,
+        "items": 4,
+        "ms": 0.14055000000371365
+      },
+      "pixelPages": {
+        "found": 3,
+        "located": 2,
+        "separate": 3,
+        "total": 3,
+        "extra": 0,
+        "items": 3,
+        "ms": 143.95687100000214
+      },
+      "misses": [],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "on the same day",
+          "new": "within one hour"
         },
         {
           "kind": "delete",
           "numeric": false,
           "old": "Certificates are renewed every year and a copy is sent to th",
           "new": ""
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "Routine inspections take place every quarter. During each in",
+          "new": "Routine inspections take place every quarter. During each in"
         }
       ]
     },
     "numbers": {
       "description": "Amounts, a minus sign added and one removed, a percentage, a date, a unit, a currency and a single digit in 6.5 pt text.",
-      "holdout": false,
+      "set": "tuning",
       "changelens": {
         "found": 8,
         "located": 8,
+        "separate": 8,
         "total": 8,
         "extra": 0,
         "items": 8,
-        "ms": 252.44598000000042
+        "ms": 300.6244579999984
       },
       "textLines": {
-        "found": 2,
-        "located": 2,
+        "found": 8,
+        "located": 8,
+        "separate": 2,
         "total": 8,
         "extra": 0,
         "items": 2,
-        "ms": 0.10293300000012096
+        "ms": 0.11122499999328284
       },
       "pixelPages": {
-        "found": 6,
-        "located": 6,
+        "found": 8,
+        "located": 8,
+        "separate": 6,
         "total": 8,
         "extra": 0,
         "items": 6,
-        "ms": 25.144325999999637
+        "ms": 73.05072400000063
       },
+      "misses": [],
       "pages": "1→1",
       "reported": [
         {
@@ -510,8 +1349,8 @@
         {
           "kind": "replace",
           "numeric": true,
-          "old": "1.50",
-          "new": "1.05"
+          "old": "1.50%",
+          "new": "1.05%"
         },
         {
           "kind": "replace",
@@ -541,61 +1380,69 @@
     },
     "reflow-only": {
       "description": "Same text, wider page margins: every line break and page break moves, nothing else changes.",
-      "holdout": false,
+      "set": "tuning",
       "changelens": {
         "found": 0,
         "located": 0,
+        "separate": 0,
         "total": 0,
         "extra": 0,
         "items": 0,
-        "ms": 505.86348
+        "ms": 697.8242040000041
       },
       "textLines": {
         "found": 0,
         "located": 0,
+        "separate": 0,
         "total": 0,
         "extra": 2,
         "items": 2,
-        "ms": 0.25553600000057486
+        "ms": 0.20596800000203075
       },
       "pixelPages": {
         "found": 0,
         "located": 0,
+        "separate": 0,
         "total": 0,
         "extra": 3,
         "items": 3,
-        "ms": 73.2216810000009
+        "ms": 206.85677299999952
       },
+      "misses": [],
       "pages": "1→2",
       "reported": []
     },
     "small-graphics": {
       "description": "A 9 pt checkbox gets a tick, and a thin 0.75 pt rule is added — both must be found despite the noise tolerance.",
-      "holdout": false,
+      "set": "tuning",
       "changelens": {
         "found": 2,
         "located": 2,
+        "separate": 2,
         "total": 2,
         "extra": 0,
         "items": 2,
-        "ms": 219.32142199999907
+        "ms": 519.7152989999959
       },
       "textLines": {
         "found": 0,
         "located": 0,
+        "separate": 0,
         "total": 2,
         "extra": 0,
         "items": 0,
-        "ms": 0.03687100000024657
+        "ms": 0.060986000004049856
       },
       "pixelPages": {
         "found": 2,
         "located": 2,
+        "separate": 2,
         "total": 2,
         "extra": 0,
         "items": 2,
-        "ms": 22.076521000000866
+        "ms": 105.58385400000407
       },
+      "misses": [],
       "pages": "1→1",
       "reported": [
         {
@@ -612,32 +1459,78 @@
         }
       ]
     },
+    "small-graphics-second-box": {
+      "description": "Only the second of two 9 pt checkboxes (\"Belts adjusted\") gets a tick; nothing else changes.",
+      "set": "tuning",
+      "changelens": {
+        "found": 1,
+        "located": 1,
+        "separate": 1,
+        "total": 1,
+        "extra": 0,
+        "items": 1,
+        "ms": 511.66147700000147
+      },
+      "textLines": {
+        "found": 0,
+        "located": 0,
+        "separate": 0,
+        "total": 1,
+        "extra": 0,
+        "items": 0,
+        "ms": 0.052329999998619314
+      },
+      "pixelPages": {
+        "found": 1,
+        "located": 1,
+        "separate": 1,
+        "total": 1,
+        "extra": 0,
+        "items": 1,
+        "ms": 101.37619199999608
+      },
+      "misses": [],
+      "pages": "1→1",
+      "reported": [
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        }
+      ]
+    },
     "demo-en": {
       "description": "English demo proposal (8 → 9 pages): inserted paragraph shifts all later pages; price, total and date changes; chart bar changed; paragraph moved; paragraph deleted; phrase made bold; phrase turned red; table widened past the page edge.",
+      "set": "extra",
       "changelens": {
         "found": 13,
         "located": 13,
+        "separate": 13,
         "total": 13,
         "extra": 0,
         "items": 13,
-        "ms": 2039.612905
+        "ms": 3733.472268999998
       },
       "textLines": {
-        "found": 6,
-        "located": 5,
+        "found": 7,
+        "located": 7,
+        "separate": 6,
         "total": 13,
         "extra": 11,
         "items": 17,
-        "ms": 0.3598170000004757
+        "ms": 0.4042330000011134
       },
       "pixelPages": {
-        "found": 12,
-        "located": 7,
+        "found": 13,
+        "located": 9,
+        "separate": 12,
         "total": 13,
         "extra": 12,
         "items": 24,
-        "ms": 382.2750960000012
+        "ms": 809.4308870000023
       },
+      "misses": [],
       "pages": "8→9",
       "reported": [
         {
@@ -701,6 +1594,12 @@
           "new": "within two hours"
         },
         {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
           "kind": "insert",
           "numeric": false,
           "old": "",
@@ -711,41 +1610,40 @@
           "numeric": false,
           "old": "",
           "new": "Minimum h"
-        },
-        {
-          "kind": "graphic",
-          "numeric": false,
-          "old": "",
-          "new": ""
         }
       ]
     },
     "demo-zh": {
       "description": "中文示例报价方案（8 → 9 页），修改内容同英文示例；粗体在该字体下无可见变化，不计入真值。",
+      "set": "extra",
       "changelens": {
         "found": 12,
         "located": 12,
+        "separate": 12,
         "total": 12,
         "extra": 0,
         "items": 12,
-        "ms": 1916.9925409999996
+        "ms": 4055.748195
       },
       "textLines": {
-        "found": 6,
-        "located": 5,
+        "found": 7,
+        "located": 7,
+        "separate": 6,
         "total": 12,
         "extra": 11,
         "items": 17,
-        "ms": 0.3368819999996049
+        "ms": 0.36738200000399956
       },
       "pixelPages": {
-        "found": 11,
-        "located": 6,
+        "found": 12,
+        "located": 8,
+        "separate": 11,
         "total": 12,
         "extra": 16,
         "items": 27,
-        "ms": 275.9041589999997
+        "ms": 704.0094610000015
       },
+      "misses": [],
       "pages": "8→9",
       "reported": [
         {
@@ -824,30 +1722,35 @@
     },
     "libreoffice": {
       "description": "LibreOffice-produced pair with justified text: word replaced, paragraph inserted, the fee sentence moved up one paragraph with a changed amount, paragraph deleted.",
+      "set": "extra",
       "changelens": {
         "found": 5,
         "located": 5,
+        "separate": 5,
         "total": 5,
         "extra": 0,
         "items": 5,
-        "ms": 1793.5681829999994
+        "ms": 2561.6308970000027
       },
       "textLines": {
         "found": 3,
         "located": 3,
+        "separate": 3,
         "total": 5,
         "extra": 2,
         "items": 5,
-        "ms": 0.3771259999994072
+        "ms": 0.2883720000027097
       },
       "pixelPages": {
-        "found": 3,
-        "located": 3,
+        "found": 5,
+        "located": 5,
+        "separate": 3,
         "total": 5,
         "extra": 2,
         "items": 5,
-        "ms": 265.93714399999953
+        "ms": 479.4109790000002
       },
+      "misses": [],
       "pages": "4→4",
       "reported": [
         {
@@ -885,28 +1788,150 @@
   },
   "totals": {
     "changelens": {
-      "found": 60,
-      "located": 60,
-      "total": 60,
+      "found": 117,
+      "located": 117,
+      "separate": 117,
+      "total": 117,
       "extra": 0,
-      "items": 60,
-      "ms": 11660.821238999997
+      "items": 117,
+      "ms": 36765.522177
     },
     "textLines": {
-      "found": 29,
-      "located": 27,
-      "total": 60,
-      "extra": 37,
-      "items": 66,
-      "ms": 3.671734000002516
+      "found": 89,
+      "located": 89,
+      "separate": 72,
+      "total": 117,
+      "extra": 56,
+      "items": 132,
+      "ms": 6.485402999996495
     },
     "pixelPages": {
-      "found": 51,
-      "located": 41,
-      "total": 60,
-      "extra": 74,
-      "items": 125,
-      "ms": 1771.4336660000001
+      "found": 117,
+      "located": 106,
+      "separate": 103,
+      "total": 117,
+      "extra": 117,
+      "items": 222,
+      "ms": 7710.982733999999
     }
-  }
+  },
+  "sets": {
+    "tuning": {
+      "changelens": {
+        "found": 25,
+        "located": 25,
+        "separate": 25,
+        "total": 25,
+        "extra": 0,
+        "items": 25,
+        "ms": 8725.350314999996
+      },
+      "textLines": {
+        "found": 18,
+        "located": 18,
+        "separate": 10,
+        "total": 25,
+        "extra": 13,
+        "items": 23,
+        "ms": 2.2664040000004206
+      },
+      "pixelPages": {
+        "found": 25,
+        "located": 23,
+        "separate": 23,
+        "total": 25,
+        "extra": 16,
+        "items": 39,
+        "ms": 1814.3462360000017
+      }
+    },
+    "held-out-1": {
+      "changelens": {
+        "found": 9,
+        "located": 9,
+        "separate": 9,
+        "total": 9,
+        "extra": 0,
+        "items": 9,
+        "ms": 2612.4458059999997
+      },
+      "textLines": {
+        "found": 9,
+        "located": 9,
+        "separate": 6,
+        "total": 9,
+        "extra": 2,
+        "items": 8,
+        "ms": 0.6590779999996812
+      },
+      "pixelPages": {
+        "found": 9,
+        "located": 9,
+        "separate": 6,
+        "total": 9,
+        "extra": 27,
+        "items": 33,
+        "ms": 513.4516039999999
+      }
+    },
+    "held-out-2": {
+      "changelens": {
+        "found": 53,
+        "located": 53,
+        "separate": 53,
+        "total": 53,
+        "extra": 0,
+        "items": 53,
+        "ms": 15076.874694999999
+      },
+      "textLines": {
+        "found": 45,
+        "located": 45,
+        "separate": 41,
+        "total": 53,
+        "extra": 17,
+        "items": 62,
+        "ms": 2.4999339999885706
+      },
+      "pixelPages": {
+        "found": 53,
+        "located": 52,
+        "separate": 48,
+        "total": 53,
+        "extra": 44,
+        "items": 94,
+        "ms": 3390.333566999994
+      }
+    },
+    "extra": {
+      "changelens": {
+        "found": 30,
+        "located": 30,
+        "separate": 30,
+        "total": 30,
+        "extra": 0,
+        "items": 30,
+        "ms": 10350.851361
+      },
+      "textLines": {
+        "found": 17,
+        "located": 17,
+        "separate": 15,
+        "total": 30,
+        "extra": 24,
+        "items": 39,
+        "ms": 1.0599870000078226
+      },
+      "pixelPages": {
+        "found": 30,
+        "located": 22,
+        "separate": 26,
+        "total": 30,
+        "extra": 30,
+        "items": 56,
+        "ms": 1992.851327000004
+      }
+    }
+  },
+  "blindSkipped": 0
 }
