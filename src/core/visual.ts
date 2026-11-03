@@ -479,9 +479,22 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
     }
     return best;
   };
+  // Paper on this side: (nearly) every differing pixel is blank here, so it
+  // only marks where the other side has something.
+  const paperShare = (ps: number[], idx: number[], step: number) => {
+    let paper = 0;
+    let n = 0;
+    for (let j = 0; j < idx.length; j += step) {
+      const p = ps[idx[j]];
+      n++;
+      if (Math.min(s0[p], s1[p], s2[p]) > 247) paper++;
+    }
+    return n ? paper / n : 1;
+  };
   const cand = comps.map((c, k) => {
     const idx = members[k];
     const step = Math.max(1, Math.floor(idx.length / 1500));
+    const blankHere = paperShare(failP, idx, step) >= 0.95;
     let qs = failQ;
     let best = shiftFit(idx, failQ, step);
     if (best < 0.85 && idx.some((j) => failQ2[j] >= 0)) {
@@ -495,7 +508,7 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
         qs = failQ2.map((q, j) => (q >= 0 ? q : failQ[j]));
       }
     }
-    if (best < 0.85 || !whole) return { rect: c.rect, shift: best >= 0.85, delta: 0 };
+    if (best < 0.85 || !whole) return { rect: c.rect, shift: best >= 0.85, delta: 0, blankHere };
     // Ink balance (pages paired as a whole): a shifted graphic keeps its
     // ink; one that grew, shrank or got a parallel line added does not, even
     // if every differing pixel matches something nearby. Across a page
@@ -520,7 +533,7 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
     const inkS = inkIn(src, sx0, sy0, sx1, sy1);
     const inkD = inkIn(dst, sx0 * ratio + mx, sy0 * ratio + my, sx1 * ratio + mx, sy1 * ratio + my);
     const delta = inkD - inkS;
-    return { rect: c.rect, shift: true, delta: Math.abs(delta) <= 0.2 * Math.max(inkS, inkD) + 0.5 ? 0 : delta };
+    return { rect: c.rect, shift: true, delta: Math.abs(delta) <= 0.2 * Math.max(inkS, inkD) + 0.5 ? 0 : delta, blankHere };
   });
   // Faint differences: a light fill (mean excess over an area of at least
   // 3×3 cells) or a hairline (a row or column of cells with a strong mean
@@ -613,7 +626,7 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
       }
       // The same light graphic, only anti-aliased differently: no difference.
       if (still >= 0.85) return;
-      cand.push({ rect: c.rect, shift: idx.length > 0 && best >= 0.85, delta: 0 });
+      cand.push({ rect: c.rect, shift: idx.length > 0 && best >= 0.85, delta: 0, blankHere: paperShare(faintP, idx, step) >= 0.95 });
       // Let appearance checks see the faint difference too.
       for (const ci of c.cells) if (cells[ci] < 3) cells[ci] = 3;
     });
@@ -639,7 +652,7 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
     // Blank paper on this side: the other side shows what was added or
     // removed there.
     const r = c.rect;
-    if (inkOf(r) < 0.015 * r.w * r.h) {
+    if (c.blankHere) {
       if (inkOf(expand(r, SHIFT_PT)) >= 0.015 * r.w * r.h) beside.push(r);
       return;
     }
