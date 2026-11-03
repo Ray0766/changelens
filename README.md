@@ -35,7 +35,7 @@ ChangeLens is built for the person who has to **review** the changes: a lawyer c
 
 - **It is built for repagination.** Content is matched across the whole document, not page by page. An inserted paragraph is one change, not eight red pages. The page map shows how old pages correspond to new ones (old p. 3 → new p. 4).
 - **It reduces noise without hiding it.** Running headers, footers and page numbers are recognised and ignored by default. So are re-flowed line breaks and hyphenation, ligatures, curly versus straight quotes, full-width versus half-width characters, and lines that only shift by a few points. Every ignored category is counted on screen and in the report, with a **Show** button. Pages without readable text are named, so "no differences" is never a blind all-clear.
-- **It speaks plainly.** "Number changed: 8,000 → 9,500 (+19%)", "Number changed: 500 → −500 (sign changed)", "Deleted a paragraph", "Moved a paragraph", "Added content that repeats p. 2 word for word", "“APPROVED” moved 106 mm to the right", "Content is cut off at the right edge of the page".
+- **It speaks plainly.** "Number changed: 8,000 → 9,500 (+19%)", "Number changed: 500 → −500 (sign changed)", "Number changed: 4% → 8% (+4 pp)", "Deleted a paragraph", "Moved and edited a paragraph" (with the edits inside it listed), "Added content that repeats p. 2 word for word", "“APPROVED” moved 106 mm to the right", "Content is cut off at the right edge of the page".
 - **It separates text from layout.** Text edits (added, deleted, changed and moved text, and numbers) are listed apart from visual changes: charts and images, colour, bold or size, content overflowing the page.
 - **It produces a report you can share.** One self-contained HTML file with before/after snippets for every change, your review marks (✓ / ⚠) and notes. It opens in any browser, prints cleanly, and contains no scripts.
 - **It is private.** The web app runs entirely in your browser. Your files are never uploaded.
@@ -46,8 +46,8 @@ ChangeLens is built for the person who has to **review** the changes: a lawyer c
 |---|---|
 | Side-by-side viewer | Synchronised scrolling that follows matched content, not page numbers; change bars in the page margin; zoom; keyboard navigation (`j` / `k`); colour legend |
 | Change list | Filter by *All / Text / Numbers / Layout*; each entry has a description, location (`p. 3 → p. 4`) and a context excerpt; can be hidden for a document-first view |
-| Numbers | Amounts, prices, percentages and signs (`−500`, `(1,200)`) are detected, with the relative change or "sign changed" |
-| Paragraphs, moves, duplicates | Whole inserted / deleted / moved paragraphs are described as such; content repeated word for word says where it repeats |
+| Numbers | Amounts, prices, percentages and signs (`−500`, `(1,200)`, `−€62.40`, `１２，０００`) are detected, with the relative change, the change in percentage points for rates, or "sign changed"; several revised figures get one entry each |
+| Paragraphs, moves, duplicates | Whole inserted / deleted / moved paragraphs are described as such; edits inside a moved paragraph are listed as their own changes; content repeated word for word says where it repeats |
 | Formatting and position | Bold, italic, size and font changes of unchanged text (one entry when a font is replaced everywhere); unchanged lines that moved sideways |
 | Graphics and colour | Pixel comparison of charts, images, lines and text colour, with text masked out and each region aligned to where its text moved |
 | Overflow | Text cut off at the page edge, or sticking out into the margin |
@@ -55,7 +55,7 @@ ChangeLens is built for the person who has to **review** the changes: a lawyer c
 | Manual page pairing | Pair an old page with a new page by hand (page map or keyboard form) when automatic pairing is not possible, e.g. a chart page after an inserted page |
 | Review | Mark each change as OK or needing attention and add notes; progress is saved locally |
 | Export | HTML report (crops, review notes, file SHA-256, method and settings) and JSON |
-| Languages | English and 简体中文 UI and reports; CJK text is compared character by character |
+| Languages | English and 简体中文 UI and reports; Chinese and Japanese text is compared character by character, Korean word by word (only Chinese is in the PDF test set; Japanese and Korean have unit tests only) |
 
 ## Using it
 
@@ -98,13 +98,15 @@ contract-v1.pdf (8) → contract-v2.pdf (9)
 |---|---|
 | `-o, --out <file>` | Write the HTML review report |
 | `--json <file>` | Write all changes as JSON |
-| `--lang en\|zh` | Language of descriptions (default: from `$LANG`) |
+| `--lang en\|zh` | Language of descriptions (default: from `$LANG`; `zh-CN`, `en_US` etc. are accepted) |
 | `--no-visual` | Skip the graphics/colour comparison (faster) |
 | `--no-format` | Don't report bold/size/font changes |
 | `--include-furniture` | Also compare headers, footers and page numbers |
 | `--ignore-case`, `--ignore-punctuation` | Looser text comparison |
 | `--pair OLD:NEW` | Treat old page OLD and new page NEW as the same page (repeatable), e.g. for pages without text |
-| `--fail-on-change` | Exit with code 1 if anything changed (useful in CI) |
+| `--fail-on-change` | Exit with code 1 if anything changed, or 3 if nothing changed in what was compared but something could not be compared (useful in CI) |
+
+Exit codes: `0` done (with `--fail-on-change`: no differences and everything compared), `1` differences found (`--fail-on-change`), `2` error (bad option, unreadable PDF, or an output path that cannot be written or would overwrite an input), `3` no differences in what was compared, but some pages, characters or graphics were not compared (`--fail-on-change`). The JSON export (schema version 2) includes the tool version, whether graphics were compared, the notices and the coverage with 1-based page numbers.
 
 The CLI needs Node.js 22.13 or newer. Page images for the report are rendered with [`@napi-rs/canvas`](https://github.com/Brooooooklyn/canvas), which is installed automatically as an optional dependency. Without it the CLI still compares text, but skips the graphics comparison and the report images.
 
@@ -130,9 +132,9 @@ The test set was written by the same author as the engine and most of it was use
 ## How it works
 
 1. **Extraction.** [PDF.js](https://mozilla.github.io/pdf.js/) reads the text runs of every page with their position, size and real font name. Runs are split into words, with per-character widths estimated from standard font metrics. CJK text is split into single characters, and numbers like `8,000.50` stay whole.
-2. **Structure.** Runs are grouped into lines and paragraphs. Words hyphenated at a line break are re-joined. Running headers, footers and page numbers are detected: a line counts if it repeats in the top or bottom margin on most pages, or if its number follows the page number.
-3. **Document-level diff.** Both documents become one continuous word stream each, so page breaks no longer matter. The streams are diffed with *patience* anchoring on unique words, with Myers' O(ND) algorithm for small segments; the anchored result is kept unless it loses too many matches. A semantic clean-up pass then removes coincidental one-word matches inside rewritten passages.
-4. **Interpretation.** The edit script is turned into changes: inserted, deleted or replaced words; numeric changes with their values; whole paragraphs; moves (a deleted and an inserted block that are ≥ 80 % identical); formatting changes of matched words; text crossing the page edge. Nearby insertions on consecutive lines, such as new table cells, are merged.
+2. **Structure.** Runs are grouped into lines and paragraphs. Words hyphenated at a line break are re-joined. Running headers, footers and page numbers are detected: a line counts if it repeats in the top or bottom margin on most pages, or if its number follows the page number. A number alone in the margin counts as a page number only if it is a small integer or roman numeral set apart from the body text, so a table row or an amount that ends a page is still compared.
+3. **Document-level diff.** Both documents become one continuous word stream each, so page breaks no longer matter. The streams are diffed with *patience* anchoring on unique words, with Myers' O(ND) algorithm for small segments; the anchored result is kept unless it loses too many matches. When a long, heavily revised segment defeats the exact diff, unique words without a matching neighbour and then words that occur equally often on both sides are used as anchors; what still cannot be aligned is flagged in a notice. A semantic clean-up pass then removes coincidental one- or two-word matches inside rewritten passages, but never folds away structure a reader uses to locate edits: headings, row labels, or labels between revised figures.
+4. **Interpretation.** The edit script is turned into changes: inserted, deleted or replaced words; numeric changes with their values; whole paragraphs; moves (a deleted and an inserted block whose words match ≥ 80 % in order; the two texts are then diffed, and edits inside the moved block are listed as their own changes); formatting changes of matched words; text crossing the page edge. Nearby insertions on consecutive lines, such as new table cells, are merged.
 5. **Page map and scrolling.** Matched words give a monotonic set of anchors between the two documents. They produce the page correspondence (old p. 3 → new p. 4) and drive the synchronised scrolling.
 6. **Visual comparison.** Matched page pairs are rendered and slightly blurred, so that thin lines drawn at different sub-pixel positions look alike. Text is masked out, because it has already been compared. Every region of the old page is compared with where its neighbouring text moved in the new page; rows whose nearest text went to another page are left to that page's comparison. Differences that one common offset of up to 4 pt explains are "minor shifts", hidden but counted. The rest are clustered into regions. Matched words are also checked for changes of colour or stroke weight, and intact lines for sideways moves.
 
@@ -154,7 +156,6 @@ This first version focuses on **text-based PDFs**. It has been tested with PDFs 
 
 - [ ] Images (PNG/JPEG) and slide decks (PPTX via PDF export)
 - [ ] OCR for scanned PDFs
-- [ ] Word-level diff inside moved paragraphs
 - [ ] Multi-column reading-order reconstruction
 - [ ] Automatic pairing of pages without text by image similarity
 - [ ] Shareable report as a single PDF
