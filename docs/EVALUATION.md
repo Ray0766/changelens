@@ -207,14 +207,26 @@ Before the fixes of this round (first 12 cases, 49 truth items), ChangeLens scor
 
 ## Performance
 
-Measured with `node eval/perf.ts`: one process per run, wall time, peak RSS. Machine: 4-core Intel Xeon @ 2.10 GHz, 16 GB RAM, Node 22.23.
+Measured with `node eval/perf.ts`, which generates the 24 → 24 page pair itself (`eval/make-cases.mjs --perf-pair`) and times one fresh process per run (wall time, peak RSS, no report). The demo row times `node eval/perf.ts public/samples/proposal-{before,after}.pdf` three times. Machine: 4-core Intel Xeon @ 2.10 GHz, 15 GB RAM, Node 22.23, measured on 2026-11-03 with no other job running:
 
 | Pair | Text only | Text + visual |
 |---|---|---|
-| Demo, 8 → 9 A4 pages | 0.52 s · 188 MB | 3.1 s · 333 MB |
-| Generated 24 → 24 A4 pages | 1.4 s · 233 MB | 10.3 s · 451 MB |
+| Demo, 8 → 9 A4 pages | 0.5–0.6 s · 189 MB | 5.4–5.7 s · 353 MB |
+| Generated 24 → 24 A4 pages (15 changes), median of 3 | 0.8 s · 197 MB | 11.7 s · 376 MB |
 
-The visual stage costs about 0.4 s per page pair at 1.5× scale and dominates the total. The browser app runs the same pipeline; it was not timed separately.
+**The visual stage got slower in the review round.** Same machine, same demo pair:
+- 3.3–3.7 s at commit 158e537;
+- 4.9–5.1 s after the first fix round;
+- 5.4–5.7 s now.
+
+The extra time comes from the checks that were added for missed changes: strikethrough and underline, faint fills and hairlines, ink balance for shifts, and re-checking regions against neighbouring pages. Most of the time is spent in the per-pixel comparison (`unmatched`, 23 %), the 3 × 3 min/max planes (13 %) and the blur (10 %). Text comparison takes about 0.6 s of the total.
+
+**Memory.**
+- Report crops used to keep every rendered page: 6.8 GB peak for a 151-page pair with `-o`, 0.74 GB after the fix.
+- Pages are rendered within a pixel budget (8 M pixels for comparison). Pages too large to compare (above about 14 M pt², e.g. 2A0) are skipped, and a notice names them.
+- A 14 400 × 14 400 pt page now takes about 230 MB instead of being killed above 10 GB.
+
+The browser app runs the same pipeline; it was not timed separately.
 
 ## What this does not show
 

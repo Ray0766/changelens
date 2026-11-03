@@ -49,9 +49,9 @@ ChangeLens is built for the person who has to **review** the changes: a lawyer c
 | Numbers | Amounts, prices, percentages and signs (`−500`, `(1,200)`, `−€62.40`, `１２，０００`) are detected, with the relative change, the change in percentage points for rates, or "sign changed"; several revised figures get one entry each |
 | Paragraphs, moves, duplicates | Whole inserted / deleted / moved paragraphs are described as such; edits inside a moved paragraph are listed as their own changes; content repeated word for word says where it repeats |
 | Formatting and position | Bold, italic, size and font changes of unchanged text (one entry when a font is replaced everywhere); unchanged lines that moved sideways |
-| Graphics and colour | Pixel comparison of charts, images, lines and text colour, with text masked out and each region aligned to where its text moved |
+| Graphics and colour | Pixel comparison of charts, images, lines, shading and text colour, with text masked out and each region aligned to where its text moved; strikethrough and underline added or removed; pages without text paired by position and look, or reported as added or removed; page size or orientation changes |
 | Overflow | Text cut off at the page edge, or sticking out into the margin |
-| Nothing hidden silently | Counts of ignored header/footer differences, minor shifts and renumbered list items (with **Show**), pages without a text layer, unreadable glyphs, pages that are mostly new |
+| Nothing hidden silently | Counts of ignored header/footer differences, minor shifts, renumbered list items and table header rows repeated at a page top (with **Show**); pages without a text layer, pages not compared visually, unreadable glyphs, pages that are mostly new |
 | Manual page pairing | Pair an old page with a new page by hand (page map or keyboard form) when automatic pairing is not possible, e.g. a chart page after an inserted page |
 | Review | Mark each change as OK or needing attention and add notes; progress is saved locally |
 | Export | HTML report (crops, review notes, file SHA-256, method and settings) and JSON |
@@ -119,15 +119,32 @@ The CLI needs Node.js 22.13 or newer. Page images for the report are rendered wi
 
 ## Evaluation
 
-On a small synthetic test set with known edits (17 PDF pairs, 60 edits: numbers and signs, inserted and duplicated pages, re-flow, moves, font replacement, graphics, Chinese/English), from [docs/EVALUATION.md](docs/EVALUATION.md):
+ChangeLens is scored on synthetic PDF pairs with known edits, against a text line diff (extract + `diff`) and a page-by-page pixel diff (the diff-pdf approach). Details and every number: [docs/EVALUATION.md](docs/EVALUATION.md).
 
-| | Edits found | On the right page | Extra items to read |
+The numbers that were **not tuned** are the first runs of held-out sets written by independent authors who did not see the engine:
+
+| First run of a held-out set | ChangeLens found · extra | Text line diff | Pixel page diff |
 |---|---|---|---|
-| ChangeLens | 60 / 60 | 60 / 60 | 0 |
-| Text line diff (extract + `diff`) | 29 / 60 | 27 / 60 | 37 |
-| Page-by-page pixel diff (diff-pdf approach) | 51 / 60 | 41 / 60 | 74 |
+| Round 2: 12 pairs, 53 edits, Chromium | 49 · 9 | 40 · 17 | 45 · 44 |
+| Round 3: 12 pairs, 73 edits, Chromium, LibreOffice, reportlab | 55 · 38 | 57 · 57 | 73 · 38 |
 
-The test set was written by the same author as the engine and most of it was used for tuning; four held-out cases scored 7 / 9 found with 5 extra items on their first, blind run (now fixed). These numbers describe this test set, not PDFs in general.
+Round 2 was scored with the rules of that time.
+
+In round 3, ChangeLens found fewer edits than the text line diff. Most of those misses were correct changes, reported narrower than the truth snippet ("7 → 6" for "For 7 → For 6"). The rest, and most of the extra items, were real problems:
+- repeated table header rows reported as text;
+- lines that changed column reported as moved;
+- table rules on re-flowed pages reported as graphic changes;
+- a Chinese rewrite split in two.
+
+These were fixed afterwards. On all 31 pairs that are not blind (117 edits), ChangeLens now finds and places every edit with no extra item:
+
+| All 31 pairs, used for tuning and fixes | Found | On the right page | Extra items to read |
+|---|---|---|---|
+| ChangeLens | 117 / 117 | 117 / 117 | 0 |
+| Text line diff | 89 / 117 | 89 / 117 | 56 |
+| Page-by-page pixel diff | 117 / 117 | 106 / 117 | 117 |
+
+The pixel diff "finds" an edit when it marks any region on the right page, without saying what changed. That table and the re-scored round 3 (73 / 73 found, 1 extra) describe sets that were used for fixes, so they are not evidence of how ChangeLens does on new documents. They describe this test set, not PDFs in general.
 
 ## How it works
 
@@ -150,14 +167,16 @@ This first version focuses on **text-based PDFs**. It has been tested with PDFs 
 - **Fonts without a bold face.** When a font has no bold variant, PDF generators fake bold by stroking the glyphs. The visual check catches this only if the weight change is strong enough.
 - **Small shifts.** Lines or graphics that move by 4 pt or less are listed only after **Show**.
 - **Pages without text** (a chart, a scanned page) are paired automatically only from the pages around them. When that is not possible, ChangeLens says so, and you can pair the pages by hand: **Pair pages** in the page map, or `--pair OLD:NEW` in the CLI.
-- **Speed.** On a 4-core Xeon VM (2.1 GHz), 8 → 9 pages take 0.5 s for text and about 3 s with the visual check; 24 pages take 1.4 s and about 10 s (see [EVALUATION.md](docs/EVALUATION.md#performance)). The visual stage can be switched off with `--no-visual` or in Settings.
+- **Speed.** On a 4-core Xeon VM (2.1 GHz), 8 → 9 pages take about 0.6 s for text and 5.5 s with the visual check; 24 pages take 0.8 s and about 12 s (see [EVALUATION.md](docs/EVALUATION.md#performance)). The visual stage can be switched off with `--no-visual` or in Settings.
+- **Very large pages.** Pages are rendered within a pixel budget. Pages larger than about 2A0 are not compared visually, and a notice names them.
+- **Faint graphics.** Fills lighter than about #f9f9f9 (fewer than 6 levels from white) and hairlines fainter than about 12 levels are not detected. Faint graphics are only checked between matched lines of text.
 
 ## Roadmap
 
 - [ ] Images (PNG/JPEG) and slide decks (PPTX via PDF export)
 - [ ] OCR for scanned PDFs
 - [ ] Multi-column reading-order reconstruction
-- [ ] Automatic pairing of pages without text by image similarity
+- [ ] Pairing pages without text across larger reorderings (today: by position and coarse look between paired pages)
 - [ ] Shareable report as a single PDF
 - [ ] Published npm package (`npx changelens`)
 
