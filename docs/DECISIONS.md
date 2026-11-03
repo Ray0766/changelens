@@ -115,3 +115,14 @@ Each reference was viewed as a real screenshot or as source text.
   Under the old greedy one-to-one rule the baselines had too little credit: on the original 17 pairs the text line diff goes from 29 to 42 of 60 found, and the pixel diff from 51 to 60. ChangeLens stays at 60.
 - **Rejected alternative**: fixing only the high findings. Most medium findings were wrong numbers or misplaced highlights in common documents (percent rates, several figures in one row, centred lines after a font change), which is exactly what the brief asks to verify.
 - **Limits**: every finding came from synthetic documents written by agents. The fixes were tuned on the same scenarios they were found with, so they are evidence that those cases work, not that the class of problem is gone.
+
+**Second review and blind round 3 (same day).**
+- **What happened**:
+  - A second review of the fixed code found 43 further defects, all reproduced by a verifier. Several were regressions introduced by the first fixes.
+  - The blind round 3, run once before those fixes, found fewer edits than the text line diff (55 against 57 of 73).
+  - Both were fixed together.
+- **Decision on the scorer**: a truth snippet also matches a change whose reported text lies inside it, when the snippet lies inside what the reader sees around that change (the excerpt's context).
+  - Why: ChangeLens reports the changed tokens and shows the rest as context, whereas the line diff always reports whole lines.
+  - This was decided **after** seeing the blind result. So the recorded numbers are kept and reproducible with `--strict-snippets --strict-carets`, and every table shows which rules it uses.
+  - Rejected: changing the truth files. They are the independent authors' record.
+- **Cost**: the added visual checks make the visual stage about 60 % slower (EVALUATION, Performance). That is accepted for now, because the checks remove misses (strikethrough, pages without text, light fills) without adding noise on the corpus. Speeding up the per-pixel loop is open work.
