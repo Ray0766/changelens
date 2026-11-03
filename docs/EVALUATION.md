@@ -8,11 +8,27 @@ node eval/make-cases.mjs          # optional: the PDFs are committed
 node eval/run.ts --json eval/results.json
 ```
 
-`npm test` runs the same evaluation as a regression check (`test/eval.test.ts`).
+- `node eval/run.ts` scores every case that is not marked blind: 31 pairs, 117 truth items.
+- Add `--blind` to include the blind round-3 set, and `--cases 'holdout3-*'` to score only that set.
+- `--strict-snippets --strict-carets` applies the rules the blind runs were recorded with (see Scoring).
+- `--rescore <items.json>` scores saved items without running the engine. This reproduces the recorded round-3 run exactly:
+
+  ```bash
+  node eval/run.ts --cases 'holdout3-*' --blind --rescore test/fixtures/holdout3-recorded-items.json --strict-snippets --strict-carets
+  ```
+- `npm test` runs the non-blind evaluation as a regression check (`test/eval.test.ts`).
 
 ## Corpus
 
-All documents are **synthetic**, written for this test. The PDFs were produced by headless Chromium, plus one pair by LibreOffice 24.2. Each case has a `truth.json` that lists the edits made on purpose. Truth items give the kind (number, replace, insert, delete, move, format, position, graphic, overflow, header) and the text that must appear in the reported change. Expected pages are derived from where that text sits in each file, or given explicitly.
+All documents are **synthetic**, written for this test. Each case has a `truth.json` that lists the edits made on purpose. A truth item gives:
+- the kind (number, replace, insert, delete, move, format, position, graphic, overflow, furniture);
+- the text that must appear in the reported change;
+- the pages, and for items without text a region (`oldRect` / `newRect`);
+- optionally `maxItems`, how many reported items one edit may explain (a rename in six places).
+
+Producers:
+- the first 29 pairs: headless Chromium, plus one LibreOffice 24.2 pair;
+- round 3: Chromium, LibreOffice Writer and Impress 24.2, and reportlab 5.
 
 | Case | What was changed |
 |---|---|
@@ -21,15 +37,17 @@ All documents are **synthetic**, written for this test. The PDFs were produced b
 | numbers | 8,000 → 9,500; 500 → −500 (U+2212); −1,200 → 1,200; 1.50 % → 1.05 %; November → December; days → weeks; US dollars → euros; one digit in 6.5 pt text |
 | inserted-page | a new page after page 2 (4 → 5 pages) |
 | duplicate-page | page 2 appears twice |
-| move-and-edits | a paragraph moved from page 1 to page 2; one phrase changed; one sentence deleted |
+| move-and-edits | a paragraph moved from page 1 to the end of page 2; one phrase changed; one sentence deleted |
+| move-beside-deletion | as above, but the paragraph lands right after the deleted sentence |
 | font-swap | body font serif → sans-serif (everything re-flows) |
 | graphic-moved | an approval stamp (frame plus the word APPROVED) moves 106 mm to the right |
-| small-graphics | a tick added inside a 9 pt checkbox; a 0.75 pt rule added |
+| small-graphics, small-graphics-second-box | a tick added inside a 9 pt checkbox (the first, or the second of two); a 0.75 pt rule added |
 | mixed-zh-en | Chinese with English terms: WCAG 2.2 → 2.1, React → Vue, 10 → 12 weeks, one paragraph deleted |
 | demo-en / demo-zh | the bundled demos (8 → 9 pages): 13 / 12 edits across text, numbers, chart, colour, bold, move, overflow |
 | libreoffice | justified text from LibreOffice: a word replaced, a paragraph inserted, a sentence moved up with a changed amount, a paragraph deleted |
 | holdout-* (4) | **held-out round 1**: written by the engine's author after tuning, run once before any further change (see below) |
 | holdout2-a-* (6), holdout2-b-* (6) | **held-out round 2**: written by two *independent* authors who did not read the engine, the tests or earlier results (`eval/make-holdout2-{a,b}.mjs`); run once (see below) |
+| holdout3-c-* (6), holdout3-d-* (6) | **held-out round 3**: two more independent authors, business/legal documents and producer variety (`eval/make-holdout3-{c,d}.mjs`, brief in `eval/holdout3-brief.md`); run once (see below). Marked `"blind": true`, so `npm test` does not score them |
 
 ## Methods compared
 
@@ -37,27 +55,47 @@ All documents are **synthetic**, written for this test. The PDFs were produced b
 - **Text line diff**: text extracted line by line (headers and footers included, as `pdftotext` would), then a line diff over the whole document. This is the usual "extract and diff" approach.
 - **Pixel page diff**: page N of the old file against page N of the new file at 72 dpi, with differing pixels (channel difference > 40) clustered into regions. This emulates the approach of diff-pdf; diff-pdf itself was not run.
 
-**Scoring** (per truth item):
-- *found*: some reported item covers it.
-  - ChangeLens must have a compatible type and contain the text.
-  - The line diff must contain the text.
-  - The pixel diff counts if it has any region on the expected page; this rule is deliberately generous to that baseline.
-- *located*: found, and on the expected page in both files where applicable.
-- *extra*: reported items that match no truth item. This is what a reviewer reads for nothing.
+**Scoring** (per truth item; code in `eval/score.ts`):
+
+- **found**: some reported item covers the truth item. One item may cover several truth items.
+  - **ChangeLens**: the change must be of the same kind (a deletion reported as a move is a miss) and contain the text. A truth item without text must instead be on its page and overlap its region.
+  - **Line diff**: the hunk must contain the text.
+  - **Pixel diff**: any region on the expected page counts. This rule is deliberately generous to that baseline: its regions have no text.
+- **located**: found, and on the expected page in both files.
+  - Pages must be explicit when a snippet is not unique.
+  - An insertion has only a caret on the other side. A caret right at the start of a page also counts for the end of the page before it, and vice versa; `--strict-carets` turns this off.
+- **separate**: the largest one-to-one assignment of items to truth items, i.e. found as an item of its own.
+- **extra**: reported items that no truth item explains. This is what a reviewer reads for nothing. A truth item explains at most `maxItems` items (default 1).
+- **Snippet rule**: a snippet also matches when the reported changed text lies inside it, and it lies inside what the reader sees around that change. For ChangeLens that is the excerpt's context; for the line diff, the lines around the hunk. This way `For 7 → For 6` matches a reported `7 → 6` in "For 7 Against 2". The rule was added after the blind round-3 run (see below). `--strict-snippets` restores plain containment, which the recorded blind runs used.
+
+These rules replaced a greedy one-to-one scorer on 2026-11-03 (see [DECISIONS D10](DECISIONS.md)). Under the old rule the baselines got too little credit. On the original 17 pairs:
+- text line diff: 29 / 60 before, 42 / 60 now;
+- pixel diff: 51 / 60 before, 60 / 60 now;
+- ChangeLens: 60 / 60 under both.
 
 ## Results
 
-Run on 2026-11-03 after the fixes listed below (`eval/results.json`):
+Every case not marked blind (31 pairs, 117 truth items), on 2026-11-03 (`eval/results.json`). Found / located / extra, with separate in brackets:
 
-| | Found | Located | Extra items | Items to read |
-|---|---|---|---|---|
-| **ChangeLens** | **60 / 60** | **60 / 60** | **0** | 60 |
-| Text line diff | 29 / 60 | 27 / 60 | 37 | 66 |
-| Pixel page diff | 51 / 60 | 41 / 60 | 74 | 125 |
+| Set | Cases | Truth | ChangeLens | Text line diff | Pixel page diff |
+|---|---|---|---|---|---|
+| Tuning set | 12 | 25 | 25 / 25 / 0 (25) | 18 / 18 / 13 (10) | 25 / 23 / 16 (23) |
+| Held-out round 1 (since used for fixes) | 4 | 9 | 9 / 9 / 0 (9) | 9 / 9 / 2 (6) | 9 / 9 / 27 (6) |
+| Held-out round 2 (since used for fixes) | 12 | 53 | 53 / 53 / 0 (53) | 45 / 45 / 17 (41) | 53 / 52 / 44 (48) |
+| Extra pairs (demos, LibreOffice) | 3 | 30 | 30 / 30 / 0 (30) | 17 / 17 / 24 (15) | 30 / 22 / 30 (26) |
+| **All** | 31 | 117 | **117 / 117 / 0 (117)** | 89 / 89 / 56 (72) | 117 / 106 / 117 (103) |
+
+Items to read: ChangeLens 117, text line diff 132 hunks, pixel diff 222 regions.
+
+**These numbers are not evidence of generalisation.** Every case in this table was used to tune or fix the engine. The evidence that is not tuned is the first run of each held-out round, below.
 
 Where the baselines lose:
-- **Text line diff**: it finds no graphics, colours or bold. A changed number becomes "this line differs", with no type. Page numbers and re-wrapped lines create extra items: 11 in each demo, and 3 for an inserted page.
-- **Pixel page diff**: it finds that *something* changed on a page, but after an insertion every later page is different. That gives 27 regions in the long-table case and 12–16 in the demos, and in the demos the changes land on the wrong page (7 of 13 located).
+- **Text line diff**:
+  - It finds no graphics, colours or bold.
+  - A changed number becomes "this line differs", with no type and no percentage.
+  - Several edits in one line become one hunk: separate is 72 against 89 found.
+  - Page numbers and re-wrapped lines create extra hunks: 11 in each demo, 3 for an inserted page.
+- **Pixel page diff**: it finds that *something* changed on a page, but after an insertion every later page differs. That gives 31 extra regions in the Chinese price list and 12–16 in the demos, and in the demos many changes land on the wrong page (9 of 13 located in demo-en).
 
 ### Held-out round 3: independent authors, other producers, first run
 
@@ -89,7 +127,24 @@ The cases were committed together with the result of one run of the unchanged en
   - 3 lines that re-flowed into the other column of a two-column page, reported as "moved 94 mm to the right";
   - 1 footnote marker that the truth meant to cover but whose snippet did not match.
 
-These causes are being fixed, and **after that this set is no longer held out either**. Re-scored numbers are reported separately below, and are not a blind result.
+**After the run**, the snippet rule above was added to the scorer, and the engine was fixed for the defects and the noise. Fixes:
+- repeated header rows at the top of a page are hidden but counted, like renumbered list items;
+- sentence-boundary sliding;
+- paragraph continuation across loose line spacing, which fixes the Chinese split and the space;
+- magnitude suffixes;
+- running-header rules compared in place;
+- decorations merged across a line break;
+- no position change for lines that changed column.
+
+With these, the same 12 cases score as follows. **This is not a blind result: the set has now been used for fixes.**
+
+| Round 3, after fixes | ChangeLens | Text line diff | Pixel page diff |
+|---|---|---|---|
+| Recorded blind run (strict rules) | 55 / 54 / 38 (55) | 57 / 56 / 57 (49) | 73 / 65 / 38 (66) |
+| Current engine, strict rules | 61 / 60 / 13 (61) | 57 / 56 / 57 (49) | 73 / 65 / 38 (66) |
+| Current engine, current rules | 73 / 73 / 1 (73) | 57 / 56 / 57 (49) | 73 / 65 / 38 (66) |
+
+The snippet rule changed no baseline number. The one remaining extra item is the added footnote marker “7”. The truth item for the new footnote is meant to cover both the marker and the note (`maxItems: 2`), but its snippet only matches the note text.
 
 ### Held-out round 2: independent authors, first run
 
@@ -163,7 +218,17 @@ The visual stage costs about 0.4 s per page pair at 1.5× scale and dominates th
 
 ## What this does not show
 
-- The corpus is small and synthetic. Most cases were written by the same author as the engine and used for tuning. Two blind runs exist: four cases by the engine's author (7 / 9 found, 5 extra), and twelve cases by independent authors (49 / 53 found, 9 extra). Both sets have since been used for fixes, so the next claim needs new held-out cases.
-- Only Chromium and LibreOffice PDFs were tested. Word, InDesign, LaTeX, scanned, encrypted, rotated, multi-column-flow and very large (> 100 pages) documents are untested.
-- The pixel baseline emulates diff-pdf's idea; it is not diff-pdf. Neither Acrobat nor Draftable was compared.
-- Passing this corpus proves this corpus. It does not prove correct behaviour on arbitrary PDFs.
+- **The corpus is small and synthetic.**
+  - Most cases were written by the same author as the engine and used for tuning.
+  - Three first runs exist:
+    - four cases by the engine's author: 7 / 9 found, 5 extra;
+    - twelve cases by two independent authors: 49 / 53 found, 9 extra;
+    - twelve more by two other independent authors: 55 / 73 found, 38 extra, fewer found than the text line diff (57).
+  - All three sets have since been used for fixes, so the next claim needs new held-out cases.
+- **The round-3 analysis matters as much as the number.**
+  - Most misses there were correct changes whose reported text was narrower than the truth snippet. The rule now credits them, but it was added after the run.
+  - The real defects and noise it exposed were fixed only for the kinds of documents in that set.
+- **Producers.** Tested: Chromium, LibreOffice Writer and Impress (24.2), reportlab. Untested: Word, InDesign, LaTeX, scanned, encrypted, vertical CJK writing, and documents of more than about 150 pages.
+  - Rotated pages and simple two-column layouts are only covered by synthetic tests and one round-3 case.
+- **Baselines.** The pixel baseline emulates diff-pdf's idea; it is not diff-pdf. Neither Acrobat nor Draftable was compared.
+- **Scope of the result.** Passing this corpus proves this corpus. It does not prove correct behaviour on arbitrary PDFs, and the tool's output is not a professional review.
