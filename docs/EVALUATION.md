@@ -59,6 +59,38 @@ Where the baselines lose:
 - **Text line diff**: it finds no graphics, colours or bold. A changed number becomes "this line differs", with no type. Page numbers and re-wrapped lines create extra items: 11 in each demo, and 3 for an inserted page.
 - **Pixel page diff**: it finds that *something* changed on a page, but after an insertion every later page is different. That gives 27 regions in the long-table case and 12–16 in the demos, and in the demos the changes land on the wrong page (7 of 13 located).
 
+### Held-out round 3: independent authors, other producers, first run
+
+Two new agents wrote twelve cases (73 truth items) from a brief that forbade reading `src/`, `test/`, the scorer, earlier results and these docs, and running ChangeLens (the brief: [`eval/holdout3-brief.md`](../eval/holdout3-brief.md)). The coordinator chose the two focus areas:
+- **Author C**: business and legal documents in English and Chinese, from Chromium, LibreOffice Writer and reportlab. The set covers a supply agreement with a clause moved to another page and a header change, a Chinese quotation with an inserted page and amounts in Chinese capital numerals, interim financial statements (`−£7.4m`, `(312)`), bilingual board minutes with a duplicated page, a Chinese purchase contract with re-flow, and a retention policy with a rename in five places.
+- **Author D**: production variety. It includes a LibreOffice Impress deck, a Writer report with dot leaders, footnotes and a struck-through sentence, a reportlab report with vector charts and an inserted page without text, a 30-page Chromium A5 manual with one early insertion, a Chinese two-column layout, and a Writer rate card where the font is substituted.
+
+The cases were committed together with the result of one run of the unchanged engine (commit `622d2db`, engine as of `ca101c0`, files `eval/results-holdout3-blind.{json,txt}`). Found / located / extra (separate):
+
+| | Found | Located | Extra | Separate |
+|---|---|---|---|---|
+| ChangeLens | 55 / 73 | 54 | 38 | 55 |
+| Text line diff | 57 / 73 | 56 | 57 | 49 |
+| Pixel page diff | 73 / 73 | 65 | 38 | 66 |
+
+**On this set ChangeLens found fewer edits than the plain text line diff.** The reasons, from the run's own output:
+
+- **13 misses: the truth snippet is wider than what ChangeLens reports.** For uniqueness, the authors wrote snippets like `For 7 → For 6`, `14 November → 28 November`, `30个日历日 → 45个日历日` and `DAP (Delivered at Place) → FCA (Free Carrier)`. ChangeLens reports the changed tokens (`7 → 6`, `14 → 28`) and shows the rest only as context. The line-diff baseline reports whole lines, so it contains such snippets by construction. Each of these reported changes was on the right page, but the scorer requires the reported text to contain the snippet.
+- **5 misses: real engine defects.**
+  - An inserted sentence started at the previous sentence's full stop (`. The lenders … 2026`).
+  - A second insertion was shifted by a word in the same way.
+  - A Chinese clause rewrite was split into two items (`提 → 向` and the rest).
+  - A deleted Chinese sentence from LibreOffice got a space at a line break (`签 订`).
+  - A struck-through sentence over two lines became two items.
+- **1 wrong page**: a duplicated page reported as inserted before old p. 3, where the truth says after old p. 2. Both describe the same boundary.
+- **Of the 38 extra items, 20 are the reported counterparts of the misses above.** They are the right change, but did not match the snippet. The other **18 are noise a reviewer would also see**:
+  - 6 repeated table header rows, which moved with the page breaks and were reported as added or deleted text;
+  - 8 "graphic added/removed" regions from table borders and rules on LibreOffice pages whose content re-flowed;
+  - 3 lines that re-flowed into the other column of a two-column page, reported as "moved 94 mm to the right";
+  - 1 footnote marker that the truth meant to cover but whose snippet did not match.
+
+These causes are being fixed, and **after that this set is no longer held out either**. Re-scored numbers are reported separately below, and are not a blind result.
+
 ### Held-out round 2: independent authors, first run
 
 Two separate agents wrote twelve new cases (53 truth items). They worked from the acceptance list in the quality brief and were not allowed to read `src/`, `test/`, the scorer or any results. Author A covered business documents: invoices with bank details, a lease with an added clause, a supplier renamed six times, Chinese price lists, a Chinese policy footnote, and a zh/en schedule. Author B covered layout stressors: repeated table header rows, list renumbering, justified re-wrap, a landscape page with a replaced logo, a footnote with duplicated content, and Chinese text with changed margins. Each author also recorded the judgement calls they made, for example that auto-renumbered list items are consequences rather than edits.
