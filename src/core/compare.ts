@@ -15,7 +15,7 @@ import { defaultOptions } from './types.ts';
 import { baseKey, joinTokens, syncHyphenation } from './tokenize.ts';
 import { cleanupSemantic, intern, matchSequences, opsFromMatches, type DiffOp, type MatchInfo, type Span } from './diff.ts';
 import { mergeLineRects } from './geometry.ts';
-import { isNumericPhrase, parseNumber } from './numbers.ts';
+import { SUFFIX, decimalMark, isNumericPhrase, parseNumber } from './numbers.ts';
 import { findOverflow } from './overflow.ts';
 import { syncFurniture } from './furniture.ts';
 
@@ -116,8 +116,11 @@ function foldRule(ctx: Ctx, initial?: DiffOp[]): (eq: Span, before: Span, after:
       words++;
       if (A[i].kind === 'word') latin = true;
       // A row label found exactly once in each version is a real anchor,
-      // not a coincidence.
-      if (label && countA[ka[i]] === 1 && countB[kb[eq.b0 + (i - eq.a0)]] === 1) return false;
+      // not a coincidence; so is one that is not a lower-case word and is
+      // found equally often (at most a few times) in both versions, such as
+      // the region names of two tables with the same rows.
+      const ca = countA[ka[i]];
+      if (label && ca === countB[kb[eq.b0 + (i - eq.a0)]] && (ca === 1 || (ca <= 4 && !/^\p{Ll}/u.test(A[i].text)))) return false;
     }
     // Revised figures separated by a label ("Q1 -120 Q2 340", "between 10
     // and 20") stay separate changes; the parts of a date ("11 月 30 日")
@@ -184,7 +187,17 @@ function splitAtBlocks(ctx: Ctx, h: Hunk): Hunk[] {
   const nb = B[h.b1];
   if (!pa || !na || !pb || !nb) return [h];
   // Nothing to split when neither side reaches from one block into another.
-  if (pa.block === na.block && pb.block === nb.block) return [h];
+  const crossA = pa.block !== na.block;
+  const crossB = pb.block !== nb.block;
+  if (!crossA && !crossB) return [h];
+  // Only one side reaches into another block, and the other side's paragraph
+  // carries on with words on both sides of the hunk, in step with the two
+  // blocks: the paragraph was only broken somewhere else (a page break, a
+  // wider line spacing), so "100" → "200" stays one change. When the other
+  // side's paragraph ends right after the hunk (only its full stop is left),
+  // the blocks are really different paragraphs, e.g. a paragraph moved next
+  // to a sentence deleted from the end of the one before it.
+  if (crossA !== crossB && carriesOn(ctx, h, crossA ? 'b' : 'a')) return [h];
   const cut = (T: Token[], s: number, e: number, prev: Token, next: Token): [number, number] => {
     let i = s;
     while (i < e && T[i].block === prev.block) i++;
@@ -199,6 +212,30 @@ function splitAtBlocks(ctx: Ctx, h: Hunk): Hunk[] {
     { a0: ai, a1: aj, b0: bi, b1: bj },
     { a0: aj, a1: h.a1, b0: bj, b1: h.b1 },
   ].filter((p) => p.a1 > p.a0 || p.b1 > p.b0);
+}
+
+/**
+ * Whether the paragraph around hunk `h` on side `whole` (which stays in one
+ * block) continues with matched words right before and right after the
+ * hunk, while the other side's matched words lie in the block before and
+ * the block after its own boundary, and that side's changed tokens all lie
+ * in those two blocks (no whole paragraph in between).
+ */
+function carriesOn(ctx: Ctx, h: Hunk, whole: 'a' | 'b'): boolean {
+  const [W, O] = whole === 'a' ? [ctx.A, ctx.B] : [ctx.B, ctx.A];
+  const [w0, w1, o0, o1] = whole === 'a' ? [h.a0, h.a1, h.b0, h.b1] : [h.b0, h.b1, h.a0, h.a1];
+  const block = W[w0 - 1].block;
+  const before = O[o0 - 1].block;
+  const after = O[o1].block;
+  for (let k = o0; k < o1; k++) if (O[k].block !== before && O[k].block !== after) return false;
+  const words = (dir: 1 | -1) => {
+    for (let i = dir < 0 ? w0 - 1 : w1, j = dir < 0 ? o0 - 1 : o1; W[i] && O[j] && W[i].key === O[j].key; i += dir, j += dir) {
+      if (W[i].block !== block || O[j].block !== (dir < 0 ? before : after)) return false;
+      if (W[i].kind !== 'punct') return true;
+    }
+    return false;
+  };
+  return words(-1) && words(1);
 }
 
 // Any decimal digit, full-width ones included ("１２，０００").
@@ -232,6 +269,11 @@ function splitNumbers(ctx: Ctx, h: Hunk): Hunk[] {
   const out: Hunk[] = [];
   for (let k = 0; k < sa.length; k++) {
     const p = { a0: sa[k], a1: sa[k + 1] ?? h.a1, b0: sb[k], b1: sb[k + 1] ?? h.b1 };
+    // The separator after a figure ("10, 20") is unchanged text, not part of it.
+    while (p.a1 - 1 > p.a0 && p.b1 - 1 > p.b0 && A[p.a1 - 1].kind === 'punct' && !UNIT.test(A[p.a1 - 1].text) && A[p.a1 - 1].key === B[p.b1 - 1].key) {
+      p.a1--;
+      p.b1--;
+    }
     const same = p.a1 - p.a0 === p.b1 - p.b0 && A.slice(p.a0, p.a1).every((t, j) => t.key === B[p.b0 + j].key);
     if (!same) out.push(p);
   }
@@ -239,7 +281,22 @@ function splitNumbers(ctx: Ctx, h: Hunk): Hunk[] {
 }
 
 function splitHunk(ctx: Ctx, h: Hunk): Hunk[] {
-  return splitAtBlocks(ctx, h).flatMap((p) => splitNumbers(ctx, p));
+  return splitAtBlocks(ctx, h)
+    .flatMap((p) => splitNumbers(ctx, p))
+    .filter((p) => !sameText(ctx, p));
+}
+
+/**
+ * Both sides read the same and only their tokens are cut differently: a
+ * superscript or subscript set as a raised run of its own ("m" + "2", "H" +
+ * "2" + "O") against the Unicode character or plain text ("m²", "H2O").
+ * Comparison keys already treat "²" as "2"; the script position is
+ * formatting, so this is not a text change.
+ */
+function sameText(ctx: Ctx, h: Hunk): boolean {
+  if (h.a1 === h.a0 || h.b1 === h.b0) return false;
+  const text = (T: Token[], s: number, e: number) => T.slice(s, e).map((t, k) => (k > 0 && t.spaceBefore ? ' ' : '') + t.key).join('');
+  return text(ctx.A, h.a0, h.a1) === text(ctx.B, h.b0, h.b1);
 }
 
 function blockRanges(toks: Token[]): Map<number, [number, number]> {
@@ -359,33 +416,80 @@ function textChange(ctx: Ctx, h: Hunk): Change {
   if (kind === 'replace' && isNumericPhrase(delToks.map((t) => t.text)) && isNumericPhrase(insToks.map((t) => t.text))) {
     // Show the unchanged unit or currency sign that is written onto the
     // number ("4%" → "8%", "€62.40"), so the description keeps its meaning.
+    // Likewise a magnitude ("−£7.4m"), and a percent sign set after a space
+    // ("12,5 %", the German and French style).
     const before = A[h.a0 - 1];
     const after = A[h.a1];
+    const afterB = B[h.b1];
     const pre = before && UNIT.test(before.text) && !delToks[0].spaceBefore && !insToks[0].spaceBefore && before.line === delToks[0].line ? before.text : '';
-    const post = after && UNIT.test(after.text) && !after.spaceBefore && B[h.b1]?.text === after.text && !B[h.b1].spaceBefore ? after.text : '';
+    const sameAfter = !!after && afterB?.text === after.text && after.line === A[h.a1 - 1].line && afterB.line === B[h.b1 - 1].line;
+    let post = '';
+    if (sameAfter && !after.spaceBefore && !afterB.spaceBefore && (UNIT.test(after.text) || SUFFIX.test(after.text))) post = after.text;
+    else if (sameAfter && after.spaceBefore && afterB.spaceBefore && /^[%‰]$/.test(after.text)) post = ' ' + after.text;
     const from = pre + oldSide.text + post;
     const to = pre + newSide.text + post;
     oldSide.text = from;
     newSide.text = to;
     // A value (for the percentage and sign check) only when each side is one
     // figure: several figures run together would give a meaningless number.
+    // Two list labels ("(3)" → "(4)", "3." → "4." at the start of a line)
+    // and amounts in different currencies or magnitudes ("300 EUR" → "350
+    // USD") get none either. The two sides are read with the same decimal
+    // separator ("1.234" → "1.234,50").
     const single = delToks.filter(hasDigit).length === 1 && insToks.filter(hasDigit).length === 1;
-    const value = single && !isListLabel(A, h.a0, from) && !isListLabel(B, h.b0, to);
-    change.numeric = { from, to, fromValue: value ? parseNumber(from) : null, toValue: value ? parseNumber(to) : null };
+    const value =
+      single &&
+      balanced(from) &&
+      balanced(to) &&
+      !(isListLabel(A, h.a0, h.a1, from) && isListLabel(B, h.b0, h.b1, to)) &&
+      sameUnit(from, to) &&
+      !(groupLike(A, h.a0, h.a1) && groupLike(B, h.b0, h.b1) && A[h.a0 - 1].key === B[h.b0 - 1].key);
+    const decimal = decimalMark(from) ?? decimalMark(to) ?? undefined;
+    change.numeric = {
+      from,
+      to,
+      fromValue: value ? parseNumber(from, decimalMark(from) ?? decimal) : null,
+      toValue: value ? parseNumber(to, decimalMark(to) ?? decimal) : null,
+    };
   }
   return change;
 }
 
 /**
- * "(1)" → "1)" or "(3)" → "(4)" at the start of a line are list labels, not
- * negative amounts: no sign change or percentage is computed for them.
+ * A 3-digit figure right after an unchanged 1–3 digit figure and a single
+ * space, the two standing on their own ("4 500" → "4 800"): PDF producers
+ * write the no-break space that groups thousands as a plain space, so this
+ * may be one number (+6.7%) or two (+60%). No percentage is given rather
+ * than a wrong one. A run of three or more such figures ("120 135 150") is
+ * read as separate figures, as the tokeniser does.
  */
-function isListLabel(T: Token[], at: number, text: string): boolean {
-  const open = (text.match(/\(/g) ?? []).length;
-  const close = (text.match(/\)/g) ?? []).length;
-  if (open !== close) return true;
-  const lineStart = at === 0 || T[at - 1].line !== T[at].line;
-  return lineStart && /^\(?\d{1,2}\)?[.)]?$/.test(text);
+function groupLike(T: Token[], s: number, e: number): boolean {
+  const adjacent = (p: Token | undefined, t: Token | undefined) => {
+    if (!p || !t || p.line !== t.line || !t.spaceBefore || !/^\d{1,3}$/.test(p.text) || !/^\d{3}$/.test(t.text)) return false;
+    const r = p.rects[p.rects.length - 1];
+    return t.rects[0].x - (r.x + r.w) < 0.6 * t.size;
+  };
+  return e - s === 1 && adjacent(T[s - 1], T[s]) && !adjacent(T[s - 2], T[s - 1]) && !adjacent(T[s], T[s + 1]);
+}
+
+const balanced = (s: string) => (s.match(/\(/g) ?? []).length === (s.match(/\)/g) ?? []).length;
+
+/** Currency signs, codes and magnitudes of an amount ("−£7.4m" → "£m"). */
+const unitOf = (s: string) => s.normalize('NFKC').replace(/[\d.,\s+\-−–()'’]/g, '').toLowerCase();
+/** Both amounts are in the same unit, or one of them has none. */
+const sameUnit = (a: string, b: string) => !unitOf(a) || !unitOf(b) || unitOf(a) === unitOf(b);
+
+/**
+ * "(3)", "3)" or a bare "3" followed by "." or ")" at the start of a line
+ * look like list labels. When both sides do ("(1)" → "(2)"), no sign change
+ * or percentage is computed; a plain figure at the start of a line (a
+ * table's first column) keeps them.
+ */
+function isListLabel(T: Token[], s: number, e: number, text: string): boolean {
+  if (s > 0 && T[s - 1].line === T[s].line) return false;
+  if (/^\(\d{1,2}\)?$|^\d{1,2}\)$/.test(text)) return true;
+  const next = T[e];
+  return /^\d{1,2}$/.test(text) && !!next && next.line === T[e - 1].line && !next.spaceBefore && /^[.)]$/.test(next.text);
 }
 
 /** Unit and currency symbols that are written directly onto numbers. */
@@ -454,14 +558,20 @@ function normalizeReplaces(ops: DiffOp[], A: Token[], B: Token[]): DiffOp[] {
  * paragraph is reported as exactly that paragraph.
  */
 function slideToBoundaries(ops: DiffOp[], A: Token[], B: Token[]): void {
+  // Inside a line, a sentence boundary: the text starts with a word after a
+  // full stop and ends with its own final mark (". The lenders … 2026" →
+  // "The lenders … 2026."). It only breaks ties within a line.
+  const stop = (t: Token | undefined) => !!t && t.kind === 'punct' && /^[.!?。！？]$/.test(t.text);
   const score = (seq: Token[], lo: number, hi: number) => {
     const first = seq[lo];
     const last = seq[hi - 1];
     let s = 0;
     if (lo === 0 || seq[lo - 1].block !== first.block) s += 2;
     else if (seq[lo - 1].line !== first.line) s += 1;
+    else if (stop(seq[lo - 1]) && first.kind !== 'punct') s += 0.5;
     if (hi === seq.length || seq[hi].block !== last.block) s += 2;
     else if (seq[hi].line !== last.line) s += 1;
+    else if (stop(last)) s += 0.5;
     return s;
   };
   for (let i = 0; i < ops.length; i++) {
@@ -525,11 +635,20 @@ interface Moves {
  * and the two texts are then diffed, so a figure or a negation changed
  * inside a moved paragraph is reported as its own change, located in both
  * versions, rather than hidden behind "Moved a paragraph".
+ *
+ * Both sides of a rewrite are offered too: two paragraphs swapped around a
+ * third ("X Y Z" → "Z Y X") align as "X → Z" and "Z → X", which are two
+ * moves, not two rewrites. A short passage (a table row, a line of fewer
+ * than six words) is a move only when it is whole lines in both versions
+ * and matches nearly word for word.
  */
 function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, after: Span) => boolean): Moves {
   const MIN = 6;
   const SIM = 0.8;
+  const SHORT_SIM = 0.7;
   const { ka, kb } = ctx;
+  const wholeLines = (T: Token[], s: number, e: number) =>
+    e > s && (s === 0 || T[s - 1].line !== T[s].line) && (e === T.length || T[e].line !== T[e - 1].line);
   const content = (keys: Int32Array, toks: Token[], s: number, e: number) => {
     const m = new Map<number, number>();
     let n = 0;
@@ -540,40 +659,49 @@ function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, aft
     }
     return { m, n };
   };
+  // Short passages: pure deletions and insertions of whole lines only.
   const dels = hunks
-    .map((h, idx) => ({ h, idx, ...content(ka, ctx.A, h.a0, h.a1) }))
-    .filter((d) => d.h.b0 === d.h.b1 && d.n >= MIN);
+    .map((h, idx) => ({ h, idx, short: false, ...content(ka, ctx.A, h.a0, h.a1) }))
+    .filter((d) => d.h.a1 > d.h.a0 && (d.n >= MIN || (d.h.b0 === d.h.b1 && d.n >= 2 && (d.short = wholeLines(ctx.A, d.h.a0, d.h.a1)))));
   const inss = hunks
-    .map((h, idx) => ({ h, idx, ...content(kb, ctx.B, h.b0, h.b1) }))
-    .filter((d) => d.h.a0 === d.h.a1 && d.n >= MIN);
+    .map((h, idx) => ({ h, idx, short: false, ...content(kb, ctx.B, h.b0, h.b1) }))
+    .filter((d) => d.h.b1 > d.h.b0 && (d.n >= MIN || (d.h.a0 === d.h.a1 && d.n >= 2 && (d.short = wholeLines(ctx.B, d.h.b0, d.h.b1)))));
   const candidates: { d: number; i: number; sim: number; matches: Int32Array }[] = [];
   dels.forEach((d, di) =>
     inss.forEach((ins, ii) => {
+      // The two sides of one rewrite are not a move.
+      if (d.idx === ins.idx) return;
+      const short = d.short || ins.short;
+      if (short && !(d.short && ins.short)) return;
+      const need = short ? SHORT_SIM : SIM;
       if (Math.min(d.n, ins.n) / Math.max(d.n, ins.n) < 0.7) return;
       // The bag of words bounds the in-order similarity from above: a cheap filter.
       let common = 0;
       for (const [k, c] of d.m) common += Math.min(c, ins.m.get(k) ?? 0);
-      if ((2 * common) / (d.n + ins.n) < SIM) return;
+      if ((2 * common) / (d.n + ins.n) < need) return;
       const matches = matchSequences(ka.subarray(d.h.a0, d.h.a1), kb.subarray(ins.h.b0, ins.h.b1));
       let inOrder = 0;
       for (let p = 0; p < matches.length; p += 2) if (ctx.A[d.h.a0 + matches[p]].kind !== 'punct') inOrder++;
       const sim = (2 * inOrder) / (d.n + ins.n);
-      if (sim >= SIM) candidates.push({ d: di, i: ii, sim, matches });
+      if (sim >= need) candidates.push({ d: di, i: ii, sim, matches });
     }),
   );
   candidates.sort((x, y) => y.sim - x.sim);
   const usedD = new Set<number>();
   const usedI = new Set<number>();
-  const consumed = new Set<number>();
+  /** Hunks whose old side (A) or new side (B) became part of a move. */
+  const movedA = new Set<number>();
+  const movedB = new Set<number>();
   const out: Moves = { moves: [], inner: [], innerOps: [], rest: [] };
   for (const c of candidates) {
     if (usedD.has(c.d) || usedI.has(c.i)) continue;
-    usedD.add(c.d);
-    usedI.add(c.i);
     const d = dels[c.d];
     const ins = inss[c.i];
-    consumed.add(d.idx);
-    consumed.add(ins.idx);
+    if (movedA.has(d.idx) || movedB.has(ins.idx)) continue;
+    usedD.add(c.d);
+    usedI.add(c.i);
+    movedA.add(d.idx);
+    movedB.add(ins.idx);
     // Diff the moved text against its old wording.
     const local = opsFromMatches(c.matches, d.h.a1 - d.h.a0, ins.h.b1 - ins.h.b0);
     const ops = refine(
@@ -618,7 +746,15 @@ function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, aft
     if (edits.length) move.moveEdits = edits.length;
     out.moves.push(move);
   }
-  out.rest = hunks.filter((_, idx) => !consumed.has(idx));
+  // What is left of a rewrite whose other side moved is a plain insertion
+  // or deletion.
+  hunks.forEach((h, idx) => {
+    const a = movedA.has(idx);
+    const b = movedB.has(idx);
+    if (!a && !b) out.rest.push(h);
+    else if (a && !b && h.b1 > h.b0) out.rest.push({ a0: h.a0, a1: h.a0, b0: h.b0, b1: h.b1 });
+    else if (b && !a && h.a1 > h.a0) out.rest.push({ a0: h.a0, a1: h.a1, b0: h.b0, b1: h.b0 });
+  });
   return out;
 }
 
@@ -868,8 +1004,19 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
 
   // Split at paragraph boundaries first, so a paragraph moved next to an
   // edit of the paragraph before it is still a pure insertion.
-  const moved = detectMoves(ctx, hunksOf(ops).flatMap((h) => splitAtBlocks(ctx, h)), fold);
+  // A header row repeated at a page top that came or went with a page
+  // break is set aside first, so it is not paired with another copy as a
+  // move either.
+  const hunks = hunksOf(ops).flatMap((h) => splitAtBlocks(ctx, h));
+  const repeated = repeatedAtPageTop(ctx, hunks, pairs);
+  const moved = detectMoves(ctx, hunks.filter((h) => !repeated.has(h)), fold);
   const changes: Change[] = [...moved.rest.flatMap((h) => splitHunk(ctx, h)).map((h) => textChange(ctx, h)), ...moved.moves, ...moved.inner];
+  const repeatedLines = [...repeated].map((h) => {
+    const c = textChange(ctx, h);
+    c.minor = true;
+    c.consequence = 'repeatedLine';
+    return c;
+  });
   mergeNearby(changes, oldDoc, newDoc);
   markDuplicates(changes, B);
   const renumbered = extractRenumbering(changes, oldDoc, newDoc);
@@ -900,14 +1047,18 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
     anchors: withManualAnchors(buildAnchors(A, B, pairs), manual, oldDoc, newDoc),
     matches: Int32Array.from(pairs, (v, k) => (k % 2 === 0 ? A[v].i : B[v].i)),
     options,
-    coverage: { old: coverageOf(oldDoc), new: { ...coverageOf(newDoc), uncertain: uncertainPages(newDoc, B, pairs, moved.innerOps) } },
+    coverage: {
+      old: coverageOf(oldDoc),
+      new: { ...coverageOf(newDoc), uncertain: uncertainPages(newDoc, B, pairs, moved.innerOps, [...moved.rest, ...repeated].filter((h) => h.a0 === h.a1)) },
+    },
     ignored: {
       furniture: options.ignoreFurniture ? furnitureDifferences(oldDoc, newDoc) : 0,
       caseOnly: options.ignoreCase ? caseOnlyDifferences(A, B, pairs) : 0,
       minorShifts: 0,
       renumbered: renumbered.length,
+      repeatedLines: repeatedLines.length,
     },
-    minor: renumbered,
+    minor: [...renumbered, ...repeatedLines].sort((x, y) => x.order - y.order),
     stats: {
       oldTokens: A.length,
       newTokens: B.length,
@@ -923,30 +1074,31 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
  * left to right, a heading re-aligned). Only lines that are intact in both
  * versions are considered, so ordinary re-flow never triggers this; the
  * displacement is measured against the page's typical displacement. A line
- * set in a wider or narrower font keeps its alignment edge (left, centre or
- * right), so the edge that moved least counts, and lines whose font, size or
- * weight changed are left to the formatting change.
+ * set in a wider or narrower font (also one whose font was substituted)
+ * keeps its alignment edge (left, centre or right), so the edge that moved
+ * least counts. A line that re-flowed into the other column or another part
+ * of the page (its vertical position jumped far more than the page's lines
+ * did, and it now runs in a column with the line before or after it) did
+ * not move sideways.
  */
 function detectPositions(ctx: Ctx, pairs: Int32Array): Change[] {
-  const { A, B, oldDoc, newDoc } = ctx;
+  const { A, oldDoc, newDoc } = ctx;
   const byOldLine = new Map<number, number[]>();
-  const reformatted = new Set<number>();
   for (let p = 0; p < pairs.length; p += 2) {
     const a = A[pairs[p]];
     let arr = byOldLine.get(a.line);
     if (!arr) byOldLine.set(a.line, (arr = []));
     arr.push(p);
-    if (formatDiff(a, B[pairs[p + 1]])) reformatted.add(a.line);
   }
+  const B = ctx.B;
   const countNewLine = new Map<number, number>();
   for (const t of B) countNewLine.set(t.line, (countNewLine.get(t.line) ?? 0) + 1);
   const countOldLine = new Map<number, number>();
   for (const t of A) countOldLine.set(t.line, (countOldLine.get(t.line) ?? 0) + 1);
-  /** Displacement of the left edge, the centre and the right edge. */
-  type Moved = { oldLine: number; newLine: number; edges: [number, number, number]; page: [number, number] };
+  /** Displacement of the left edge, the centre and the right edge, and of the top. */
+  type Moved = { oldLine: number; newLine: number; edges: [number, number, number]; dy: number; page: [number, number] };
   const intact: Moved[] = [];
   for (const [ol, ps] of byOldLine) {
-    if (reformatted.has(ol)) continue;
     const newLines = new Set(ps.map((p) => B[pairs[p + 1]].line));
     if (newLines.size !== 1) continue;
     const nl = [...newLines][0];
@@ -960,8 +1112,15 @@ function detectPositions(ctx: Ctx, pairs: Int32Array): Change[] {
     const ln = newDoc.lines[nl].rect;
     const dl = ln.x - lo.x;
     const dr = ln.x + ln.w - (lo.x + lo.w);
-    intact.push({ oldLine: ol, newLine: nl, edges: [dl, (dl + dr) / 2, dr], page: [op, np] });
+    intact.push({ oldLine: ol, newLine: nl, edges: [dl, (dl + dr) / 2, dr], dy: ln.y - lo.y, page: [op, np] });
   }
+  /** The line runs in a column with the line before or after it in the new version (same left edge, next line down or up). */
+  const inColumn = (nl: number) => {
+    const l = newDoc.lines[nl];
+    return [newDoc.lines[nl - 1], newDoc.lines[nl + 1]].some(
+      (o) => !!o && !o.furniture && o.page === l.page && Math.abs(o.rect.x - l.rect.x) < 2 && Math.abs(o.rect.y - l.rect.y) < 2.5 * l.rect.h,
+    );
+  };
   /** Displacement relative to `t` of the edge that moved closest to `t`. */
   const nearest = (m: Moved, t: number) => m.edges.reduce((best, e) => (Math.abs(e - t) < Math.abs(best - t) ? e : best)) - t;
   const out: Change[] = [];
@@ -976,11 +1135,13 @@ function detectPositions(ctx: Ctx, pairs: Int32Array): Change[] {
     if (list.length < 3) continue;
     // The page's own displacement (e.g. new margins).
     const typical = list.map((m) => nearest(m, 0)).sort((u, v) => u - v)[list.length >> 1];
+    const typicalDy = list.map((m) => m.dy).sort((u, v) => u - v)[list.length >> 1];
     for (const m of list) {
       const rel = nearest(m, typical);
       if (Math.abs(rel) <= 12) continue;
       const lo = oldDoc.lines[m.oldLine];
       const ln = newDoc.lines[m.newLine];
+      if (Math.abs(m.dy - typicalDy) > Math.max(36, 3 * lo.rect.h) && inColumn(m.newLine)) continue;
       const words = newDoc.tokens.slice(ln.start, ln.end).filter((t) => t.kind !== 'punct');
       const newSide: Side = { pages: [ln.page], rects: [{ page: ln.page, rect: ln.rect }], text: ln.text, start: ln.start, end: ln.end };
       out.push({
@@ -1004,9 +1165,11 @@ function detectPositions(ctx: Ctx, pairs: Int32Array): Change[] {
 /**
  * A formatting change applied throughout the document (a font replaced, a
  * heading size changed everywhere) becomes one change listing every place,
- * instead of one entry per paragraph. Only document-wide substitutions are
- * aggregated: the places must cover at least half of the text that had the
- * old style. Three unrelated words set in bold stay three changes.
+ * instead of one entry per paragraph. Only systematic changes are
+ * aggregated: the places cover at least half of the text that had the old
+ * style, or each place is whole lines (every heading made bold, every table
+ * set in another font while the body keeps its font). Three unrelated words
+ * set in bold inside paragraphs stay three changes.
  * The aggregated change's `old.rects` / `new.rects` cover every place, and
  * `parts` keeps each place's own text and location.
  */
@@ -1040,10 +1203,17 @@ function aggregateFormatting(changes: Change[], ctx: Ctx, pairs: Int32Array): Ch
     }
     return n;
   };
+  /** The place covers whole lines of the old version. */
+  const wholeLines = (c: Change) => {
+    const { start, end } = c.old;
+    if (start === undefined || end === undefined) return false;
+    const doc = ctx.oldDoc;
+    return doc.lines[doc.tokens[start].line].start === start && doc.lines[doc.tokens[end - 1].line].end === end;
+  };
   const out: Change[] = [];
   for (const list of groups.values()) {
     const words = list.reduce((n, c) => n + c.size, 0);
-    if (list.length < 3 || words < 0.5 * withOldStyle(list[0].format ?? {})) {
+    if (list.length < 3 || (words < 0.5 * withOldStyle(list[0].format ?? {}) && !list.every(wholeLines))) {
       out.push(...list);
       continue;
     }
@@ -1108,6 +1278,54 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     k = j;
   }
   for (const c of out) changes.splice(changes.indexOf(c), 1);
+  return out;
+}
+
+/**
+ * A table's header row is repeated at the top of each page the table runs
+ * onto, so when a page break moves, a copy appears at the top of a page in
+ * one version and disappears from a page top in the other. Such a copy is a
+ * consequence of re-pagination, not an edit: a pure insertion or deletion of
+ * whole lines that are the first body lines of their page, whose text
+ * occurs as whole lines on an earlier page of the same version, and where
+ * the text that follows it on the page sits below other text of its page
+ * in the other version (the page break really moved there). It is taken out
+ * of the change list (shown on request) and counted. A line deliberately
+ * added or removed at a page top that repeats an earlier line, where the
+ * page break also moved, would be hidden the same way, but still counted.
+ */
+function repeatedAtPageTop(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): Set<Hunk> {
+  const { A, B } = ctx;
+  const out = new Set<Hunk>();
+  const pure = hunks.filter((h) => h.a1 > h.a0 !== h.b1 > h.b0);
+  if (!pure.length) return out;
+  const toB = new Int32Array(A.length).fill(-1);
+  const toA = new Int32Array(B.length).fill(-1);
+  for (let p = 0; p < pairs.length; p += 2) {
+    toB[pairs[p]] = pairs[p + 1];
+    toA[pairs[p + 1]] = pairs[p];
+  }
+  const lineStart = (T: Token[], k: number) => k === 0 || T[k - 1].line !== T[k].line;
+  const lineEnd = (T: Token[], k: number) => k === T.length || T[k].line !== T[k - 1].line;
+  for (const h of pure) {
+    const del = h.a1 > h.a0;
+    const [T, U, s, e, match] = del ? [A, B, h.a0, h.a1, toB] : [B, A, h.b0, h.b1, toA];
+    const page = T[s].page;
+    // Whole lines (at most a few: a header row), first on their page.
+    if (e - s > 60 || (s > 0 && T[s - 1].page === page) || T[e - 1].page !== page || !lineEnd(T, e)) continue;
+    let earlier = false;
+    for (let q = 0; q + (e - s) <= s && T[q].page < page && !earlier; q++) {
+      if (T[q].key !== T[s].key || !lineStart(T, q) || T[q + e - s - 1].page >= page || !lineEnd(T, q + e - s)) continue;
+      earlier = true;
+      for (let k = 1; k < e - s && earlier; k++) earlier = T[q + k].key === T[s + k].key;
+    }
+    if (!earlier) continue;
+    let k = e;
+    while (k < T.length && T[k].page === page && match[k] < 0) k++;
+    if (k >= T.length || T[k].page !== page) continue;
+    const m = match[k];
+    if (m > 0 && U[m - 1].page === U[m].page) out.add(h);
+  }
   return out;
 }
 
@@ -1182,22 +1400,28 @@ function markDuplicates(changes: Change[], B: Token[]): void {
 /**
  * New pages with ≥ 20 words of which less than half are matched to the old
  * version. Words of a moved passage count as matched; punctuation (a
- * signature rule, dot leaders) does not count.
+ * signature rule, dot leaders) does not count. A page whose other words are
+ * (nearly all) plainly added — an inserted or duplicated page, reported as
+ * added text — is not uncertain: less than a quarter of its words may be
+ * neither matched nor added.
  */
-function uncertainPages(doc: DocModel, B: Token[], pairs: Int32Array, moved: DiffOp[]): { page: number; matched: number }[] {
+function uncertainPages(doc: DocModel, B: Token[], pairs: Int32Array, moved: DiffOp[], inserted: Hunk[]): { page: number; matched: number }[] {
   const total = new Map<number, number>();
   const matched = new Map<number, number>();
-  for (const t of B) if (t.kind !== 'punct') total.set(t.page, (total.get(t.page) ?? 0) + 1);
-  const hit = (t: Token) => {
-    if (t.kind !== 'punct') matched.set(t.page, (matched.get(t.page) ?? 0) + 1);
+  const added = new Map<number, number>();
+  const count = (m: Map<number, number>, t: Token) => {
+    if (t.kind !== 'punct') m.set(t.page, (m.get(t.page) ?? 0) + 1);
   };
-  for (let p = 1; p < pairs.length; p += 2) hit(B[pairs[p]]);
-  for (const op of moved) for (let j = op.b0; j < op.b1; j++) hit(B[j]);
+  for (const t of B) count(total, t);
+  for (let p = 1; p < pairs.length; p += 2) count(matched, B[pairs[p]]);
+  for (const op of moved) for (let j = op.b0; j < op.b1; j++) count(matched, B[j]);
+  for (const h of inserted) for (let j = h.b0; j < h.b1; j++) count(added, B[j]);
   const out: { page: number; matched: number }[] = [];
   for (const pg of doc.pages) {
     const n = total.get(pg.index) ?? 0;
     const m = matched.get(pg.index) ?? 0;
-    if (n >= 20 && m / n < 0.5) out.push({ page: pg.index, matched: Math.round((m / n) * 100) / 100 });
+    const rest = n - m - (added.get(pg.index) ?? 0);
+    if (n >= 20 && m / n < 0.5 && rest >= 0.25 * n) out.push({ page: pg.index, matched: Math.round((m / n) * 100) / 100 });
   }
   return out;
 }

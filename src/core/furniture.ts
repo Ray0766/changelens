@@ -91,6 +91,16 @@ export function detectFurniture(doc: DocText, lines: Line[], tokens: Token[]): v
   });
   const repeated = (k: number) => sigs[k] !== null && furnitureSig.has(sigs[k]!);
   const apart = (k: number) => blocks.get(lines[k].block)!.every((j) => j === k || repeated(j));
+  // A line set in one paragraph with body text on most of its pages (a
+  // table's header row repeated at the top of each page the table runs
+  // onto, typeset with the row below it) belongs to the body, not to the
+  // running header: it moves with the page breaks and is compared.
+  const body: string[] = [];
+  for (const sig of furnitureSig) {
+    const group = groups.get(sig)!;
+    if (2 * group.filter((l) => apart(l.id)).length < group.length) body.push(sig);
+  }
+  for (const sig of body) furnitureSig.delete(sig);
   lines.forEach((line, k) => {
     if (!sigs[k]) return;
     if (repeated(k) || (isPageNumberText(line.text) && apart(k))) {
