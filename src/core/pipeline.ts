@@ -1,6 +1,7 @@
 import type { Change, CompareResult, DocModel, Rect, Side } from './types.ts';
 import { sortAndNumber } from './compare.ts';
-import { alignPages, compareRasters, dedupeGraphics, pageSignature, planVisual, tooLargeToCompare, type Raster, type VisualPair } from './visual.ts';
+import { union as unionRect } from './geometry.ts';
+import { alignPages, compareRasters, dedupeGraphics, foundOnPair, pageSignature, planVisual, reappears, sameGraphic, tooLargeToCompare, type Raster, type VisualPair } from './visual.ts';
 
 export type RenderFn = (page: number) => Promise<Raster>;
 
@@ -112,6 +113,63 @@ export async function addVisualChanges(
     for (const p of [...cacheNew.keys()]) if (!rest.some((r) => r.new === p)) cacheNew.delete(p);
     onProgress?.(k + 1, pairs.length);
   }
+  // A graphic found on one side of a page pair only may have gone to the
+  // next or previous page with the text next to it (a figure pushed onto the
+  // next page by added text). If it reappears unchanged on another page
+  // paired with the same page, it moved; it was not added or removed.
+  const pushed = new Set<Change>();
+  const again = { old: new Map<number, Promise<Raster>>(), new: new Map<number, Promise<Raster>>() };
+  for (const c of found) {
+    if (c.minor || c.kind !== 'graphic' || c.format || c.pageChange || !c.old.rects.length === !c.new.rects.length) continue;
+    const at = foundOnPair(c);
+    if (!at) continue;
+    const side = c.old.rects.length ? 'old' : 'new';
+    const others = pairs.filter((p) => (side === 'old' ? p.old === at[0] && p.new !== at[1] : p.new === at[1] && p.old !== at[0]) && !large('old', p.old) && !large('new', p.new));
+    // Keep only the pages this change needs.
+    for (const s of ['old', 'new'] as const) for (const pg of [...again[s].keys()]) if (!others.some((p) => p[s] === pg)) again[s].delete(pg);
+    for (const p of others) {
+      try {
+        for (const s of ['old', 'new'] as const) if (!again[s].has(p[s])) again[s].set(p[s], render[s](p[s]));
+        const [ra, rb] = await Promise.all([again.old.get(p.old)!, again.new.get(p.new)!]);
+        if (c[side].rects.every((r) => reappears(result, p.old, p.new, ra, rb, side, r.rect))) {
+          pushed.add(c);
+          break;
+        }
+      } catch {
+        // Not compared again: the change stays.
+      }
+    }
+  }
+  // Removed from one page and added to a neighbouring one with the same
+  // look (a figure that a new page size put on the next page): it moved.
+  const oneSided = (c: Change, side: 'old' | 'new') =>
+    !pushed.has(c) && !c.minor && c.kind === 'graphic' && !c.format && !c.pageChange && c[side].rects.length > 0 && !c[side === 'old' ? 'new' : 'old'].rects.length;
+  const removed = found.filter((c) => oneSided(c, 'old'));
+  const added = found.filter((c) => oneSided(c, 'new'));
+  for (const r of removed) {
+    const ro = foundOnPair(r);
+    if (!ro) continue;
+    const o = unionRect(r.old.rects.map((x) => x.rect));
+    for (const a of added) {
+      const an = foundOnPair(a);
+      if (!an || pushed.has(a) || Math.abs(an[0] - ro[0]) > 1 || Math.abs(an[1] - ro[1]) > 1 || large('old', ro[0]) || large('new', an[1])) continue;
+      for (const s of ['old', 'new'] as const) for (const pg of [...again[s].keys()]) if (pg !== (s === 'old' ? ro[0] : an[1])) again[s].delete(pg);
+      try {
+        if (!again.old.has(ro[0])) again.old.set(ro[0], render.old(ro[0]));
+        if (!again.new.has(an[1])) again.new.set(an[1], render.new(an[1]));
+        const [ra, rb] = await Promise.all([again.old.get(ro[0])!, again.new.get(an[1])!]);
+        if (sameGraphic(result, ro[0], an[1], ra, rb, o, unionRect(a.new.rects.map((x) => x.rect)))) {
+          pushed.add(r).add(a);
+          break;
+        }
+      } catch {
+        // Not compared: both changes stay.
+      }
+    }
+  }
+  again.old.clear();
+  again.new.clear();
+  if (pushed.size) found.splice(0, found.length, ...found.filter((c) => !pushed.has(c)));
   // A change of page size or orientation, once per kind of change.
   for (const { pair, count } of sizes.values()) {
     const c = wholePage('resized', result, pair.new, undefined, [pair.old, pair.new], false);

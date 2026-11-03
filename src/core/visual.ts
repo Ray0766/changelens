@@ -31,6 +31,14 @@ export function setDebugHook(fn: typeof debugHook): void {
 const CELL = 6;
 /** Graphics displaced by at most this many points count as a minor shift, not a change. */
 export const SHIFT_PT = 4;
+/**
+ * Largest share of ink a region may gain or lose and still count as the
+ * same graphic moved within it: for a line that lies inside the region, and
+ * for the part of a larger graphic (a fill, an image) that the region cuts
+ * out (see unmatched()).
+ */
+const BALANCE_LINE = 0.2;
+const BALANCE_EDGE = 0.08;
 
 /**
  * Pixel budget for one rendered page (about A0 at 1 px/pt). The visual stage
@@ -318,10 +326,12 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
   const md = dst.mask;
   const [s0, s1, s2] = src.planes;
   const T = THRESH;
-  // Pixels of a rule in the source padding must really be matched; other
-  // pixels may also land on text in the destination (re-flowed lines).
-  const fits = (q: number, p: number, strict: boolean) => (!strict && (md[q] === GLYPH || md[q] === PAD)) || colourFit(src, dst, q, p);
   const blank = (p: number) => s0[p] + T >= 255 && s1[p] + T >= 255 && s2[p] + T >= 255;
+  // Paper may land on text in the destination (re-flowed lines); ink must
+  // really be matched there, or a figure that text moved into the place of
+  // would not be missed. Pixels of a rule in the source padding must always
+  // be matched.
+  const fits = (q: number, p: number, strict: boolean) => (!strict && (md[q] === GLYPH || md[q] === PAD) && blank(p)) || colourFit(src, dst, q, p);
   const w = rs.width;
   const h = rs.height;
   const scale = rs.scale;
@@ -331,6 +341,8 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
   const cols = Math.ceil(w / CELL);
   const rows = Math.ceil(h / CELL);
   const cells = new Uint16Array(cols * rows);
+  // Rows compared with the other page (their nearest matched line is on it).
+  const rowOk = new Uint8Array(h);
   // Differing pixels and where they were compared (for the shift test below).
   const failP: number[] = [];
   const failQ: number[] = []; // qy * width + qx of the first usable candidate, -1 for blank paper
@@ -379,7 +391,16 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
     // text): above the first line or below the last one it is extrapolated,
     // and a light fill there may just land a line off.
     const pinned = (!!above && !!below) || identity;
+    // Above the first matched line or below the last one, the mapping is
+    // extrapolated from that line. What sits in the margins there (a running
+    // header's rule, a logo, the top border of a table continued from the
+    // previous page) usually stays at the same place on the page while the
+    // text below it re-flows, so the same position is tried as well. Only an
+    // exact match of the graphic counts there, never text in the other page.
+    const oy0 = Math.round(ypt * rd.scale);
+    const atSame = !pinned && !identity && oy0 < rd.height && (oy0 !== oy1 || ox1 !== 0) && (oy0 !== oy2 || ox2 !== 0);
     if (!in1 && !in2 && !belowPage) continue;
+    rowOk[y] = 1;
     const row = y * w;
     const crow = ((y / CELL) | 0) * cols;
     for (let x = 0; x < w; x++) {
@@ -412,8 +433,19 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
           if (ok) qFit = oy2 * rd.width + qx;
         }
       }
+      if (!ok && atSame && xd < rd.width && colourFit(src, dst, oy0 * rd.width + xd, p)) ok = true;
       if (pinned && qFit >= 0 && (strict || (md[qFit] !== GLYPH && md[qFit] !== PAD))) {
-        const e = Math.max(outside(s0[p], n0[qFit], x0[qFit]), outside(s1[p], n1[qFit], x1[qFit]), outside(s2[p], n2[qFit], x2[qFit]));
+        // The excess is the smaller of the two places: a graphic that moved
+        // with the line below it may also fit, more loosely, at the place
+        // given by the line above (an image moved by a re-flowed line).
+        const excess = (q: number) => Math.max(outside(s0[p], n0[q], x0[q]), outside(s1[p], n1[q], x1[q]), outside(s2[p], n2[q], x2[q]));
+        let e = excess(qFit);
+        const qx1 = xd + ox1;
+        const qx2 = xd + ox2;
+        const qc1 = in1 && qx1 >= 0 && qx1 < rd.width ? oy1 * rd.width + qx1 : -1;
+        const qc2 = in2 && qx2 >= 0 && qx2 < rd.width ? oy2 * rd.width + qx2 : -1;
+        const q = qFit === qc1 ? qc2 : qc1;
+        if (e > 0 && q >= 0 && q !== qFit && (strict || (md[q] !== GLYPH && md[q] !== PAD)) && colourFit(src, dst, q, p)) e = Math.min(e, excess(q));
         const ci = crow + ((x / CELL) | 0);
         fSum[ci] += e;
         fN[ci]++;
@@ -458,9 +490,14 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
   const S = Math.round(SHIFT_PT * rd.scale);
   // Each row was compared with the place given by two anchor lines; try
   // the offsets around either (a frame next to a moved line goes with it).
+  // Returns the share of pixels explained by the best offset, and that
+  // offset (the smallest of equally good ones): the direction the graphic
+  // moved in.
   const shiftFit = (idx: number[], qs: number[], step: number) => {
     let best = 0;
-    for (let dy = -S; dy <= S && best < 0.85; dy++) {
+    let bx = 0;
+    let by = 0;
+    for (let dy = -S; dy <= S; dy++) {
       for (let dx = -S; dx <= S; dx++) {
         if (dx === 0 && dy === 0) continue;
         let hit = 0;
@@ -473,11 +510,15 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
           const qx = (q0 % rd.width) + dx;
           if (qy >= 0 && qy < rd.height && qx >= 0 && qx < rd.width && colourFit(src, dst, qy * rd.width + qx, failP[idx[j]])) hit++;
         }
-        if (total && hit / total > best) best = hit / total;
-        if (best >= 0.85) break;
+        const f = total ? hit / total : 0;
+        if (f > best || (f === best && f > 0 && Math.abs(dx) + Math.abs(dy) < Math.abs(bx) + Math.abs(by))) {
+          best = f;
+          bx = dx;
+          by = dy;
+        }
       }
     }
-    return best;
+    return { best, dx: bx, dy: by };
   };
   // Paper on this side: (nearly) every differing pixel is blank here, so it
   // only marks where the other side has something.
@@ -491,28 +532,61 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
     }
     return n ? paper / n : 1;
   };
+  // Share of the region's two sides across the direction of motion (left
+  // and right for a move sideways) that is not paper on this side.
+  const continuesBeyond = (x0: number, y0: number, x1: number, y1: number, sideways: boolean) => {
+    const X0 = Math.max(0, Math.floor(x0));
+    const Y0 = Math.max(0, Math.floor(y0));
+    const X1 = Math.min(w, Math.ceil(x1)) - 1;
+    const Y1 = Math.min(h, Math.ceil(y1)) - 1;
+    let ink = 0;
+    let n = 0;
+    const at = (x: number, y: number) => {
+      const p = y * w + x;
+      if (ms[p] === GLYPH || ms[p] === PAD) return;
+      n++;
+      if (Math.min(s0[p], s1[p], s2[p]) < 235) ink++;
+    };
+    if (sideways) for (let y = Y0; y <= Y1; y++) (at(X0, y), at(X1, y));
+    else for (let x = X0; x <= X1; x++) (at(x, Y0), at(x, Y1));
+    return n > 0 && ink / n >= 0.25;
+  };
   const cand = comps.map((c, k) => {
     const idx = members[k];
     const step = Math.max(1, Math.floor(idx.length / 1500));
     const blankHere = paperShare(failP, idx, step) >= 0.95;
     let qs = failQ;
-    let best = shiftFit(idx, failQ, step);
-    if (best < 0.85 && idx.some((j) => failQ2[j] >= 0)) {
+    let fit = shiftFit(idx, failQ, step);
+    if (fit.best < 0.85 && idx.some((j) => failQ2[j] >= 0)) {
       const alt = shiftFit(
         idx,
         failQ2.map((q, j) => (q >= 0 ? q : failQ[j])),
         step,
       );
-      if (alt > best) {
-        best = alt;
+      if (alt.best > fit.best) {
+        fit = alt;
         qs = failQ2.map((q, j) => (q >= 0 ? q : failQ[j]));
       }
     }
-    if (best < 0.85 || !whole) return { rect: c.rect, shift: best >= 0.85, delta: 0, blankHere };
-    // Ink balance (pages paired as a whole): a shifted graphic keeps its
-    // ink; one that grew, shrank or got a parallel line added does not, even
-    // if every differing pixel matches something nearby. Across a page
-    // break only part of a page is comparable, so it is not applied there.
+    const best = fit.best;
+    const pad = SHIFT_PT * scale;
+    const sx0 = c.rect.x * scale - pad;
+    const sy0 = c.rect.y * scale - pad;
+    const sx1 = (c.rect.x + c.rect.w) * scale + pad;
+    const sy1 = (c.rect.y + c.rect.h) * scale + pad;
+    // Across a page break only part of a page is comparable: the balance is
+    // only measured where every row around the region was compared.
+    let comparable = whole;
+    if (!whole) {
+      comparable = true;
+      for (let y = Math.max(0, Math.floor(sy0)), e = Math.min(h, Math.ceil(sy1)); y < e && comparable; y++) comparable = !!rowOk[y];
+    }
+    if (best < 0.85 || !comparable) return { rect: c.rect, shift: best >= 0.85, delta: 0, raw: 0, ox: 0, oy: 0, inked: false, blankHere };
+    // Ink balance: a shifted graphic keeps its ink; one that grew, shrank or
+    // got a parallel line added does not, even if every differing pixel
+    // matches something nearby. Where only one edge of a graphic lies in the
+    // region (a filled bar moved up), the ink it gains is lost at the other
+    // edge; see the grouping below.
     const offX: number[] = [];
     const offY: number[] = [];
     for (let j = 0; j < idx.length; j += step) {
@@ -525,15 +599,18 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
     const med = (a: number[]) => (a.length ? a.sort((u, v) => u - v)[a.length >> 1] : 0);
     const mx = med(offX);
     const my = med(offY);
-    const pad = SHIFT_PT * scale;
-    const sx0 = c.rect.x * scale - pad;
-    const sy0 = c.rect.y * scale - pad;
-    const sx1 = (c.rect.x + c.rect.w) * scale + pad;
-    const sy1 = (c.rect.y + c.rect.h) * scale + pad;
     const inkS = inkIn(src, sx0, sy0, sx1, sy1);
     const inkD = inkIn(dst, sx0 * ratio + mx, sy0 * ratio + my, sx1 * ratio + mx, sy1 * ratio + my);
     const delta = inkD - inkS;
-    return { rect: c.rect, shift: true, delta: Math.abs(delta) <= 0.2 * Math.max(inkS, inkD) + 0.5 ? 0 : delta, blankHere };
+    // A thin line that moved within the region keeps its ink, give or take
+    // anti-aliasing (a hairline drawn one pixel over can gain or lose a
+    // tenth of it). Where the graphic goes on beyond the region in the
+    // direction it moved (the edge of a fill, the inside of an image), the
+    // part inside the region keeps its ink much more closely; a light bar
+    // with a dark outline that grew by 3 pt does not.
+    const edge = continuesBeyond(sx0, sy0, sx1, sy1, Math.abs(fit.dx) >= Math.abs(fit.dy));
+    const balanced = Math.abs(delta) <= (edge ? BALANCE_EDGE : BALANCE_LINE) * Math.max(inkS, inkD) + 0.5;
+    return { rect: c.rect, shift: true, delta: balanced ? 0 : delta, raw: delta, ox: fit.dx, oy: fit.dy, inked: true, blankHere };
   });
   // Faint differences: a light fill (mean excess over an area of at least
   // 3×3 cells) or a hairline (a row or column of cells with a strong mean
@@ -626,21 +703,56 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
       }
       // The same light graphic, only anti-aliased differently: no difference.
       if (still >= 0.85) return;
-      cand.push({ rect: c.rect, shift: idx.length > 0 && best >= 0.85, delta: 0, blankHere: paperShare(faintP, idx, step) >= 0.95 });
+      cand.push({ rect: c.rect, shift: idx.length > 0 && best >= 0.85, delta: 0, raw: 0, ox: 0, oy: 0, inked: false, blankHere: paperShare(faintP, idx, step) >= 0.95 });
       // Let appearance checks see the faint difference too.
       for (const ci of c.cells) if (cells[ci] < 3) cells[ci] = 3;
     });
   }
   // An edge that moved out of a region and the opposite edge that moved in
-  // (the top and bottom of a filled bar shifted by 3 pt) balance each other.
-  const overlap = (a: Rect, b: Rect) =>
-    Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) >= 0.7 * Math.min(a.w, b.w) ||
-    Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) >= 0.7 * Math.min(a.h, b.h);
+  // (the top and bottom of a filled bar shifted by 3 pt, the left and right
+  // edges of a logo moved 2 pt to the right) balance each other. Edges of
+  // one graphic are explained by offsets in the same direction and lie side
+  // by side across it: in the same rows for a move to the left or right, in
+  // the same columns for a move up or down. Such edges are grouped; a group
+  // whose ink balances is a shift, otherwise its edges may still balance in
+  // pairs. Two bars next to each other, one grown and one shrunk, are not a
+  // shift: their edges moved up and down, but they share rows, not columns.
+  const colsOf = (a: Rect, b: Rect) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) >= 0.7 * Math.min(a.w, b.w);
+  const rowsOf = (a: Rect, b: Rect) => Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) >= 0.7 * Math.min(a.h, b.h);
+  type Cand = (typeof cand)[number];
+  const horiz = (c: Cand) => 2 * Math.abs(c.ox) >= Math.abs(c.oy);
+  const vert = (c: Cand) => 2 * Math.abs(c.oy) >= Math.abs(c.ox);
+  // Pieces of one edge, broken up along it (where the image is as light as
+  // the paper), also go together.
+  const pieceX = (a: Rect, b: Rect) => Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w) <= Math.max(2 * SHIFT_PT, 0.25 * Math.max(a.w, b.w));
+  const pieceY = (a: Rect, b: Rect) => Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h) <= Math.max(2 * SHIFT_PT, 0.25 * Math.max(a.h, b.h));
+  const together = (a: Cand, b: Cand) =>
+    a.inked &&
+    b.inked &&
+    ((horiz(a) && horiz(b) && Math.sign(a.ox) === Math.sign(b.ox) && (rowsOf(a.rect, b.rect) || (colsOf(a.rect, b.rect) && pieceY(a.rect, b.rect)))) ||
+      (vert(a) && vert(b) && Math.sign(a.oy) === Math.sign(b.oy) && (colsOf(a.rect, b.rect) || (rowsOf(a.rect, b.rect) && pieceX(a.rect, b.rect)))));
+  const group = cand.map((_, i) => i);
+  const root = (i: number): number => (group[i] === i ? i : (group[i] = root(group[i])));
+  for (let i = 0; i < cand.length; i++) for (let j = i + 1; j < cand.length; j++) if (cand[i].shift && cand[j].shift && together(cand[i], cand[j])) group[root(i)] = root(j);
+  const gain = new Map<number, number>();
+  const loss = new Map<number, number>();
+  cand.forEach((c, i) => {
+    if (!c.shift || !c.inked) return;
+    const g = root(i);
+    if (c.raw > 0) gain.set(g, (gain.get(g) ?? 0) + c.raw);
+    else loss.set(g, (loss.get(g) ?? 0) - c.raw);
+  });
+  const balances = (u: number, v: number) => Math.abs(u - v) <= 0.35 * Math.max(u, v) + 0.5;
   const paired = new Set<number>();
+  cand.forEach((a, i) => {
+    if (!a.shift || a.delta === 0) return;
+    const g = root(i);
+    if (gain.has(g) && loss.has(g) && balances(gain.get(g)!, loss.get(g)!)) paired.add(i);
+  });
   cand.forEach((a, i) => {
     if (!a.shift || a.delta === 0 || paired.has(i)) return;
     const j = cand.findIndex(
-      (b, k) => k !== i && b.shift && !paired.has(k) && b.delta * a.delta < 0 && Math.abs(a.delta + b.delta) <= 0.35 * Math.max(Math.abs(a.delta), Math.abs(b.delta)) && overlap(a.rect, b.rect),
+      (b, k) => k !== i && b.shift && !paired.has(k) && b.delta * a.delta < 0 && balances(Math.abs(a.delta), Math.abs(b.delta)) && together(a, b),
     );
     if (j >= 0) paired.add(i).add(j);
   });
@@ -924,12 +1036,25 @@ function appearanceChanges(
     if (colour || weight) hits.push({ a, b, colour });
   }
   // Text of a group: every token from the first hit to the last, so a word
-  // skipped in between (punctuation, a short word) is not left out.
+  // skipped in between (punctuation, a short word) is not left out. Tokens
+  // that are not contiguous on this side (text that moved) give the hits only.
   const span = (all: Token[], hit: Token[]) => {
     const first = hit[0].i;
     const last = hit[hit.length - 1].i;
-    const run = all.slice(first, last + 1).filter((t) => t.line === hit[0].line && !t.furniture);
-    return joinTokens(run.length && last - first < 8 ? run : hit);
+    const lines = new Set(hit.map((t) => t.line));
+    const run = all.slice(first, last + 1).filter((t) => lines.has(t.line) && !t.furniture);
+    return joinTokens(run.length && last - first < Math.max(8, 2 * hit.length) ? run : hit);
+  };
+  // One rect per line, so a change that continues onto the next line does
+  // not highlight the whole paragraph between them.
+  const perLine = (page: number, ts: Token[]) => {
+    const byLine = new Map<number, Rect[]>();
+    for (const t of ts) {
+      const rs = byLine.get(t.line);
+      if (rs) rs.push(t.rects[0]);
+      else byLine.set(t.line, [t.rects[0]]);
+    }
+    return [...byLine.values()].map((rs) => ({ page, rect: union(rs) }));
   };
   const out: Change[] = [];
   let group: Hit[] = [];
@@ -938,14 +1063,13 @@ function appearanceChanges(
     // tokens; a colour change or a line through or under text is
     // convincing on its own.
     if (group.length && (group.length >= 2 || group[0].colour || group[0].line)) {
-      const oldRects = group.map((h) => h.a.rects[0]);
       const newRects = group.map((h) => h.b.rects[0]);
       out.push({
         id: '',
         kind: 'graphic',
         category: 'visual',
-        old: { pages: [oldPage], rects: [{ page: oldPage, rect: union(oldRects) }], text: span(TA, group.map((h) => h.a)) },
-        new: { pages: [newPage], rects: [{ page: newPage, rect: union(newRects) }], text: span(TB, group.map((h) => h.b)) },
+        old: { pages: [oldPage], rects: perLine(oldPage, group.map((h) => h.a)), text: span(TA, group.map((h) => h.a)) },
+        new: { pages: [newPage], rects: perLine(newPage, group.map((h) => h.b)), text: span(TB, group.map((h) => h.b)) },
         format: group[0].line ? { appearanceChanged: true, decoration: group[0].line } : { appearanceChanged: true },
         size: group.length,
         cjk: group.some((h) => h.b.kind === 'cjk'),
@@ -957,9 +1081,14 @@ function appearanceChanges(
     group = [];
   };
   const key = (h: Hit) => (h.line ? `${h.line.line}:${h.line.added}` : '');
+  // A line through or under text that goes on at the start of the next line
+  // of the same paragraph is one change (a struck sentence that wraps). The
+  // words must follow each other on both sides.
+  const wraps = (last: Hit, h: Hit) =>
+    !!h.line && last.b.block === h.b.block && last.a.block === h.a.block && h.b.i > last.b.i && h.a.i > last.a.i && h.a.i - last.a.i <= 2;
   for (const h of hits) {
     const last = group[group.length - 1];
-    if (last && (last.b.line !== h.b.line || h.b.i - last.b.i > 2 || key(last) !== key(h))) flush();
+    if (last && ((last.b.line !== h.b.line && !wraps(last, h)) || h.b.i - last.b.i > 2 || key(last) !== key(h))) flush();
     group.push(h);
   }
   flush();
@@ -990,7 +1119,7 @@ function coveredShare(r: Rect, by: Rect[]): number {
  * width. Colours must match: a stamp that moved and changed colour did not
  * just move.
  */
-function movedWith(src: Prepared, dst: Prepared, r: Rect, dx: number, dy: number): boolean {
+function movedWith(src: Pick<Prepared, 'r' | 'mask'>, dst: Pick<Prepared, 'r'>, r: Rect, dx: number, dy: number, inkOnly = false): boolean {
   const rs = src.r;
   const rd = dst.r;
   const sd = rs.data;
@@ -999,11 +1128,19 @@ function movedWith(src: Prepared, dst: Prepared, r: Rect, dx: number, dy: number
   const y0 = Math.max(0, Math.floor(r.y * rs.scale));
   const x1 = Math.min(rs.width, Math.ceil((r.x + r.w) * rs.scale));
   const y1 = Math.min(rs.height, Math.ceil((r.y + r.h) * rs.scale));
-  const step = Math.max(1, Math.round(Math.sqrt(((x1 - x0) * (y1 - y0)) / 2000)));
+  const step = Math.max(1, Math.round(Math.sqrt(((x1 - x0) * (y1 - y0)) / (inkOnly ? 8000 : 2000))));
   const ratio = rd.scale / rs.scale;
   const pts: number[] = [];
-  for (let y = y0; y < y1; y += step) for (let x = x0; x < x1; x += step) if (src.mask[y * rs.width + x] !== GLYPH && src.mask[y * rs.width + x] !== PAD) pts.push(x, y);
-  if (!pts.length) return false;
+  // With `inkOnly`, paper is not sampled: a region that is mostly paper
+  // would otherwise match anywhere.
+  const inked = (p: number) => !inkOnly || Math.min(sd[p * 4], sd[p * 4 + 1], sd[p * 4 + 2]) < 230;
+  for (let y = y0; y < y1; y += step) {
+    for (let x = x0; x < x1; x += step) {
+      const p = y * rs.width + x;
+      if (src.mask[p] !== GLYPH && src.mask[p] !== PAD && inked(p)) pts.push(x, y);
+    }
+  }
+  if (!pts.length || (inkOnly && pts.length < 2 * 12)) return false;
   // The colour of p lies within the colours around q (unblurred, so a
   // thicker or thinner stroke of the same colour still matches).
   const near = (p: number, qx: number, qy: number) => {
@@ -1041,6 +1178,56 @@ function movedWith(src: Prepared, dst: Prepared, r: Rect, dx: number, dy: number
 
 /** Page pair (old:new) each visual change was found on, for merging across pairs. */
 const foundOn = new WeakMap<Change, string>();
+
+/** Text masks of rasters that are looked at again after their pair was compared. */
+const masks = new WeakMap<Raster, Uint8Array>();
+function maskOf(doc: DocModel, page: number, r: Raster): Uint8Array {
+  let m = masks.get(r);
+  if (!m) masks.set(r, (m = textMask(doc, page, r, luminance(r))));
+  return m;
+}
+
+/** The page pair (old, new) a visual change was found on by compareRasters. */
+export function foundOnPair(c: Change): [number, number] | null {
+  const k = foundOn.get(c);
+  if (!k) return null;
+  const [o, n] = k.split(':').map(Number);
+  return [o, n];
+}
+
+/**
+ * A region found on one side only of one page pair (`side`, in that page's
+ * points) reappears on the other page of another pair, displaced like the
+ * matched line next to it, give or take SHIFT_PT: a figure that went to the
+ * next page with the text after it. Only the region's ink is compared, and
+ * nearly all of it (see movedWith) must be there in the same colours, so a
+ * figure that was removed or changed while the text re-flowed does not match.
+ */
+export function reappears(result: CompareResult, oldPage: number, newPage: number, ra: Raster, rb: Raster, side: 'old' | 'new', rect: Rect): boolean {
+  const invert = side === 'new';
+  const own = anchorsFor(result, oldPage, newPage, invert).filter((a) => a.own);
+  if (!own.length) return false;
+  const [doc, page, rs, rd] = invert ? [result.newDoc, newPage, rb, ra] : [result.oldDoc, oldPage, ra, rb];
+  const src = { r: rs, mask: maskOf(doc, page, rs) };
+  const mid = rect.y + rect.h / 2;
+  const above = own.filter((a) => a.y <= mid).pop();
+  const below = own.find((a) => a.y > mid);
+  // A line that re-wrapped also moved sideways; a figure below it did not.
+  return [above, below].some((a) => !!a && (movedWith(src, { r: rd }, rect, 0, a.dy, true) || (a.dx !== 0 && movedWith(src, { r: rd }, rect, a.dx, a.dy, true))));
+}
+
+/**
+ * A region removed from an old page and one added to a new page look the
+ * same: of similar size, with each one's ink found in the other at their
+ * offset (give or take SHIFT_PT).
+ */
+export function sameGraphic(result: CompareResult, oldPage: number, newPage: number, ra: Raster, rb: Raster, o: Rect, n: Rect): boolean {
+  const similar = (u: number, v: number) => Math.abs(u - v) <= Math.max(2 * SHIFT_PT, 0.2 * Math.max(u, v));
+  if (!similar(o.w, n.w) || !similar(o.h, n.h)) return false;
+  const A = { r: ra, mask: maskOf(result.oldDoc, oldPage, ra) };
+  const B = { r: rb, mask: maskOf(result.newDoc, newPage, rb) };
+  return movedWith(A, B, o, n.x - o.x, n.y - o.y, true) && movedWith(B, A, n, o.x - n.x, o.y - n.y, true);
+}
 
 /**
  * Compare one old page with one new page. Regions already explained by text
