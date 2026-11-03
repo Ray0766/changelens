@@ -1,0 +1,216 @@
+import type { Change, CompareResult } from '../core/types.ts';
+import { t, type Lang } from '../core/i18n.ts';
+import { describeChange, kindLabel, locationLabel } from '../core/describe.ts';
+import { excerptHtml, pageMapSvg, type Review } from '../core/report.ts';
+import { countChanges } from '../core/pipeline.ts';
+import { h, icon, clear } from './dom.ts';
+
+export type Filter = 'all' | 'text' | 'numbers' | 'visual';
+
+export function applyFilter(changes: Change[], f: Filter): Change[] {
+  if (f === 'text') return changes.filter((c) => c.category === 'text');
+  if (f === 'numbers') return changes.filter((c) => c.numeric);
+  if (f === 'visual') return changes.filter((c) => c.category === 'visual');
+  return changes;
+}
+
+function badgeClass(c: Change): string {
+  if (c.numeric) return 'b-num';
+  if (c.category === 'visual') return 'b-vis';
+  if (c.kind === 'move') return 'b-mv';
+  if (c.kind === 'insert') return 'b-ins';
+  if (c.kind === 'delete') return 'b-del';
+  return 'b-text';
+}
+
+export interface SidebarCallbacks {
+  onSelect(id: string): void;
+  onFilter(f: Filter): void;
+  onReview(id: string, review: Review): void;
+  onPage(side: 'old' | 'new', page: number): void;
+}
+
+export class Sidebar {
+  readonly root: HTMLElement;
+  private list: HTMLOListElement;
+  private tabs: HTMLDivElement;
+  private progress: HTMLDivElement;
+  private summary: HTMLDivElement;
+  private selected: string | null = null;
+  filter: Filter = 'all';
+  private lang: Lang;
+  private result: CompareResult;
+  private reviews: Record<string, Review>;
+  private cb: SidebarCallbacks;
+
+  constructor(lang: Lang, result: CompareResult, reviews: Record<string, Review>, cb: SidebarCallbacks) {
+    this.lang = lang;
+    this.result = result;
+    this.reviews = reviews;
+    this.cb = cb;
+    this.summary = h('div', { class: 'summary' });
+    this.tabs = h('div', { class: 'tabs', role: 'tablist' });
+    this.list = h('ol', { class: 'changes', 'aria-label': t(lang, 'details') });
+    this.progress = h('div', { class: 'progress-foot' });
+    this.root = h('aside', { class: 'sidebar' }, this.summary, this.tabs, this.list, this.progress);
+    this.list.addEventListener('click', (e) => this.onListClick(e));
+    this.list.addEventListener('keydown', (e) => {
+      const el = e.target as HTMLElement;
+      if ((e.key === 'Enter' || e.key === ' ') && el.classList.contains('item')) {
+        e.preventDefault();
+        this.cb.onSelect(el.dataset.id!);
+      }
+    });
+    this.list.addEventListener('input', (e) => {
+      const ta = e.target as HTMLTextAreaElement;
+      const id = ta.closest<HTMLElement>('.item')?.dataset.id;
+      if (!id) return;
+      this.reviews[id] = { ...this.reviews[id], note: ta.value };
+      this.cb.onReview(id, this.reviews[id]);
+    });
+    this.render();
+  }
+
+  update(result: CompareResult): void {
+    this.result = result;
+    this.render();
+  }
+
+  private render(): void {
+    const lang = this.lang;
+    const counts = countChanges(this.result.changes);
+    clear(this.summary);
+    const { oldDoc, newDoc, stats } = this.result;
+    const big = h('div', { class: 'summary-head' },
+      h('div', { class: 'summary-count' }, String(counts.total)),
+      h('div', {},
+        h('div', { class: 'summary-title' }, counts.total ? t(lang, 'totalChanges') : t(lang, 'noChanges')),
+        h('div', { class: 'summary-sub' }, `${t(lang, 'pagesLine', { old: oldDoc.pages.length, new: newDoc.pages.length })} · ${t(lang, 'similarity', { pct: (stats.similarity * 100).toFixed(1) + '%' })}`),
+      ),
+    );
+    const map = h('div', { class: 'minimap', html: pageMapSvg(this.result, lang) });
+    map.addEventListener('click', (e) => {
+      const rect = (e.target as Element).closest('rect');
+      const svg = map.querySelector('svg');
+      if (!rect || !svg) return;
+      const rects = [...svg.querySelectorAll('rect')];
+      const idx = rects.indexOf(rect);
+      const n = oldDoc.pages.length;
+      if (idx < 0) return;
+      if (idx < n) this.cb.onPage('old', idx);
+      else this.cb.onPage('new', idx - n);
+    });
+    this.summary.append(big, h('details', { class: 'mapdetails', open: oldDoc.pages.length !== newDoc.pages.length }, h('summary', {}, t(lang, 'pageMap')), map));
+
+    clear(this.tabs);
+    const tabs: [Filter, string, number][] = [
+      ['all', t(lang, 'all'), counts.total],
+      ['text', t(lang, 'text'), counts.text],
+      ['numbers', t(lang, 'numbers'), counts.numbers],
+      ['visual', t(lang, 'visual'), counts.visual],
+    ];
+    for (const [f, label, n] of tabs) {
+      this.tabs.append(
+        h('button', {
+          class: `tab${this.filter === f ? ' on' : ''}`,
+          role: 'tab',
+          'aria-selected': this.filter === f ? 'true' : 'false',
+          onclick: () => {
+            this.filter = f;
+            this.cb.onFilter(f);
+            this.render();
+          },
+        }, label, h('span', { class: 'tab-n' }, String(n))),
+      );
+    }
+    this.renderList();
+  }
+
+  private renderList(): void {
+    const lang = this.lang;
+    clear(this.list);
+    const items = applyFilter(this.result.changes, this.filter);
+    if (items.length === 0) {
+      this.list.append(
+        h('li', { class: 'empty' }, icon('check', 32), h('b', {}, t(lang, 'noChanges')), h('span', {}, t(lang, 'noChangesHint'))),
+      );
+    }
+    items.forEach((c) => this.list.append(this.item(c)));
+    this.renderProgress();
+  }
+
+  private item(c: Change): HTMLLIElement {
+    const lang = this.lang;
+    const rv = this.reviews[c.id] ?? {};
+    const ex = excerptHtml(c);
+    const li = h(
+      'li',
+      { class: `item${c.id === this.selected ? ' on' : ''}${rv.status ? ' st-' + rv.status : ''}`, 'data-id': c.id, tabindex: 0 },
+      h('div', { class: 'item-head' },
+        h('span', { class: `badge ${badgeClass(c)}` }, kindLabel(lang, c)),
+        h('span', { class: 'loc' }, locationLabel(lang, c)),
+        h('span', { class: 'item-actions' },
+          h('button', { class: `rv ok${rv.status === 'ok' ? ' on' : ''}`, 'data-act': 'ok', title: t(lang, 'reviewOk'), 'aria-label': t(lang, 'reviewOk'), 'aria-pressed': rv.status === 'ok' ? 'true' : 'false' }, icon('check', 14)),
+          h('button', { class: `rv q${rv.status === 'question' ? ' on' : ''}`, 'data-act': 'question', title: t(lang, 'reviewQuestion'), 'aria-label': t(lang, 'reviewQuestion'), 'aria-pressed': rv.status === 'question' ? 'true' : 'false' }, icon('alert', 14)),
+          h('button', { class: `rv nt${rv.note ? ' on' : ''}`, 'data-act': 'note', title: t(lang, 'addNote'), 'aria-label': t(lang, 'addNote') }, icon('note', 14)),
+        ),
+      ),
+      h('div', { class: 'desc' }, describeChange(lang, c)),
+      ex ? h('div', { class: 'ex', html: ex }) : null,
+      rv.note !== undefined && rv.note !== '' ? h('textarea', { class: 'note', rows: 2, placeholder: t(lang, 'addNote') }, rv.note) : null,
+    );
+    return li;
+  }
+
+  private onListClick(e: MouseEvent): void {
+    const target = e.target as HTMLElement;
+    const li = target.closest<HTMLLIElement>('.item');
+    if (!li) return;
+    const id = li.dataset.id!;
+    const act = target.closest<HTMLElement>('[data-act]')?.dataset.act;
+    if (target.closest('textarea')) return;
+    if (act === 'ok' || act === 'question') {
+      const cur = this.reviews[id] ?? {};
+      const status = cur.status === act ? undefined : act;
+      this.reviews[id] = { ...cur, status };
+      this.cb.onReview(id, this.reviews[id]);
+      li.replaceWith(this.item(this.result.changes.find((c) => c.id === id)!));
+      this.renderProgress();
+      return;
+    }
+    if (act === 'note') {
+      let ta = li.querySelector('textarea');
+      if (!ta) {
+        ta = h('textarea', { class: 'note', rows: 2, placeholder: t(this.lang, 'addNote') });
+        li.append(ta);
+      }
+      ta.focus();
+      return;
+    }
+    this.cb.onSelect(id);
+  }
+
+  private renderProgress(): void {
+    const all = this.result.changes;
+    const done = all.filter((c) => this.reviews[c.id]?.status).length;
+    clear(this.progress);
+    if (!all.length) return;
+    this.progress.append(
+      h('div', { class: 'bar' }, h('span', { style: { width: `${(done / all.length) * 100}%` } })),
+      h('span', {}, t(this.lang, 'reviewed', { n: done, total: all.length })),
+    );
+  }
+
+  select(id: string | null): void {
+    this.selected = id;
+    for (const li of this.list.querySelectorAll<HTMLElement>('.item')) {
+      const on = li.dataset.id === id;
+      li.classList.toggle('on', on);
+      if (on) li.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
+
+  visibleIds(): string[] {
+    return applyFilter(this.result.changes, this.filter).map((c) => c.id);
+  }
+}

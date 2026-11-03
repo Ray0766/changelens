@@ -1,0 +1,247 @@
+import type { Change, CompareResult } from './types.ts';
+import { t, type Lang } from './i18n.ts';
+import { describeChange, excerpt, kindLabel, locationLabel, pageLabel, truncate } from './describe.ts';
+import { countChanges } from './pipeline.ts';
+import { COLORS } from './crops.ts';
+
+export type ReviewStatus = 'ok' | 'question';
+
+export interface Review {
+  status?: ReviewStatus;
+  note?: string;
+}
+
+export interface ReportInput {
+  result: CompareResult;
+  lang: Lang;
+  oldName: string;
+  newName: string;
+  reviews?: Record<string, Review>;
+  /** PNG data URLs keyed by change id. */
+  crops?: Record<string, { old?: string; new?: string; wide?: boolean }>;
+  generatedAt?: Date;
+  /** Only include these change ids (e.g. the current filter). */
+  include?: string[];
+  homepage?: string;
+}
+
+export function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+}
+
+const HOMEPAGE = 'https://github.com/Ray0766/changelens';
+
+export function excerptHtml(c: Change): string {
+  const e = excerpt(c);
+  const ctxB = e.before ? `<span class="ctx">${escapeHtml(e.before)}</span> ` : '';
+  const ctxA = e.after ? ` <span class="ctx">${escapeHtml(e.after)}</span>` : '';
+  switch (c.kind) {
+    case 'replace':
+      return `${ctxB}<del>${escapeHtml(e.old)}</del> <ins>${escapeHtml(e.new)}</ins>${ctxA}`;
+    case 'insert':
+      return `${ctxB}<ins>${escapeHtml(e.new)}</ins>${ctxA}`;
+    case 'delete':
+      return `${ctxB}<del>${escapeHtml(e.old)}</del>${ctxA}`;
+    case 'move':
+      return `<mark class="mv">${escapeHtml(e.new)}</mark>`;
+    default:
+      return e.new || e.old ? `<span class="q">${escapeHtml(e.new || e.old)}</span>` : '';
+  }
+}
+
+/** Small SVG showing how old pages map onto new pages. */
+export function pageMapSvg(result: CompareResult, lang: Lang): string {
+  const n = result.oldDoc.pages.length;
+  const m = result.newDoc.pages.length;
+  const cols = Math.max(n, m);
+  const step = cols > 40 ? 12 : cols > 20 ? 18 : 28;
+  const pw = step * 0.64;
+  const ph = pw * 1.3;
+  const width = cols * step + 96;
+  const yOld = 6;
+  const yNew = 62 + ph;
+  const changed = (side: 'old' | 'new', p: number) => result.changes.some((c) => c[side].rects.some((r) => r.page === p));
+  const x = (i: number) => 90 + i * step;
+  const maxW = Math.max(1, ...result.pageLinks.map((l) => l.weight));
+  const links = result.pageLinks
+    .filter((l) => l.weight >= 3)
+    .map(
+      (l) =>
+        `<line x1="${x(l.oldPage) + pw / 2}" y1="${yOld + ph}" x2="${x(l.newPage) + pw / 2}" y2="${yNew}" stroke="currentColor" stroke-opacity="${(0.25 + 0.6 * (l.weight / maxW)).toFixed(2)}" stroke-width="${(1 + 2 * (l.weight / maxW)).toFixed(1)}"/>`,
+    )
+    .join('');
+  const pages = (count: number, y: number, side: 'old' | 'new') =>
+    Array.from({ length: count }, (_, i) => {
+      const hot = changed(side, i);
+      return `<rect x="${x(i)}" y="${y}" width="${pw}" height="${ph}" rx="2" fill="${hot ? (side === 'old' ? COLORS.del : COLORS.ins) : 'none'}" fill-opacity="${hot ? 0.22 : 0}" stroke="currentColor" stroke-opacity="0.55"/>` +
+        (count <= 40 ? `<text x="${x(i) + pw / 2}" y="${y + ph / 2 + 3.5}" font-size="${step > 20 ? 9 : 7}" text-anchor="middle" fill="currentColor">${i + 1}</text>` : '');
+    }).join('');
+  return `<svg class="pagemap" viewBox="0 0 ${width} ${yNew + ph + 6}" width="${width}" role="img" aria-label="${escapeHtml(t(lang, 'pageMap'))}">
+  <text x="0" y="${yOld + ph / 2 + 4}" font-size="11" fill="currentColor">${escapeHtml(t(lang, 'oldVersion'))}</text>
+  <text x="0" y="${yNew + ph / 2 + 4}" font-size="11" fill="currentColor">${escapeHtml(t(lang, 'newVersion'))}</text>
+  ${links}${pages(n, yOld, 'old')}${pages(m, yNew, 'new')}</svg>`;
+}
+
+const CSS = `
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1b1f24;--muted:#5d6670;--line:#e2e5e9;--del:${COLORS.del};--ins:${COLORS.ins};--mv:${COLORS.move};--vis:${COLORS.visual};--accent:#2754c5}
+@media (prefers-color-scheme:dark){:root{--bg:#121417;--card:#1b1e22;--ink:#e8eaed;--muted:#9aa3ad;--line:#2c3138}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif}
+main{max-width:1080px;margin:0 auto;padding:32px 16px 64px}
+header h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+.files{color:var(--muted);margin:0 0 4px;word-break:break-all}
+.files b{color:var(--ink);font-weight:600}
+.meta{color:var(--muted);font-size:13px;margin:0}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:24px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card .n{font-size:28px;font-weight:650;line-height:1.1}
+.card .l{color:var(--muted);font-size:13px}
+section{margin-top:28px}
+h2{font-size:18px;margin:0 0 12px}
+.mapbox{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;overflow-x:auto;color:var(--muted)}
+.pagemap{display:block;max-width:none}
+.change{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:0 0 14px;break-inside:avoid;page-break-inside:avoid}
+.head{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 10px}
+.num{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;min-width:2.2em}
+.badge{display:inline-block;font-size:12px;font-weight:600;padding:1px 8px;border-radius:999px;color:#fff}
+.b-text{background:var(--accent)}.b-del{background:var(--del)}.b-ins{background:var(--ins)}.b-mv{background:var(--mv)}.b-vis{background:var(--vis)}.b-num{background:#c77800}
+.desc{font-weight:600;flex:1 1 320px;word-break:break-word}
+.loc{color:var(--muted);font-size:13px;white-space:nowrap}
+.ex{margin:8px 0 0;color:var(--ink);word-break:break-word}
+.ctx{color:var(--muted)}
+del{background:color-mix(in srgb,var(--del) 16%,transparent);color:inherit;text-decoration:line-through;text-decoration-color:var(--del);padding:0 2px;border-radius:3px}
+ins{background:color-mix(in srgb,var(--ins) 18%,transparent);text-decoration:none;padding:0 2px;border-radius:3px}
+mark.mv{background:color-mix(in srgb,var(--mv) 14%,transparent);color:inherit;padding:0 2px;border-radius:3px}
+.q{color:var(--muted)}
+.crops{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.crops.wide{grid-template-columns:1fr}
+.crops figure{margin:0;min-width:0}
+.crops figcaption{font-size:12px;color:var(--muted);margin-bottom:4px}
+.crops img{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:#fff}
+.crops .none{border:1px dashed var(--line);border-radius:8px;color:var(--muted);font-size:13px;display:flex;align-items:center;justify-content:center;min-height:80px}
+.review{margin-top:10px;font-size:13px;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline}
+.st-ok{color:var(--ins);font-weight:600}.st-question{color:#c77800;font-weight:600}.st-open{color:var(--muted)}
+.note{white-space:pre-wrap;background:var(--bg);border-radius:6px;padding:4px 8px;flex:1 1 100%}
+footer{margin-top:40px;color:var(--muted);font-size:13px;text-align:center}
+footer a{color:inherit}
+@media (max-width:640px){.crops{grid-template-columns:1fr}}
+@media print{body{background:#fff;font-size:12px}main{padding:0}.change,.card,.mapbox{border-color:#ccc}a{color:inherit}}
+`;
+
+function badgeClass(c: Change): string {
+  if (c.numeric) return 'b-num';
+  if (c.category === 'visual') return 'b-vis';
+  if (c.kind === 'move') return 'b-mv';
+  if (c.kind === 'insert') return 'b-ins';
+  if (c.kind === 'delete') return 'b-del';
+  return 'b-text';
+}
+
+/** A complete, self-contained HTML review report. */
+export function buildReport(input: ReportInput): string {
+  const { result, lang } = input;
+  const reviews = input.reviews ?? {};
+  const crops = input.crops ?? {};
+  const changes = input.include ? result.changes.filter((c) => input.include!.includes(c.id)) : result.changes;
+  const counts = countChanges(changes);
+  const date = (input.generatedAt ?? new Date()).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-GB', { dateStyle: 'long', timeStyle: 'short' });
+  const reviewed = changes.filter((c) => reviews[c.id]?.status).length;
+  const questions = changes.filter((c) => reviews[c.id]?.status === 'question').length;
+  const homepage = input.homepage ?? HOMEPAGE;
+
+  const card = (n: number | string, label: string) => `<div class="card"><div class="n">${n}</div><div class="l">${escapeHtml(label)}</div></div>`;
+
+  const items = changes
+    .map((c, k) => {
+      const cr = crops[c.id] ?? {};
+      const fig = (side: 'old' | 'new') => {
+        const label = side === 'old' ? t(lang, 'oldVersion') : t(lang, 'newVersion');
+        const pages = c[side].pages.length ? c[side].pages : c[side].caret ? [c[side].caret!.page] : [];
+        const cap = `${escapeHtml(label)}${pages.length ? ' · ' + escapeHtml(pageLabel(lang, pages)) : ''}`;
+        const src = cr[side];
+        return `<figure><figcaption>${cap}</figcaption>${src ? `<img alt="" src="${src}">` : `<div class="none">—</div>`}</figure>`;
+      };
+      const rv = reviews[c.id] ?? {};
+      const status = rv.status === 'ok' ? `<span class="st-ok">${escapeHtml(t(lang, 'statusOk'))}</span>` : rv.status === 'question' ? `<span class="st-question">${escapeHtml(t(lang, 'statusQuestion'))}</span>` : `<span class="st-open">${escapeHtml(t(lang, 'statusOpen'))}</span>`;
+      const note = rv.note ? `<div class="note"><b>${escapeHtml(t(lang, 'noteLabel'))}:</b> ${escapeHtml(rv.note)}</div>` : '';
+      const ex = excerptHtml(c);
+      const showCrops = cr.old || cr.new;
+      return `<article class="change" id="${c.id}">
+  <div class="head"><span class="num">#${k + 1}</span><span class="badge ${badgeClass(c)}">${escapeHtml(kindLabel(lang, c))}</span><span class="desc">${escapeHtml(describeChange(lang, c))}</span><span class="loc">${escapeHtml(locationLabel(lang, c))}</span></div>
+  ${ex ? `<p class="ex">${ex}</p>` : ''}
+  ${showCrops ? `<div class="crops${cr.wide ? ' wide' : ''}">${fig('old')}${fig('new')}</div>` : ''}
+  <div class="review">${status}${note}</div>
+</article>`;
+    })
+    .join('\n');
+
+  const title = `${t(lang, 'reportTitle')} · ${truncate(input.newName, 60)}`;
+  return `<!doctype html>
+<html lang="${lang === 'zh' ? 'zh-CN' : 'en'}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="generator" content="ChangeLens">
+<title>${escapeHtml(title)}</title>
+<style>${CSS}</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>${escapeHtml(t(lang, 'reportTitle'))}</h1>
+  <p class="files"><b>${escapeHtml(input.oldName)}</b> → <b>${escapeHtml(input.newName)}</b></p>
+  <p class="meta">${escapeHtml(t(lang, 'generated', { date }))} · ${escapeHtml(t(lang, 'pagesLine', { old: result.oldDoc.pages.length, new: result.newDoc.pages.length }))} · ${escapeHtml(t(lang, 'similarity', { pct: (result.stats.similarity * 100).toFixed(1) + '%' }))}</p>
+</header>
+<div class="cards">
+  ${card(counts.total, t(lang, 'totalChanges'))}
+  ${card(counts.text, t(lang, 'text'))}
+  ${card(counts.numbers, t(lang, 'numbers'))}
+  ${card(counts.visual, t(lang, 'visual'))}
+  ${card(`${reviewed}/${changes.length}`, t(lang, 'reviewedLabel') + (questions ? ` · ⚠ ${questions}` : ''))}
+</div>
+<section>
+  <h2>${escapeHtml(t(lang, 'pageMap'))}</h2>
+  <div class="mapbox">${pageMapSvg(result, lang)}</div>
+</section>
+<section>
+  <h2>${escapeHtml(t(lang, 'details'))}</h2>
+  ${changes.length ? items : `<p>${escapeHtml(t(lang, 'noChanges'))}</p>`}
+</section>
+<footer>ChangeLens · <a href="${escapeHtml(homepage)}">${escapeHtml(homepage.replace(/^https?:\/\//, ''))}</a></footer>
+</main>
+</body>
+</html>`;
+}
+
+/** Machine-readable export of the comparison (no page images). */
+export function buildJson(input: ReportInput): unknown {
+  const { result, lang } = input;
+  const reviews = input.reviews ?? {};
+  return {
+    generator: 'ChangeLens',
+    version: 1,
+    old: { name: input.oldName, pages: result.oldDoc.pages.length },
+    new: { name: input.newName, pages: result.newDoc.pages.length },
+    options: result.options,
+    stats: result.stats,
+    pageMap: { oldToNew: result.oldToNew.map((p) => (p < 0 ? null : p + 1)), newToOld: result.newToOld.map((p) => (p < 0 ? null : p + 1)) },
+    changes: result.changes.map((c) => ({
+      id: c.id,
+      kind: c.kind,
+      category: c.category,
+      description: describeChange(lang, c),
+      location: locationLabel(lang, c),
+      numeric: c.numeric,
+      format: c.format,
+      overflow: c.overflow,
+      old: { pages: c.old.pages.map((p) => p + 1), text: c.old.text, rects: c.old.rects.map((r) => ({ page: r.page + 1, ...round(r.rect) })) },
+      new: { pages: c.new.pages.map((p) => p + 1), text: c.new.text, rects: c.new.rects.map((r) => ({ page: r.page + 1, ...round(r.rect) })) },
+      review: reviews[c.id],
+    })),
+  };
+}
+
+function round(r: { x: number; y: number; w: number; h: number }) {
+  const f = (v: number) => Math.round(v * 10) / 10;
+  return { x: f(r.x), y: f(r.y), w: f(r.w), h: f(r.h) };
+}
