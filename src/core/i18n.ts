@@ -192,6 +192,8 @@ const en = {
   pageRemovedNoText: 'Page without text removed (images or drawings only)',
   pageResized: 'Page size changed: {from} → {to}',
   noticeVisualSkipped: '{side} {pages}: graphics and images were not compared (the page is too large to render, or could not be rendered).',
+  noticePairedNoVisual: 'Paired by hand: {pair} (images not compared).',
+  noticeNoFormat: 'Changes in bold, italic, font size and font were not compared.',
 };
 
 export type MessageKey = keyof typeof en;
@@ -387,6 +389,8 @@ const zh: Record<MessageKey, string> = {
   pageRemovedNoText: '删除了一页没有文字的页面（只有图片或图形）',
   pageResized: '页面尺寸变化：{from} → {to}',
   noticeVisualSkipped: '{side}{pages}未比较图形和图片（页面太大无法渲染，或渲染失败）。',
+  noticePairedNoVisual: '已手动配对：{pair}（未比较图像）。',
+  noticeNoFormat: '未比较加粗、斜体、字号和字体的变化。',
 };
 
 const dicts: Record<Lang, Record<MessageKey, string>> = { en, zh };
