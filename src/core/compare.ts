@@ -1,5 +1,6 @@
 import type {
   Anchor,
+  Coverage,
   Change,
   CompareResult,
   DiffOptions,
@@ -16,6 +17,7 @@ import { cleanupSemantic, intern, matchSequences, opsFromMatches, type DiffOp, t
 import { mergeLineRects } from './geometry.ts';
 import { isNumericPhrase, parseNumber } from './numbers.ts';
 import { findOverflow } from './overflow.ts';
+import { syncFurniture } from './furniture.ts';
 
 
 function weight(t: Token): number {
@@ -512,6 +514,7 @@ function buildAnchors(A: Token[], B: Token[], pairs: Int32Array): Anchor[] {
 
 export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<DiffOptions> = {}): CompareResult {
   const options: DiffOptions = { ...defaultOptions, ...opts };
+  syncFurniture(oldDoc, newDoc);
   const include = (t: Token) =>
     !(options.ignoreFurniture && t.furniture) && !(options.ignorePunctuation && t.kind === 'punct');
   const keyOf = (t: Token) => {
@@ -575,8 +578,10 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   const { moves, rest } = detectMoves(ctx, hunks, ka, kb);
   const changes: Change[] = [...rest.map((h) => textChange(ctx, h)), ...moves];
   mergeNearby(changes, oldDoc, newDoc);
-  if (options.detectFormatting) changes.push(...detectFormatting(ctx, ops));
+  markDuplicates(changes, B);
+  if (options.detectFormatting) changes.push(...aggregateFormatting(detectFormatting(ctx, ops)));
 
+  if (options.detectFormatting) changes.push(...detectPositions(ctx, pairs));
   const map = pageMap(oldDoc, newDoc, A, B, pairs);
   changes.push(...findOverflow(oldDoc, newDoc, A, B, pairs));
 
@@ -592,6 +597,13 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
     anchors: buildAnchors(A, B, pairs),
     matches: Int32Array.from(pairs, (v, k) => (k % 2 === 0 ? A[v].i : B[v].i)),
     options,
+    coverage: { old: coverageOf(oldDoc), new: { ...coverageOf(newDoc), uncertain: uncertainPages(newDoc, B, pairs) } },
+    ignored: {
+      furniture: options.ignoreFurniture ? furnitureDifferences(oldDoc, newDoc) : 0,
+      caseOnly: options.ignoreCase ? caseOnlyDifferences(A, B, pairs) : 0,
+      minorShifts: 0,
+    },
+    minor: [],
     stats: {
       oldTokens: A.length,
       newTokens: B.length,
@@ -599,6 +611,183 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
       similarity: A.length + B.length ? pairs.length / (A.length + B.length) : 1,
     },
   };
+}
+
+/**
+ * Unchanged lines that moved sideways on the page (e.g. a stamp moved from
+ * left to right, a heading re-aligned). Only lines that are intact in both
+ * versions are considered, so ordinary re-flow never triggers this; the
+ * displacement is measured against the page's typical displacement.
+ */
+function detectPositions(ctx: Ctx, pairs: Int32Array): Change[] {
+  const { A, B, oldDoc, newDoc } = ctx;
+  const byOldLine = new Map<number, number[]>();
+  for (let p = 0; p < pairs.length; p += 2) {
+    const a = A[pairs[p]];
+    let arr = byOldLine.get(a.line);
+    if (!arr) byOldLine.set(a.line, (arr = []));
+    arr.push(p);
+  }
+  const countNewLine = new Map<number, number>();
+  for (const t of B) countNewLine.set(t.line, (countNewLine.get(t.line) ?? 0) + 1);
+  const countOldLine = new Map<number, number>();
+  for (const t of A) countOldLine.set(t.line, (countOldLine.get(t.line) ?? 0) + 1);
+  type Moved = { oldLine: number; newLine: number; dx: number; dy: number; page: [number, number] };
+  const intact: Moved[] = [];
+  for (const [ol, ps] of byOldLine) {
+    const newLines = new Set(ps.map((p) => B[pairs[p + 1]].line));
+    if (newLines.size !== 1) continue;
+    const nl = [...newLines][0];
+    // Every comparable token of both lines is matched to the other line.
+    if (ps.length !== countOldLine.get(ol) || ps.length !== countNewLine.get(nl)) continue;
+    const lo = oldDoc.lines[ol];
+    const ln = newDoc.lines[nl];
+    intact.push({ oldLine: ol, newLine: nl, dx: ln.rect.x - lo.rect.x, dy: ln.rect.y - lo.rect.y, page: [lo.page, ln.page] });
+  }
+  const out: Change[] = [];
+  const byPair = new Map<string, Moved[]>();
+  for (const m of intact) {
+    const k = m.page.join(':');
+    byPair.set(k, [...(byPair.get(k) ?? []), m]);
+  }
+  for (const list of byPair.values()) {
+    const dxs = list.map((m) => m.dx).sort((u, v) => u - v);
+    const median = dxs[dxs.length >> 1];
+    for (const m of list) {
+      const rel = m.dx - median;
+      if (Math.abs(rel) <= 12 || list.length < 3) continue;
+      const lo = oldDoc.lines[m.oldLine];
+      const ln = newDoc.lines[m.newLine];
+      const words = newDoc.tokens.slice(ln.start, ln.end).filter((t) => t.kind !== 'punct');
+      const newSide: Side = { pages: [ln.page], rects: [{ page: ln.page, rect: ln.rect }], text: ln.text, start: ln.start, end: ln.end };
+      out.push({
+        id: '',
+        kind: 'position',
+        category: 'visual',
+        old: { pages: [lo.page], rects: [{ page: lo.page, rect: lo.rect }], text: lo.text, start: lo.start, end: lo.end },
+        new: newSide,
+        shift: { dx: rel, dy: 0 },
+        size: words.length,
+        cjk: words.filter((t) => t.kind === 'cjk').length / Math.max(1, words.length) > 0.5,
+        contextBefore: '',
+        contextAfter: '',
+        order: sideOrder(newSide, newDoc),
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * The same formatting change in many places (typically a font replaced
+ * throughout) becomes one change listing every place, instead of one entry
+ * per paragraph.
+ */
+function aggregateFormatting(changes: Change[]): Change[] {
+  const key = (c: Change) => {
+    const f = c.format ?? {};
+    const fam = (n?: string) => (n ? styleOf(n).family : '');
+    return JSON.stringify([!!f.boldAdded, !!f.boldRemoved, !!f.italicAdded, !!f.italicRemoved, f.sizeFrom, f.sizeTo, fam(f.fontFrom), fam(f.fontTo)]);
+  };
+  const groups = new Map<string, Change[]>();
+  for (const c of changes) {
+    const k = key(c);
+    groups.set(k, [...(groups.get(k) ?? []), c]);
+  }
+  const out: Change[] = [];
+  for (const list of groups.values()) {
+    if (list.length < 3) {
+      out.push(...list);
+      continue;
+    }
+    const first = list[0];
+    const merged: Change = {
+      ...first,
+      old: { ...first.old, rects: list.flatMap((c) => c.old.rects), pages: [...new Set(list.flatMap((c) => c.old.pages))].sort((a, b) => a - b) },
+      new: { ...first.new, rects: list.flatMap((c) => c.new.rects), pages: [...new Set(list.flatMap((c) => c.new.pages))].sort((a, b) => a - b) },
+      size: list.reduce((n, c) => n + c.size, 0),
+      places: list.length,
+    };
+    out.push(merged);
+  }
+  return out;
+}
+
+/** Insertions of ≥ 10 words whose exact text also appears elsewhere in the new version. */
+function markDuplicates(changes: Change[], B: Token[]): void {
+  const sep = '\u0001';
+  const keys = B.map((t) => t.key);
+  const joined = sep + keys.join(sep) + sep;
+  // Offsets of each token in the joined string.
+  const offset: number[] = [];
+  let pos = 1;
+  for (const k of keys) {
+    offset.push(pos);
+    pos += k.length + 1;
+  }
+  const indexOfToken = new Map<number, number>(B.map((t, k) => [t.i, k]));
+  for (const c of changes) {
+    if (c.kind !== 'insert' || c.new.start === undefined || c.size < 10) continue;
+    const b0 = indexOfToken.get(c.new.start);
+    const b1 = indexOfToken.get(c.new.end! - 1);
+    if (b0 === undefined || b1 === undefined) continue;
+    const needle = sep + keys.slice(b0, b1 + 1).join(sep) + sep;
+    let at = joined.indexOf(needle);
+    while (at >= 0) {
+      const k = offset.indexOf(at + 1);
+      if (k >= 0 && (k + (b1 - b0) < b0 || k > b1)) {
+        c.duplicateOf = B[k].page;
+        break;
+      }
+      at = joined.indexOf(needle, at + 1);
+    }
+  }
+}
+
+/** New pages with ≥ 20 words of which less than half are matched to the old version. */
+function uncertainPages(doc: DocModel, B: Token[], pairs: Int32Array): { page: number; matched: number }[] {
+  const total = new Map<number, number>();
+  const matched = new Map<number, number>();
+  for (const t of B) total.set(t.page, (total.get(t.page) ?? 0) + 1);
+  for (let p = 1; p < pairs.length; p += 2) {
+    const t = B[pairs[p]];
+    matched.set(t.page, (matched.get(t.page) ?? 0) + 1);
+  }
+  const out: { page: number; matched: number }[] = [];
+  for (const pg of doc.pages) {
+    const n = total.get(pg.index) ?? 0;
+    const m = matched.get(pg.index) ?? 0;
+    if (n >= 20 && m / n < 0.5) out.push({ page: pg.index, matched: Math.round((m / n) * 100) / 100 });
+  }
+  return out;
+}
+
+function coverageOf(doc: DocModel): Coverage {
+  const textless: number[] = [];
+  const unreadable: { page: number; count: number }[] = [];
+  for (const pg of doc.pages) {
+    const toks = doc.tokens.filter((t) => t.page === pg.index && !t.furniture);
+    if (toks.length === 0) textless.push(pg.index);
+    // Private-use code points come from glyphs without a proper Unicode mapping.
+    let count = pg.unmapped;
+    for (const t of toks) for (const ch of t.text) if (/[\ue000-\uf8ff\ufffd]/.test(ch)) count++;
+    if (count > 0) unreadable.push({ page: pg.index, count });
+  }
+  return { textless, unreadable };
+}
+
+/** Number of differing header/footer lines (shown as "ignored", not hidden silently). */
+function furnitureDifferences(a: DocModel, b: DocModel): number {
+  const la = a.lines.filter((l) => l.furniture).map((l) => l.text);
+  const lb = b.lines.filter((l) => l.furniture).map((l) => l.text);
+  const [ka, kb] = intern(la, lb);
+  return opsFromMatches(matchSequences(ka, kb), la.length, lb.length).filter((o) => o.type !== 'equal').reduce((n, o) => n + Math.max(o.a1 - o.a0, o.b1 - o.b0), 0);
+}
+
+function caseOnlyDifferences(A: Token[], B: Token[], pairs: Int32Array): number {
+  let n = 0;
+  for (let p = 0; p < pairs.length; p += 2) if (baseKey(A[pairs[p]].text) !== baseKey(B[pairs[p + 1]].text)) n++;
+  return n;
 }
 
 /**

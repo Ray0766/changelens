@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { parseArgs } from 'node:util';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -11,8 +11,9 @@ import { compareDocs } from '../core/compare.ts';
 import { addVisualChanges, countChanges } from '../core/pipeline.ts';
 import { cropRegions, drawCrop, type CanvasLike, type Region } from '../core/crops.ts';
 import { buildJson, buildReport } from '../core/report.ts';
-import { describeChange, kindLabel, locationLabel } from '../core/describe.ts';
-import { detectLang, t, type Lang } from '../core/i18n.ts';
+import { countLabel, describeChange, kindLabel, locationLabel, notices } from '../core/describe.ts';
+import { createHash } from 'node:crypto';
+import { detectLang, explainOpenError, t, type Lang } from '../core/i18n.ts';
 import type { Change, CompareResult } from '../core/types.ts';
 
 declare const __VERSION__: string;
@@ -123,7 +124,14 @@ async function main(): Promise<number> {
   const lang: Lang = o.lang === 'zh' || o.lang === 'en' ? o.lang : detectLang(process.env.LC_ALL || process.env.LANG || '');
   const [oldPath, newPath] = positionals;
 
-  const pdfs = { old: await openPdf(oldPath), new: await openPdf(newPath) };
+  const open = async (path: string) => {
+    try {
+      return await openPdf(path);
+    } catch (e) {
+      throw new Error(explainOpenError(lang, basename(path), e));
+    }
+  };
+  const pdfs = { old: await open(oldPath), new: await open(newPath) };
   const oldDoc = buildDocModel(await extractText(pdfs.old, basename(oldPath)));
   const newDoc = buildDocModel(await extractText(pdfs.new, basename(newPath)));
   for (const d of [oldDoc, newDoc]) {
@@ -156,7 +164,12 @@ async function main(): Promise<number> {
   const head = `${bold(basename(oldPath))} (${oldDoc.pages.length}) → ${bold(basename(newPath))} (${newDoc.pages.length})`;
   process.stdout.write(`${head}\n`);
   if (counts.total === 0) process.stdout.write(t(lang, 'noChanges') + '\n');
-  else process.stdout.write(`${bold(t(lang, 'changesCount', { n: counts.total }))} — ${t(lang, 'summaryLine', { text: counts.text, num: counts.numbers, visual: counts.visual })}\n`);
+  else process.stdout.write(`${bold(countLabel(lang, counts.total))} — ${t(lang, 'summaryLine', { text: counts.text, num: counts.numbers, visual: counts.visual })}\n`);
+  // Filtered differences and uncovered areas are always stated.
+  const notes = notices(lang, result);
+  const visualCompared = !o['no-visual'] && rendering;
+  if (!visualCompared) notes.push({ level: 'info', text: t(lang, 'noticeNoVisual') });
+  for (const n of notes) process.stdout.write((n.level === 'warn' ? c('33', '! ') : dim('· ')) + (n.level === 'warn' ? n.text : dim(n.text)) + '\n');
   if (!o.quiet) {
     const width = String(result.changes.length).length;
     for (const [k, ch] of result.changes.entries()) {
@@ -165,7 +178,16 @@ async function main(): Promise<number> {
     }
   }
 
-  const input = { result, lang, oldName: basename(oldPath), newName: basename(newPath) };
+  const sha = async (p: string) => createHash('sha256').update(await readFile(p)).digest('hex');
+  const input = {
+    result,
+    lang,
+    oldName: basename(oldPath),
+    newName: basename(newPath),
+    files: { old: { sha256: await sha(oldPath) }, new: { sha256: await sha(newPath) } },
+    version: VERSION,
+    visualCompared,
+  };
   if (o.out) {
     const crops = rendering ? await makeCrops(result, pdfs) : {};
     await writeFile(o.out, buildReport({ ...input, crops }));
@@ -181,7 +203,7 @@ async function main(): Promise<number> {
 main().then(
   (code) => process.exit(code),
   (err) => {
-    process.stderr.write(`changelens: ${err?.message ?? err}\n`);
+    process.stderr.write(`${err?.message ?? err}\n`);
     process.exit(2);
   },
 );

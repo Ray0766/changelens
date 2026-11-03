@@ -1,0 +1,15 @@
+{
+  "description": "Page 2 appears twice in the new version.",
+  "synthetic": true,
+  "holdout": false,
+  "truth": [
+    {
+      "type": "insert",
+      "new": "Spare parts",
+      "newPage": [
+        2,
+        3
+      ]
+    }
+  ]
+}

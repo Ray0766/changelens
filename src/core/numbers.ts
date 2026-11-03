@@ -1,6 +1,12 @@
 /** Parse amounts such as "8,000", "9.500,00", "1 234.5", "12%" or "¥3,000". */
 export function parseNumber(text: string): number | null {
-  let s = text.replace(/[\s  ']/g, '').replace(/[^\d.,\-+]/g, '');
+  // Accounting notation: (1,200) is −1,200.
+  const paren = /^\(.*\)$/.test(text.trim());
+  if (paren) {
+    const v = parseNumber(text.trim().slice(1, -1));
+    return v === null ? null : -v;
+  }
+  let s = text.replace(/[\u2212\u2013]/g, '-').replace(/[\s  ']/g, '').replace(/[^\d.,\-+]/g, '');
   if (!/\d/.test(s)) return null;
   const neg = s.startsWith('-');
   s = s.replace(/^[+-]/, '');
@@ -31,7 +37,7 @@ const CURRENCY_WORDS = /^(usd|eur|gbp|cny|rmb|jpy|元|万|亿|円|k|m|bn)$/i;
 export function isNumericPhrase(texts: string[]): boolean {
   let digits = 0;
   for (const t of texts) {
-    if (/\d/.test(t) && /^[\d.,:/\-+%]+$/.test(t)) {
+    if (/\d/.test(t) && /^[\d.,:/\-+%\u2212\u2013()]+$/.test(t)) {
       digits++;
       continue;
     }

@@ -54,8 +54,15 @@ export async function extractPage(page: PDFPageProxy, index: number): Promise<Pa
   }
 
   const runs: TextRun[] = [];
+  let unmapped = 0;
   for (const item of tc.items) {
     if (!('str' in item)) continue;
+    if (item.str === '' && item.width > 0 && !item.hasEOL) {
+      // A glyph drawn without a Unicode mapping: its text cannot be compared.
+      const y = viewport.height - item.transform[5];
+      if (y > viewport.height * 0.11 && y < viewport.height * 0.89) unmapped++;
+      continue;
+    }
     if (item.str === '' && !item.hasEOL) continue;
     const style = tc.styles[item.fontName] ?? { fontFamily: 'sans-serif', ascent: 0.8, descent: -0.2 };
     const tx = multiply(viewport.transform, item.transform);
@@ -107,7 +114,7 @@ export async function extractPage(page: PDFPageProxy, index: number): Promise<Pa
       angle,
     });
   }
-  return { index, width: viewport.width, height: viewport.height, runs };
+  return { index, width: viewport.width, height: viewport.height, runs, unmapped };
 }
 
 export async function extractText(

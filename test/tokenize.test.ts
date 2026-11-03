@@ -60,3 +60,12 @@ test('joinTokens restores spacing, without spaces at CJK line breaks', () => {
   const m = buildDocModel(makeDoc('a', [[['价格从八千', '元调整为九千元。'], ['Second paragraph here.']]]));
   assert.equal(joinTokens(m.tokens), '价格从八千元调整为九千元。 Second paragraph here.');
 });
+
+test('signs and accounting negatives stay attached to their numbers', () => {
+  const doc: DocText = { name: 'a', pages: [{ index: 0, width: 595, height: 842, runs: [run('Balance -1,200 and −500 (1,200) on 2026-11-02 for A-3 x − 5 (see note)', 56, 100)] }] };
+  const texts = buildDocModel(doc).tokens.map((t) => t.text);
+  for (const n of ['-1,200', '−500', '(1,200)', '2026-11-02', 'A-3']) assert.ok(texts.includes(n), n);
+  // A free-standing minus and ordinary parentheses are punctuation.
+  assert.ok(texts.includes('−') && texts.includes('5'));
+  assert.ok(texts.includes('(') && texts.includes('see'));
+});

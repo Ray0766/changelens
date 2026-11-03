@@ -118,6 +118,9 @@ function lineChars(line: RawLine): Char[] {
 const JOIN_DIGITS = new Set(['.', ',', ':', '/']);
 const JOIN_ALNUM = new Set(["'", '’', '-', '‐', '‑']);
 const HYPHENS = new Set(['-', '‐', '­']);
+/** Minus/plus signs: hyphen-minus, U+2212 minus, en dash (often used as minus), plus. */
+const SIGNS = new Set(['-', '\u2212', '\u2013', '+']);
+const OPENERS = new Set(['(', '[', '{', '=', ':', '$', '€', '£', '¥', '\uff08']);
 
 function tokenKind(text: string, cls: string): TokenKind {
   if (cls === 'cjk') return 'cjk';
@@ -204,6 +207,46 @@ function tokenizeChars(chars: Char[]): Tok[] {
       space = false;
       k = j;
       continue;
+    }
+    // Accounting negative: "(1,200)" is one number.
+    if (c.ch === '(' && DIGIT.test(chars[k + 1]?.ch ?? '')) {
+      const prev = chars[k - 1]?.ch;
+      if (!prev || space || OPENERS.has(prev)) {
+        let j = k + 1;
+        while (j < chars.length) {
+          const cj = chars[j].ch;
+          if (DIGIT.test(cj)) j++;
+          else if (JOIN_DIGITS.has(cj) && DIGIT.test(chars[j + 1]?.ch ?? '')) j += 2;
+          else break;
+        }
+        const after = chars[j + 1]?.ch;
+        if (chars[j]?.ch === ')' && (after === undefined || classify(after) !== 'alnum')) {
+          const slice = chars.slice(k, j + 1);
+          out.push({ text: slice.map((x) => x.ch).join(''), kind: 'number', chars: slice, spaceBefore: space });
+          space = false;
+          k = j + 1;
+          continue;
+        }
+      }
+    }
+    // A sign directly in front of a digit belongs to the number ("−500"),
+    // unless it joins two words or numbers ("2026-11", "A-3").
+    if (SIGNS.has(c.ch) && DIGIT.test(chars[k + 1]?.ch ?? '')) {
+      const prev = chars[k - 1]?.ch;
+      if (!prev || space || OPENERS.has(prev)) {
+        let j = k + 2;
+        while (j < chars.length) {
+          const cj = chars[j].ch;
+          if (DIGIT.test(cj)) j++;
+          else if (JOIN_DIGITS.has(cj) && DIGIT.test(chars[j + 1]?.ch ?? '')) j += 2;
+          else break;
+        }
+        const slice = chars.slice(k, j);
+        out.push({ text: slice.map((x) => x.ch).join(''), kind: 'number', chars: slice, spaceBefore: space });
+        space = false;
+        k = j;
+        continue;
+      }
     }
     out.push({ text: c.ch, kind: tokenKind(c.ch, cls), chars: [c], spaceBefore: space });
     space = false;
@@ -307,7 +350,7 @@ export function buildDocModel(doc: DocText): DocModel {
 
   return {
     name: doc.name,
-    pages: doc.pages.map((p) => ({ index: p.index, width: p.width, height: p.height })),
+    pages: doc.pages.map((p) => ({ index: p.index, width: p.width, height: p.height, unmapped: p.unmapped ?? 0 })),
     tokens: joined.tokens,
     lines: joined.lines,
     runs: doc.pages.map((p) => p.runs),

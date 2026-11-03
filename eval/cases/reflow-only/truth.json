@@ -1,0 +1,6 @@
+{
+  "description": "Same text, wider page margins: every line break and page break moves, nothing else changes.",
+  "synthetic": true,
+  "holdout": false,
+  "truth": []
+}

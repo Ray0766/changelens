@@ -1,6 +1,6 @@
 import type { Change, CompareResult } from './types.ts';
 import { t, type Lang } from './i18n.ts';
-import { describeChange, excerpt, kindLabel, locationLabel, pageLabel, truncate } from './describe.ts';
+import { countLabel, describeChange, excerpt, kindLabel, locationLabel, notices, pageLabel, truncate } from './describe.ts';
 import { countChanges } from './pipeline.ts';
 import { COLORS } from './crops.ts';
 
@@ -23,6 +23,11 @@ export interface ReportInput {
   /** Only include these change ids (e.g. the current filter). */
   include?: string[];
   homepage?: string;
+  /** File identity for the method section. */
+  files?: { old?: { sha256?: string }; new?: { sha256?: string } };
+  version?: string;
+  /** Whether graphics/colour were compared (rendering was available and enabled). */
+  visualCompared?: boolean;
 }
 
 export function escapeHtml(s: string): string {
@@ -92,10 +97,14 @@ header h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
 .files{color:var(--muted);margin:0 0 4px;word-break:break-all}
 .files b{color:var(--ink);font-weight:600}
 .meta{color:var(--muted);font-size:13px;margin:0}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:24px 0}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
-.card .n{font-size:28px;font-weight:650;line-height:1.1}
-.card .l{color:var(--muted);font-size:13px}
+.lede{font-size:17px;margin:18px 0 10px;max-width:68ch}
+.notices{list-style:none;margin:0 0 8px;padding:0;font-size:14px}
+.notices li{padding:6px 10px;border-radius:8px;margin:4px 0;background:var(--card);border:1px solid var(--line)}
+.notices li.warn{border-color:#e0a100;background:color-mix(in srgb,#e0a100 10%,var(--card))}
+.method dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:0;font-size:14px}
+.method dt{color:var(--muted)}.method dd{margin:0;word-break:break-word}.method dt+dd~dd{grid-column:2}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:var(--muted)}
+.disclaimer{margin-top:14px;font-size:13px;color:var(--muted);max-width:75ch}
 section{margin-top:28px}
 h2{font-size:18px;margin:0 0 12px}
 .mapbox{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;overflow-x:auto;color:var(--muted)}
@@ -125,7 +134,7 @@ mark.mv{background:color-mix(in srgb,var(--mv) 14%,transparent);color:inherit;pa
 footer{margin-top:40px;color:var(--muted);font-size:13px;text-align:center}
 footer a{color:inherit}
 @media (max-width:640px){.crops{grid-template-columns:1fr}}
-@media print{body{background:#fff;font-size:12px}main{padding:0}.change,.card,.mapbox{border-color:#ccc}a{color:inherit}}
+@media print{body{background:#fff;font-size:12px}main{padding:0}.change,.mapbox,.notices li{border-color:#ccc}a{color:inherit}}
 `;
 
 function badgeClass(c: Change): string {
@@ -149,7 +158,39 @@ export function buildReport(input: ReportInput): string {
   const questions = changes.filter((c) => reviews[c.id]?.status === 'question').length;
   const homepage = input.homepage ?? HOMEPAGE;
 
-  const card = (n: number | string, label: string) => `<div class="card"><div class="n">${n}</div><div class="l">${escapeHtml(label)}</div></div>`;
+  const summary =
+    lang === 'zh'
+      ? `共 ${counts.total} 处修改：文字 ${counts.text} 处${counts.numbers ? `（其中数字 ${counts.numbers} 处）` : ''}，版式 ${counts.visual} 处。已审查 ${reviewed}/${changes.length}${questions ? `，其中 ${questions} 处需要关注` : ''}。`
+      : `${countLabel(lang, counts.total)}: ${counts.text} in the text${counts.numbers ? ` (${counts.numbers} with numbers)` : ''} and ${counts.visual} in the layout. Reviewed ${reviewed} of ${changes.length}${questions ? `; ${questions} need attention` : ''}.`;
+  const notes = notices(lang, result);
+  const visual = input.visualCompared ?? true;
+  if (!visual) notes.push({ level: 'info', text: t(lang, 'noticeNoVisual') });
+  const noticeHtml = notes.length
+    ? `<ul class="notices">${notes.map((n) => `<li class="${n.level}">${n.level === 'warn' ? '⚠ ' : ''}${escapeHtml(n.text)}</li>`).join('')}</ul>`
+    : '';
+  const settings = [
+    t(lang, result.options.ignoreFurniture ? 'settingFurnitureOn' : 'settingFurnitureOff'),
+    result.options.ignoreCase ? t(lang, 'settingCaseOn') : '',
+    result.options.ignorePunctuation ? t(lang, 'settingPunctOn') : '',
+    result.options.detectFormatting ? '' : t(lang, 'settingFormatOff'),
+  ].filter(Boolean);
+  const fileLine = (side: 'old' | 'new', name: string) => {
+    const doc = side === 'old' ? result.oldDoc : result.newDoc;
+    const sha = input.files?.[side]?.sha256;
+    return `<dd><b>${escapeHtml(name)}</b> · ${escapeHtml(t(lang, 'pagesCount', { n: doc.pages.length }))}${sha ? ` · <span class="mono">${escapeHtml(t(lang, 'sha'))} ${escapeHtml(sha)}</span>` : ''}</dd>`;
+  };
+  const coverageNotes = notes.filter((n) => n.level === 'warn');
+  const method = `<section class="method">
+  <h2>${escapeHtml(t(lang, 'methodTitle'))}</h2>
+  <dl>
+    <dt>${escapeHtml(t(lang, 'methodFiles'))}</dt>${fileLine('old', input.oldName)}${fileLine('new', input.newName)}
+    <dt>${escapeHtml(t(lang, 'methodTool'))}</dt><dd>ChangeLens ${escapeHtml(input.version ?? '')} · ${escapeHtml(date)}</dd>
+    <dt>${escapeHtml(t(lang, 'methodHow'))}</dt><dd>${escapeHtml(t(lang, visual ? 'methodHowText' : 'methodHowTextOnly'))}</dd>
+    <dt>${escapeHtml(t(lang, 'methodSettings'))}</dt><dd>${escapeHtml(settings.join(' · '))}</dd>
+    <dt>${escapeHtml(t(lang, 'methodCoverage'))}</dt><dd>${coverageNotes.length ? coverageNotes.map((n) => escapeHtml(n.text)).join('<br>') : escapeHtml(t(lang, 'methodCoverageNone'))}</dd>
+  </dl>
+  <p class="disclaimer">${escapeHtml(t(lang, 'disclaimer'))}</p>
+</section>`;
 
   const items = changes
     .map((c, k) => {
@@ -192,13 +233,8 @@ export function buildReport(input: ReportInput): string {
   <p class="files"><b>${escapeHtml(input.oldName)}</b> → <b>${escapeHtml(input.newName)}</b></p>
   <p class="meta">${escapeHtml(t(lang, 'generated', { date }))} · ${escapeHtml(t(lang, 'pagesLine', { old: result.oldDoc.pages.length, new: result.newDoc.pages.length }))} · ${escapeHtml(t(lang, 'similarity', { pct: (result.stats.similarity * 100).toFixed(1) + '%' }))}</p>
 </header>
-<div class="cards">
-  ${card(counts.total, t(lang, 'totalChanges'))}
-  ${card(counts.text, t(lang, 'text'))}
-  ${card(counts.numbers, t(lang, 'numbers'))}
-  ${card(counts.visual, t(lang, 'visual'))}
-  ${card(`${reviewed}/${changes.length}`, t(lang, 'reviewedLabel') + (questions ? ` · ⚠ ${questions}` : ''))}
-</div>
+<p class="lede">${escapeHtml(summary)}</p>
+${noticeHtml}
 <section>
   <h2>${escapeHtml(t(lang, 'pageMap'))}</h2>
   <div class="mapbox">${pageMapSvg(result, lang)}</div>
@@ -207,6 +243,7 @@ export function buildReport(input: ReportInput): string {
   <h2>${escapeHtml(t(lang, 'details'))}</h2>
   ${changes.length ? items : `<p>${escapeHtml(t(lang, 'noChanges'))}</p>`}
 </section>
+${method}
 <footer>ChangeLens · <a href="${escapeHtml(homepage)}">${escapeHtml(homepage.replace(/^https?:\/\//, ''))}</a></footer>
 </main>
 </body>
@@ -224,6 +261,11 @@ export function buildJson(input: ReportInput): unknown {
     new: { name: input.newName, pages: result.newDoc.pages.length },
     options: result.options,
     stats: result.stats,
+    coverage: result.coverage,
+    ignored: result.ignored,
+    notices: notices(lang, result),
+    files: input.files,
+    minor: result.minor.map((c) => ({ id: c.id, description: describeChange(lang, c), location: locationLabel(lang, c) })),
     pageMap: { oldToNew: result.oldToNew.map((p) => (p < 0 ? null : p + 1)), newToOld: result.newToOld.map((p) => (p < 0 ? null : p + 1)) },
     changes: result.changes.map((c) => ({
       id: c.id,

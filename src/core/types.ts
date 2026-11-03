@@ -40,6 +40,17 @@ export interface PageText {
   width: number;
   height: number;
   runs: TextRun[];
+  /** Glyphs drawn without a Unicode mapping (their text cannot be compared). */
+  unmapped?: number;
+}
+
+export interface Coverage {
+  /** Pages without any comparable text (e.g. scanned or image-only pages). */
+  textless: number[];
+  /** Pages with glyphs whose text could not be read, with their count. */
+  unreadable: { page: number; count: number }[];
+  /** (New version only) pages whose text mostly has no counterpart: pairing is uncertain. */
+  uncertain?: { page: number; matched: number }[];
 }
 
 export interface DocText {
@@ -86,7 +97,7 @@ export interface Line {
 
 export interface DocModel {
   name: string;
-  pages: { index: number; width: number; height: number }[];
+  pages: { index: number; width: number; height: number; unmapped: number }[];
   /** All tokens, including furniture, in reading order. */
   tokens: Token[];
   lines: Line[];
@@ -116,6 +127,7 @@ export type ChangeKind =
   | 'replace'
   | 'move'
   | 'format'
+  | 'position'
   | 'overflow'
   | 'graphic';
 
@@ -171,6 +183,14 @@ export interface Change {
   contextAfter: string;
   format?: FormatDetail;
   overflow?: { edge: 'left' | 'right' | 'top' | 'bottom' | 'margin' };
+  /** Unchanged text that moved on the page (points; +x right, +y down). */
+  shift?: { dx: number; dy: number };
+  /** The same change repeated across the document (e.g. a font replaced everywhere). */
+  places?: number;
+  /** Graphics only displaced by a few points (layout drift); hidden by default. */
+  minor?: boolean;
+  /** Inserted content that repeats text found elsewhere in the new version (0-based page). */
+  duplicateOf?: number;
   /** Order key for sorting (position in the new document, then old). */
   order: number;
 }
@@ -203,5 +223,11 @@ export interface CompareResult {
   /** Matched document token indices, flattened: [old0, new0, old1, new1, …]. */
   matches: Int32Array;
   options: DiffOptions;
+  /** What could not be compared as text — shown so "no changes" is never a false all-clear. */
+  coverage: { old: Coverage; new: Coverage };
+  /** Differences that exist but were filtered out by the options. */
+  ignored: { furniture: number; caseOnly: number; minorShifts: number };
+  /** Minor layout shifts, kept apart from `changes` (shown on request). */
+  minor: Change[];
   stats: { oldTokens: number; newTokens: number; matchedTokens: number; similarity: number };
 }

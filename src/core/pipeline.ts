@@ -30,7 +30,10 @@ export async function addVisualChanges(
     for (const p of [...cacheNew.keys()]) if (!rest.some(([, n]) => n === p)) cacheNew.delete(p);
     onProgress?.(k + 1, pairs.length);
   }
-  const visual = dedupeGraphics(found);
+  const visual = dedupeGraphics(found.filter((c) => !c.minor));
+  result.minor = found.filter((c) => c.minor);
+  result.minor.forEach((c, k) => (c.id = 'm' + (k + 1)));
+  result.ignored.minorShifts = result.minor.length;
   result.changes.push(...visual);
   sortAndNumber(result.changes);
   return visual;

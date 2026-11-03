@@ -3,13 +3,13 @@ import { defaultOptions } from '../core/types.ts';
 import { buildDocModel } from '../core/tokenize.ts';
 import { compareDocs } from '../core/compare.ts';
 import { addVisualChanges } from '../core/pipeline.ts';
-import { detectLang, t, type Lang, type MessageKey } from '../core/i18n.ts';
+import { detectLang, explainOpenError, t, type Lang, type MessageKey } from '../core/i18n.ts';
 import type { Review } from '../core/report.ts';
 import { extractText } from '../pdf/extract.ts';
 import { h, icon, clear, LOGO } from './dom.ts';
 import { openPdf, renderRaster, type PDFDocumentProxy } from './pdf.ts';
 import { Viewer } from './viewer.ts';
-import { Sidebar, applyFilter, type Filter } from './sidebar.ts';
+import { Sidebar, type Filter } from './sidebar.ts';
 import { exportJson, exportReport } from './export.ts';
 
 const REPO = 'https://github.com/Ray0766/changelens';
@@ -25,6 +25,7 @@ interface Loaded {
   pdf: PDFDocumentProxy;
   model: DocModel;
   fingerprint: string;
+  sha256: string;
 }
 
 type Options = DiffOptions & { graphics: boolean };
@@ -45,6 +46,15 @@ const store = {
     }
   },
 };
+
+async function sha256(bytes: Uint8Array): Promise<string> {
+  try {
+    const d = await crypto.subtle.digest('SHA-256', bytes.slice() as Uint8Array<ArrayBuffer>);
+    return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return '';
+  }
+}
 
 async function fingerprint(bytes: Uint8Array): Promise<string> {
   try {
@@ -69,6 +79,8 @@ export class App {
   private viewer?: Viewer;
   private sidebar?: Sidebar;
   private filter: Filter = 'all';
+  private showMinor = false;
+  private listHidden = false;
   private selected: string | null = null;
   private reviewsBySig: Record<string, Review> = {};
   private options: Options;
@@ -151,19 +163,25 @@ export class App {
       return el;
     };
     const ready = !!(this.picked.old && this.picked.new);
-    const features: [string, MessageKey | string, string][] = this.lang === 'zh'
-      ? [
-          ['layers', '重新分页也不怕', '按内容而不是按页码匹配，前面多一段、后面整体顺延，也只会标出真正的修改。'],
-          ['hash', '数字一眼看清', '报价、金额、日期的变化单独标出，并给出变化幅度。'],
-          ['text', '文字与版式分开看', '文字增删改、段落移动，和图形、颜色、粗体、超出页面等版式问题分开列出。'],
-          ['report', '一键导出审查报告', '单个 HTML 文件，附修改前后截图和审查备注，发给谁都能直接打开。'],
-        ]
-      : [
-          ['layers', 'Survives repagination', 'Content is matched by meaning, not page number — one extra paragraph won’t turn every later page red.'],
-          ['hash', 'Numbers stand out', 'Prices, amounts and dates that changed are called out, with the size of the change.'],
-          ['text', 'Text and layout, separately', 'Edits and moved paragraphs are listed apart from graphics, colour, bold and overflow issues.'],
-          ['report', 'A report anyone can open', 'One self-contained HTML file with before/after snippets and your review notes.'],
-        ];
+    // One real result from the bundled (synthetic) demo instead of feature
+    // cards: it shows what you get and why the other pages are not flagged.
+    const zh = this.lang === 'zh';
+    const example = h('section', { class: 'example', 'aria-label': zh ? '结果示例' : 'Example result' },
+      h('div', { class: 'example-label' }, zh ? '示例结果（来自内置的虚构报价单）' : 'Example result (from the bundled, synthetic proposal)'),
+      h('div', { class: 'example-item' },
+        h('div', { class: 'item-head' }, h('span', { class: 'badge b-num' }, this.tr('kind_number')), h('span', { class: 'loc' }, zh ? '第 3 页 → 第 4 页' : 'p. 3 → p. 4')),
+        h('div', { class: 'desc' }, zh ? '数字变化：8,000 → 9,500（+19%）' : 'Number changed: 8,000 → 9,500 (+19%)'),
+        h('div', { class: 'ex', html: zh ? '<span class="ctx">设计与原型 线框图、视觉设计、可交互原型</span> <del>8,000</del> <ins>9,500</ins>' : '<span class="ctx">Design and prototyping · Wireframes, visual design, clickable prototype</span> <del>8,000</del> <ins>9,500</ins>' }),
+      ),
+      h('p', { class: 'example-why' }, zh
+        ? '新版第 2 页多了一段，之后每页都顺延了一页。ChangeLens 按内容而不是页码匹配，所以只列出这类真正的修改，而不是把后面的页面全部标红。'
+        : 'A paragraph was added on page 2 of the new version, so every later page moved down by one. ChangeLens matches content rather than page numbers, so it lists changes like this one instead of marking every later page as different.'),
+      h('ul', { class: 'scope' },
+        h('li', {}, h('b', {}, zh ? '比较：' : 'Compares: '), zh ? '文字、数字（含正负号）、移动的段落、粗体/字号/字体、图形与颜色、位置变化、超出页面的内容。' : 'words, numbers (including signs), moved paragraphs, bold/size/font, graphics and colour, position, content cut off at the page edge.'),
+        h('li', {}, h('b', {}, zh ? '默认忽略但会注明：' : 'Ignored by default, but stated: '), zh ? '页眉、页脚、页码，以及线条的轻微移位。' : 'headers, footers, page numbers, and slight shifts of lines.'),
+        h('li', {}, h('b', {}, zh ? '暂不支持：' : 'Not supported yet: '), zh ? '扫描件（没有文字层的 PDF）；Word、PowerPoint 请先导出为 PDF。' : 'scanned PDFs (no text layer); export Word or PowerPoint files to PDF first.'),
+      ),
+    );
     const page = h(
       'div',
       { class: 'landing' },
@@ -187,7 +205,7 @@ export class App {
         ),
         h('p', { class: 'privacy' }, icon('lock', 15), this.tr('privacy')),
         h('div', { id: 'msg', class: 'msg', role: 'alert' }),
-        h('ul', { class: 'features' }, features.map(([ic, title, body]) => h('li', {}, h('span', { class: 'feat-ic' }, icon(ic, 20)), h('b', {}, title), h('span', {}, body)))),
+        example,
       ),
       h('footer', { class: 'foot' }, h('a', { href: REPO, target: '_blank', rel: 'noopener' }, 'ChangeLens'), ' · ', this.tr('footer')),
     );
@@ -262,7 +280,7 @@ export class App {
     try {
       pdf = await openPdf(p.bytes);
     } catch (e) {
-      throw new Error(this.tr('openFailed', { name: p.name, error: (e as Error).message }));
+      throw new Error(explainOpenError(this.lang, p.name, e));
     }
     const doc = await extractText(pdf, p.name, (page, total) =>
       ov.set(this.tr('extracting', { doc: p.name, page, total }), base + 0.25 * (page / total)),
@@ -270,7 +288,7 @@ export class App {
     const model = buildDocModel(doc);
     if (model.tokens.length === 0) throw new Error(this.tr('noText', { name: p.name }));
     await prev?.pdf.loadingTask.destroy();
-    return { name: p.name, pdf, model, fingerprint: fp };
+    return { name: p.name, pdf, model, fingerprint: fp, sha256: await sha256(p.bytes) };
   }
 
   private async run(): Promise<void> {
@@ -284,6 +302,7 @@ export class App {
       await new Promise((r) => setTimeout(r, 16));
       const { graphics, ...diffOpts } = this.options;
       const result = compareDocs(this.loaded.old.model, this.loaded.new.model, diffOpts);
+      this.showMinor = false;
       if (graphics) {
         const lo = this.loaded.old;
         const ln = this.loaded.new;
@@ -347,24 +366,37 @@ export class App {
       onSelect: (id) => this.select(id),
       onFilter: (f) => {
         this.filter = f;
-        this.viewer?.setChanges(applyFilter(result.changes, f));
+        this.viewer?.setChanges(this.sidebar!.visible());
       },
       onReview: (id, review) => {
-        const c = result.changes.find((x) => x.id === id);
+        const c = [...result.changes, ...result.minor].find((x) => x.id === id);
         if (!c) return;
         this.reviewsBySig[signature(c)] = review;
         store.set(this.reviewKey(), JSON.stringify(this.reviewsBySig));
       },
       onPage: (side, page) => this.viewer?.scrollToPage(side, page),
+      onNotice: async (action) => {
+        if (action === 'minor') {
+          this.showMinor = !this.showMinor;
+          this.sidebar!.showMinor = this.showMinor;
+          this.sidebar!.update(result);
+          this.viewer?.setChanges(this.sidebar!.visible());
+        } else {
+          this.options.ignoreFurniture = false;
+          store.set('changelens.options', JSON.stringify(this.options));
+          await this.run();
+        }
+      },
     });
     this.sidebar.filter = this.filter;
+    this.sidebar.showMinor = this.showMinor;
     this.sidebar.update(result);
 
     this.viewer = new Viewer(result, { old: lo.pdf, new: ln.pdf }, { old: lo.name, new: ln.name }, {
       lang: this.lang,
       onSelect: (id) => this.select(id),
     });
-    this.viewer.setChanges(applyFilter(result.changes, this.filter));
+    this.viewer.setChanges(this.sidebar.visible());
 
     const zoomLabel = h('span', { class: 'zoom-val' }, '100%');
     this.viewer.onZoom = (z) => (zoomLabel.textContent = `${Math.round(z * 100)}%`);
@@ -410,8 +442,22 @@ export class App {
         h('button', { class: 'btn icon', title: this.tr('prevChange'), onclick: () => this.step(-1) }, icon('up')),
         h('button', { class: 'btn icon', title: this.tr('nextChange'), onclick: () => this.step(1) }, icon('down')),
       ),
+      h('button', {
+        class: 'btn icon hide-sm',
+        title: this.tr(this.listHidden ? 'showList' : 'hideList'),
+        'aria-pressed': String(this.listHidden),
+        onclick: (e: Event) => {
+          this.listHidden = !this.listHidden;
+          this.root.classList.toggle('list-hidden', this.listHidden);
+          (e.currentTarget as HTMLElement).title = this.tr(this.listHidden ? 'showList' : 'hideList');
+        },
+      }, icon('menu')),
+      h('span', { class: 'legend hide-sm', 'aria-label': 'Legend' },
+        ([['del', 'legendDel'], ['ins', 'legendIns'], ['mv', 'legendMove'], ['vis', 'legendVisual'], ['num', 'legendNumber']] as const).map(([k, label]) =>
+          h('span', { class: 'lg' }, h('i', { class: `sw ${k}` }), this.tr(label)))),
       h('span', { class: 'hint hide-sm' }, this.tr('help')),
     );
+    this.root.classList.toggle('list-hidden', this.listHidden);
     const viewerWrap = h('section', { class: 'viewer' }, tools, this.viewer.root);
     this.root.append(h('div', { class: 'results' }, top, h('div', { class: 'workspace' }, this.sidebar.root, viewerWrap)));
     if (this.selected) this.select(this.selected, false);
@@ -466,6 +512,8 @@ export class App {
       names: { old: this.loaded.old!.name, new: this.loaded.new!.name },
       lang: this.lang,
       reviews: this.reviewsById(),
+      files: { old: { sha256: this.loaded.old!.sha256 }, new: { sha256: this.loaded.new!.sha256 } },
+      visualCompared: this.options.graphics,
     };
   }
 

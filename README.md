@@ -33,9 +33,9 @@ Tools like [diff-pdf](https://github.com/vslavik/diff-pdf) compare page 1 with p
 
 ChangeLens is built for the person who has to **review** the changes: a lawyer checking a contract, a buyer checking a quote, an editor checking proofs.
 
-- **It survives repagination.** Content is matched across the whole document, not page by page. An inserted paragraph is one change, not eight red pages. The page map shows how old pages correspond to new ones (old p. 3 → new p. 4).
-- **It reduces noise.** Running headers, footers and page numbers are recognised and ignored. So are re-flowed line breaks and hyphenation, ligatures, curly versus straight quotes, and full-width versus half-width characters. Small coincidental matches inside a rewritten sentence are merged, so you see one coherent edit.
-- **It speaks plainly.** "Number changed: 8,000 → 9,500 (+19%)", "Deleted a paragraph", "Moved a paragraph", "Content is cut off at the right edge of the page", "“30 days” now bold".
+- **It is built for repagination.** Content is matched across the whole document, not page by page. An inserted paragraph is one change, not eight red pages. The page map shows how old pages correspond to new ones (old p. 3 → new p. 4).
+- **It reduces noise without hiding it.** Running headers, footers and page numbers are recognised and ignored by default. So are re-flowed line breaks and hyphenation, ligatures, curly versus straight quotes, full-width versus half-width characters, and lines that only shift by a few points. Every ignored category is counted on screen and in the report, with a **Show** button. Pages without readable text are named, so "no differences" is never a blind all-clear.
+- **It speaks plainly.** "Number changed: 8,000 → 9,500 (+19%)", "Number changed: 500 → −500 (sign changed)", "Deleted a paragraph", "Moved a paragraph", "Added content that repeats p. 2 word for word", "“APPROVED” moved 106 mm to the right", "Content is cut off at the right edge of the page".
 - **It separates text from layout.** Text edits (added, deleted, changed and moved text, and numbers) are listed apart from visual changes: charts and images, colour, bold or size, content overflowing the page.
 - **It produces a report you can share.** One self-contained HTML file with before/after snippets for every change, your review marks (✓ / ⚠) and notes. It opens in any browser, prints cleanly, and contains no scripts.
 - **It is private.** The web app runs entirely in your browser. Your files are never uploaded.
@@ -44,16 +44,16 @@ ChangeLens is built for the person who has to **review** the changes: a lawyer c
 
 | | |
 |---|---|
-| Side-by-side viewer | Synchronised scrolling that follows matched content, not page numbers; zoom; keyboard navigation (`j` / `k`) |
-| Change list | Filter by *All / Text / Numbers / Layout*; each entry has a description, location (`p. 3 → p. 4`) and a context excerpt |
-| Numbers | Amounts, prices and percentages are detected, with the relative change |
-| Paragraph-level wording | Whole inserted / deleted / moved paragraphs are described as such |
-| Moves | A paragraph that moved is shown once as a move, not as a deletion plus an insertion |
-| Formatting | Bold, italic, font size and font family changes of unchanged text |
-| Graphics and colour | Pixel comparison of charts, images and lines, with text masked out and each region aligned to where its text moved |
+| Side-by-side viewer | Synchronised scrolling that follows matched content, not page numbers; change bars in the page margin; zoom; keyboard navigation (`j` / `k`); colour legend |
+| Change list | Filter by *All / Text / Numbers / Layout*; each entry has a description, location (`p. 3 → p. 4`) and a context excerpt; can be hidden for a document-first view |
+| Numbers | Amounts, prices, percentages and signs (`−500`, `(1,200)`) are detected, with the relative change or "sign changed" |
+| Paragraphs, moves, duplicates | Whole inserted / deleted / moved paragraphs are described as such; content repeated word for word says where it repeats |
+| Formatting and position | Bold, italic, size and font changes of unchanged text (one entry when a font is replaced everywhere); unchanged lines that moved sideways |
+| Graphics and colour | Pixel comparison of charts, images, lines and text colour, with text masked out and each region aligned to where its text moved |
 | Overflow | Text cut off at the page edge, or sticking out into the margin |
+| Nothing hidden silently | Counts of ignored header/footer differences and minor shifts (with **Show**), pages without a text layer, unreadable glyphs, pages that are mostly new |
 | Review | Mark each change as OK or needing attention and add notes; progress is saved locally |
-| Export | HTML report (with crops) and JSON (for automation) |
+| Export | HTML report (crops, review notes, file SHA-256, method and settings) and JSON |
 | Languages | English and 简体中文 UI and reports; CJK text is compared character by character |
 
 ## Using it
@@ -113,6 +113,18 @@ The CLI needs Node.js 22.13 or newer. Page images for the report are rendered wi
 
 </details>
 
+## Evaluation
+
+On a small synthetic test set with known edits (17 PDF pairs, 60 edits: numbers and signs, inserted and duplicated pages, re-flow, moves, font replacement, graphics, Chinese/English), from [docs/EVALUATION.md](docs/EVALUATION.md):
+
+| | Edits found | On the right page | Extra items to read |
+|---|---|---|---|
+| ChangeLens | 60 / 60 | 60 / 60 | 0 |
+| Text line diff (extract + `diff`) | 29 / 60 | 27 / 60 | 37 |
+| Page-by-page pixel diff (diff-pdf approach) | 51 / 60 | 41 / 60 | 74 |
+
+The test set was written by the same author as the engine and most of it was used for tuning; four held-out cases scored 7 / 9 found with 5 extra items on their first, blind run (now fixed). These numbers describe this test set, not PDFs in general.
+
 ## How it works
 
 1. **Extraction.** [PDF.js](https://mozilla.github.io/pdf.js/) reads the text runs of every page with their position, size and real font name. Runs are split into words, with per-character widths estimated from standard font metrics. CJK text is split into single characters, and numbers like `8,000.50` stay whole.
@@ -120,19 +132,21 @@ The CLI needs Node.js 22.13 or newer. Page images for the report are rendered wi
 3. **Document-level diff.** Both documents become one continuous word stream each, so page breaks no longer matter. The streams are diffed with *patience* anchoring on unique words, with Myers' O(ND) algorithm for small segments; the anchored result is kept unless it loses too many matches. A semantic clean-up pass then removes coincidental one-word matches inside rewritten passages.
 4. **Interpretation.** The edit script is turned into changes: inserted, deleted or replaced words; numeric changes with their values; whole paragraphs; moves (a deleted and an inserted block that are ≥ 80 % identical); formatting changes of matched words; text crossing the page edge. Nearby insertions on consecutive lines, such as new table cells, are merged.
 5. **Page map and scrolling.** Matched words give a monotonic set of anchors between the two documents. They produce the page correspondence (old p. 3 → new p. 4) and drive the synchronised scrolling.
-6. **Visual comparison.** Matched page pairs are rendered. Text is masked out, because it has already been compared. Every region of the old page is then compared with where its neighbouring text moved in the new page, trying the offsets of the anchor above and below, with a 1-pixel and colour tolerance. Remaining differences are clustered into regions. Matched words are also checked for changes of colour or stroke weight.
+6. **Visual comparison.** Matched page pairs are rendered and slightly blurred, so that thin lines drawn at different sub-pixel positions look alike. Text is masked out, because it has already been compared. Every region of the old page is compared with where its neighbouring text moved in the new page; rows whose nearest text went to another page are left to that page's comparison. Differences that one common offset of up to 4 pt explains are "minor shifts", hidden but counted. The rest are clustered into regions. Matched words are also checked for changes of colour or stroke weight, and intact lines for sideways moves.
 
 Everything in `src/core` is plain TypeScript without DOM or Node dependencies, so the browser app and the CLI share exactly the same engine.
 
 ## Scope and limitations
 
-This first version focuses on **text-based PDFs**, as exported by Word, LibreOffice, Google Docs, LaTeX, browsers, InDesign and similar tools.
+This first version focuses on **text-based PDFs**. It has been tested with PDFs produced by Chromium (browser "Print to PDF") and LibreOffice. Other producers (Word, InDesign, LaTeX…) should work in the same way but are **untested**.
 
-- **Scanned PDFs** (images of text) have no text layer and are not supported yet; OCR is on the roadmap.
-- **Reading order** comes from the PDF content stream. This is right for almost all generated documents. Unusual producers that write text out of order can produce noisy diffs.
+- **Scanned PDFs** (images of text) have no text layer and are not supported. ChangeLens says which pages have no text; OCR is on the roadmap.
+- **Reading order** comes from the PDF content stream. This is right for typical generated documents. Producers that write text out of order can produce noisy diffs.
 - **Word boxes** are estimated from the width of each text run, so highlights may be off by a few points with unusual fonts.
-- **Fonts without a bold face.** When a font has no bold variant, PDF generators fake bold by stroking the glyphs. The visual check can catch this if the weight change is strong enough, but not reliably.
-- **Very large documents** work: a 300-page text diff takes about a second. The visual stage renders every matched page, so it takes longer; switch it off with `--no-visual` or in Settings.
+- **Fonts without a bold face.** When a font has no bold variant, PDF generators fake bold by stroking the glyphs. The visual check catches this only if the weight change is strong enough.
+- **Small shifts.** Lines or graphics that move by 4 pt or less are listed only after **Show**.
+- **Page pairing cannot be corrected by hand yet.** Pages whose text is mostly new are flagged ("check in full") instead.
+- **Speed.** On a 4-core Xeon VM (2.1 GHz), 8 → 9 pages take 0.5 s for text and about 3 s with the visual check; 24 pages take 1.4 s and about 10 s (see [EVALUATION.md](docs/EVALUATION.md#performance)). The visual stage can be switched off with `--no-visual` or in Settings.
 
 ## Roadmap
 
@@ -140,6 +154,7 @@ This first version focuses on **text-based PDFs**, as exported by Word, LibreOff
 - [ ] OCR for scanned PDFs
 - [ ] Word-level diff inside moved paragraphs
 - [ ] Multi-column reading-order reconstruction
+- [ ] Manual re-pairing of pages when the automatic pairing is uncertain
 - [ ] Shareable report as a single PDF
 - [ ] Published npm package (`npx changelens`)
 

@@ -1,0 +1,12 @@
+{
+  "description": "Held-out. Two-column page; a phrase in the second column changes.",
+  "synthetic": true,
+  "holdout": true,
+  "truth": [
+    {
+      "type": "replace",
+      "old": "temporary",
+      "new": "visitor badge with photo"
+    }
+  ]
+}

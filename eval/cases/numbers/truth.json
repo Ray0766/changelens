@@ -1,0 +1,47 @@
+{
+  "description": "Amounts, a minus sign added and one removed, a percentage, a date, a unit, a currency and a single digit in 6.5 pt text.",
+  "synthetic": true,
+  "holdout": false,
+  "truth": [
+    {
+      "type": "number",
+      "old": "8,000",
+      "new": "9,500"
+    },
+    {
+      "type": "number",
+      "old": "500",
+      "new": "−500"
+    },
+    {
+      "type": "number",
+      "old": "-1,200",
+      "new": "1,200"
+    },
+    {
+      "type": "number",
+      "old": "1.50",
+      "new": "1.05"
+    },
+    {
+      "type": "replace",
+      "old": "November",
+      "new": "December"
+    },
+    {
+      "type": "replace",
+      "old": "days",
+      "new": "weeks"
+    },
+    {
+      "type": "replace",
+      "old": "US dollars",
+      "new": "euros"
+    },
+    {
+      "type": "number",
+      "old": "3",
+      "new": "8"
+    }
+  ]
+}

@@ -8,6 +8,7 @@ import { renderInto, type PDFDocumentProxy } from './pdf.ts';
 
 type Side = 'old' | 'new';
 const GAP = 16;
+const behavior = (): ScrollBehavior => (window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth');
 const PAD = 16;
 
 interface PageView {
@@ -161,6 +162,16 @@ class Pane {
         const pg = this.doc.pages[r.page];
         const pv = this.pages[r.page];
         if (!pv) continue;
+        // Change bar in the page margin (as in printed redlines): visible
+        // even when the highlight itself is tiny at the current zoom.
+        pv.overlay.append(
+          h('div', {
+            class: `cbar ${cls}`,
+            'data-id': c.id,
+            'data-tip': title,
+            style: { top: `${(r.rect.y / pg.height) * 100}%`, height: `${(Math.max(r.rect.h, 6) / pg.height) * 100}%` },
+          }),
+        );
         const pad = 1.5;
         pv.overlay.append(
           h('div', {
@@ -197,7 +208,7 @@ class Pane {
   }
 
   markActive(id: string | null, pulse: boolean): void {
-    for (const el of this.inner.querySelectorAll<HTMLElement>('.hl, .caret')) {
+    for (const el of this.inner.querySelectorAll<HTMLElement>('.hl, .caret, .cbar')) {
       const on = el.dataset.id === id;
       el.classList.toggle('active', on);
       if (on && pulse) {
@@ -271,11 +282,11 @@ export class Viewer {
         if (this.sync && this.active === side) this.follow(side);
       });
       sc.addEventListener('click', (e) => {
-        const el = (e.target as HTMLElement).closest<HTMLElement>('.hl, .caret');
+        const el = (e.target as HTMLElement).closest<HTMLElement>('.hl, .caret, .cbar');
         if (el?.dataset.id) this.opts.onSelect(el.dataset.id);
       });
       sc.addEventListener('mouseover', (e) => {
-        const el = (e.target as HTMLElement).closest<HTMLElement>('.hl, .caret');
+        const el = (e.target as HTMLElement).closest<HTMLElement>('.hl, .caret, .cbar');
         if (!el?.dataset.tip) return void this.hideTip();
         this.tip.textContent = el.dataset.tip;
         const r = el.getBoundingClientRect();
@@ -420,7 +431,7 @@ export class Viewer {
       sc.scrollTo({
         top: Math.max(0, tg.y - sc.clientHeight * 0.35),
         left: Math.max(0, tg.x - sc.clientWidth / 2),
-        behavior: 'smooth',
+        behavior: behavior(),
       });
     }
   }
@@ -429,9 +440,9 @@ export class Viewer {
     this.active = null;
     const pane = this.panes[side];
     const top = pane.docY(page, 0) - 8;
-    pane.scroller.scrollTo({ top, behavior: 'smooth' });
+    pane.scroller.scrollTo({ top, behavior: behavior() });
     const other: Side = side === 'old' ? 'new' : 'old';
-    this.panes[other].scroller.scrollTo({ top: this.mapY(side, top + pane.scroller.clientHeight / 3) - pane.scroller.clientHeight / 3, behavior: 'smooth' });
+    this.panes[other].scroller.scrollTo({ top: this.mapY(side, top + pane.scroller.clientHeight / 3) - pane.scroller.clientHeight / 3, behavior: behavior() });
     if (window.matchMedia('(max-width: 900px)').matches && this.show !== side) this.setShow(side);
   }
 

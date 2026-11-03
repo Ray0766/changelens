@@ -1,0 +1,26 @@
+{
+  "description": "Held-out. 中文通知：无空格的日期、电话号码修改，新增一句。",
+  "synthetic": true,
+  "holdout": true,
+  "truth": [
+    {
+      "type": "replace",
+      "old": "3",
+      "new": "30"
+    },
+    {
+      "type": "replace",
+      "old": "两个",
+      "new": ""
+    },
+    {
+      "type": "replace",
+      "old": "1234",
+      "new": "4321"
+    },
+    {
+      "type": "insert",
+      "new": "如需加急服务"
+    }
+  ]
+}

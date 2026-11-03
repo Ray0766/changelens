@@ -1,6 +1,6 @@
 import type { Change, CompareResult } from '../core/types.ts';
 import { t, type Lang } from '../core/i18n.ts';
-import { describeChange, kindLabel, locationLabel } from '../core/describe.ts';
+import { describeChange, kindLabel, locationLabel, notices } from '../core/describe.ts';
 import { excerptHtml, pageMapSvg, type Review } from '../core/report.ts';
 import { countChanges } from '../core/pipeline.ts';
 import { h, icon, clear } from './dom.ts';
@@ -28,6 +28,8 @@ export interface SidebarCallbacks {
   onFilter(f: Filter): void;
   onReview(id: string, review: Review): void;
   onPage(side: 'old' | 'new', page: number): void;
+  /** "Show" on a notice about filtered differences. */
+  onNotice(action: 'furniture' | 'minor'): void;
 }
 
 export class Sidebar {
@@ -38,6 +40,8 @@ export class Sidebar {
   private summary: HTMLDivElement;
   private selected: string | null = null;
   filter: Filter = 'all';
+  /** Also list minor layout shifts (hidden by default). */
+  showMinor = false;
   private lang: Lang;
   private result: CompareResult;
   private reviews: Record<string, Review>;
@@ -100,7 +104,17 @@ export class Sidebar {
       if (idx < n) this.cb.onPage('old', idx);
       else this.cb.onPage('new', idx - n);
     });
-    this.summary.append(big, h('details', { class: 'mapdetails', open: oldDoc.pages.length !== newDoc.pages.length }, h('summary', {}, t(lang, 'pageMap')), map));
+    // State what was filtered out or not covered, with a way to show it.
+    const notes = notices(lang, this.result);
+    const noteList = notes.length
+      ? h('ul', { class: 'notices' }, notes.map((n) =>
+          h('li', { class: `notice ${n.level}` },
+            n.level === 'warn' ? icon('alert', 15) : icon('layers', 15),
+            h('span', {}, n.text),
+            n.action ? h('button', { class: 'btn link', onclick: () => this.cb.onNotice(n.action!) }, n.action === 'minor' && this.showMinor ? t(lang, 'hide') : t(lang, 'show')) : null,
+          )))
+      : null;
+    this.summary.append(big, ...(noteList ? [noteList] : []), h('details', { class: 'mapdetails', open: oldDoc.pages.length !== newDoc.pages.length }, h('summary', {}, t(lang, 'pageMap')), map));
 
     clear(this.tabs);
     const tabs: [Filter, string, number][] = [
@@ -129,7 +143,7 @@ export class Sidebar {
   private renderList(): void {
     const lang = this.lang;
     clear(this.list);
-    const items = applyFilter(this.result.changes, this.filter);
+    const items = this.visible();
     if (items.length === 0) {
       this.list.append(
         h('li', { class: 'empty' }, icon('check', 32), h('b', {}, t(lang, 'noChanges')), h('span', {}, t(lang, 'noChangesHint'))),
@@ -174,7 +188,7 @@ export class Sidebar {
       const status = cur.status === act ? undefined : act;
       this.reviews[id] = { ...cur, status };
       this.cb.onReview(id, this.reviews[id]);
-      li.replaceWith(this.item(this.result.changes.find((c) => c.id === id)!));
+      li.replaceWith(this.item([...this.result.changes, ...this.result.minor].find((c) => c.id === id)!));
       this.renderProgress();
       return;
     }
@@ -206,11 +220,17 @@ export class Sidebar {
     for (const li of this.list.querySelectorAll<HTMLElement>('.item')) {
       const on = li.dataset.id === id;
       li.classList.toggle('on', on);
-      if (on) li.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      if (on) li.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     }
   }
 
+  /** Changes in the list: the current filter, plus minor shifts when shown. */
+  visible(): Change[] {
+    const all = this.showMinor ? [...this.result.changes, ...this.result.minor].sort((a, b) => a.order - b.order) : this.result.changes;
+    return applyFilter(all, this.filter);
+  }
+
   visibleIds(): string[] {
-    return applyFilter(this.result.changes, this.filter).map((c) => c.id);
+    return this.visible().map((c) => c.id);
   }
 }

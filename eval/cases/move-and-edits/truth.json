@@ -1,0 +1,21 @@
+{
+  "description": "Paragraph 2 moved from page 1 to page 2, one phrase changed, one sentence deleted.",
+  "synthetic": true,
+  "holdout": false,
+  "truth": [
+    {
+      "type": "move",
+      "old": "Routine inspections",
+      "new": "Routine inspections"
+    },
+    {
+      "type": "replace",
+      "old": "on the same day",
+      "new": "within one hour"
+    },
+    {
+      "type": "delete",
+      "old": "Certificates are renewed every year"
+    }
+  ]
+}

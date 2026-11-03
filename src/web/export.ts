@@ -12,6 +12,8 @@ export interface ExportInput {
   lang: Lang;
   reviews: Record<string, Review>;
   include?: string[];
+  files?: { old?: { sha256?: string }; new?: { sha256?: string } };
+  visualCompared?: boolean;
 }
 
 function baseName(name: string): string {
@@ -62,11 +64,14 @@ export async function exportReport(input: ExportInput, onProgress?: (done: numbe
     reviews: input.reviews,
     crops,
     include: input.include,
+    files: input.files,
+    version: __VERSION__,
+    visualCompared: input.visualCompared,
   });
   download(`changelens-report-${baseName(input.names.new)}.html`, html, 'text/html;charset=utf-8');
 }
 
 export function exportJson(input: ExportInput): void {
-  const json = buildJson({ result: input.result, lang: input.lang, oldName: input.names.old, newName: input.names.new, reviews: input.reviews });
+  const json = buildJson({ result: input.result, lang: input.lang, oldName: input.names.old, newName: input.names.new, reviews: input.reviews, files: input.files, version: __VERSION__, visualCompared: input.visualCompared });
   download(`changelens-${baseName(input.names.new)}.json`, JSON.stringify(json, null, 2), 'application/json');
 }

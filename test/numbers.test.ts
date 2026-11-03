@@ -31,3 +31,11 @@ test('percentChange formats the relative difference', () => {
   assert.equal(percentChange(0, 5), null);
   assert.equal(percentChange(5, 5), null);
 });
+
+test('minus signs and accounting notation', () => {
+  assert.equal(parseNumber('−500'), -500);
+  assert.equal(parseNumber('(1,200)'), -1200);
+  assert.equal(parseNumber('–3.5'), -3.5);
+  assert.ok(isNumericPhrase(['(1,200)']));
+  assert.ok(isNumericPhrase(['−500']));
+});

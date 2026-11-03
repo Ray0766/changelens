@@ -1,0 +1,17 @@
+{
+  "description": "A 9 pt checkbox gets a tick, and a thin 0.75 pt rule is added — both must be found despite the noise tolerance.",
+  "synthetic": true,
+  "holdout": false,
+  "truth": [
+    {
+      "type": "graphic",
+      "newPage": 1,
+      "oldPage": 1
+    },
+    {
+      "type": "graphic",
+      "newPage": 1,
+      "oldPage": 1
+    }
+  ]
+}

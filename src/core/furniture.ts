@@ -1,4 +1,4 @@
-import type { DocText, Line, Token } from './types.ts';
+import type { DocModel, DocText, Line, Token } from './types.ts';
 
 const ZONE = 0.11;
 
@@ -83,4 +83,34 @@ function tracksPageNumber(group: Line[]): boolean {
     tracking = true;
   }
   return tracking;
+}
+
+function signature(height: number, line: Line): string | null {
+  const zone = line.rect.y + line.rect.h < height * ZONE ? 'top' : line.rect.y > height * (1 - ZONE) ? 'bottom' : null;
+  return zone ? zone + ':' + line.text.toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, '') : null;
+}
+
+/**
+ * Make header/footer detection consistent across the two versions: a line
+ * recognised as running header/footer in one document is also treated as
+ * such in the other (e.g. a one-page document cannot show repetition by
+ * itself, but its two-page successor can).
+ */
+export function syncFurniture(a: DocModel, b: DocModel): void {
+  const sigs = new Set<string>();
+  for (const d of [a, b])
+    for (const l of d.lines) {
+      if (!l.furniture) continue;
+      const sig = signature(d.pages[l.page].height, l);
+      if (sig) sigs.add(sig);
+    }
+  for (const d of [a, b])
+    for (const l of d.lines) {
+      if (l.furniture) continue;
+      const sig = signature(d.pages[l.page].height, l);
+      if (sig && sigs.has(sig)) {
+        l.furniture = true;
+        for (let t = l.start; t < l.end; t++) d.tokens[t].furniture = true;
+      }
+    }
 }

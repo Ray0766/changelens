@@ -1,0 +1,13 @@
+{
+  "description": "Same text, body font changed from a serif to a sans-serif face (causing re-flow).",
+  "synthetic": true,
+  "holdout": false,
+  "truth": [
+    {
+      "type": "format",
+      "many": true,
+      "oldPage": 1,
+      "newPage": 1
+    }
+  ]
+}

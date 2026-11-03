@@ -102,3 +102,34 @@ test('text pushed past the page edge is reported as overflow', () => {
   assert.ok(o);
   assert.equal(o.overflow?.edge, 'right');
 });
+
+test('a sign change is a number change, described as such', () => {
+  const a = makeDoc('a', [[['Adjustment for unused visits: 500 USD this year.']]]);
+  const b = makeDoc('b', [[['Adjustment for unused visits: −500 USD this year.']]]);
+  const r = compareDocs(model(a), model(b));
+  assert.equal(r.changes.length, 1);
+  assert.ok(r.changes[0].numeric);
+  assert.equal(describeChange('en', r.changes[0]), 'Number changed: 500 → −500 (sign changed)');
+});
+
+test('ignored header/footer differences are counted, not hidden silently', () => {
+  const a = makeDoc('a', [[P(1)], [P(2)]], { footer });
+  const b = makeDoc('b', [[P(1)], [P(2)], [P(3)]], { footer });
+  const r = compareDocs(model(a), model(b));
+  assert.ok(r.ignored.furniture > 0);
+});
+
+test('a page without text is reported as not covered', () => {
+  const a = makeDoc('a', [[P(1)], [P(2)]]);
+  const b = makeDoc('b', [[P(1)], []]);
+  const r = compareDocs(model(a), model(b));
+  assert.deepEqual(r.coverage.new.textless, [1]);
+});
+
+test('the same font change everywhere becomes one change', () => {
+  const pages = [[P(1), P(2), P(3), P(4)]];
+  const r = compareDocs(model(makeDoc('a', pages, { font: 'Serif-Regular' })), model(makeDoc('b', pages, { font: 'Sans-Regular' })));
+  const fmt = r.changes.filter((c) => c.kind === 'format');
+  assert.equal(fmt.length, 1);
+  assert.equal(fmt[0].places, 4);
+});
