@@ -9,6 +9,7 @@
 //     p4  a 0.75 pt rule added 1 pt above a paragraph
 //     p5  a chart between two paragraphs is deleted while a sentence is
 //         added above it, so the text below moves up into its place
+//     p6  a single figure and "EUR 9" struck through
 //   shot4-*.pdf  — a screenshot of a table (bitmap text and grey rules) below
 //                  a paragraph that gains a sentence: it moves down a line
 //   push4-*.pdf  — text added on p. 1 pushes a chart from the foot of p. 1
@@ -78,6 +79,7 @@ const reflow = (after) =>
     `<div class="pb"><p>${P[1]} ${after ? '<s>The duty engineer signs the visit log before leaving the site.</s>' : 'The duty engineer signs the visit log before leaving the site.'} ${P[4]}</p></div>`,
     `<div class="pb"><p>${P[3]}</p><p style="${after ? 'border-top:0.75pt solid #000;padding-top:1pt' : ''}">${P[4]}</p><p>${P[0]}</p></div>`,
     `<div class="pb"><p>${P[0]}${after ? extra : ''}</p><p>${P[1]}</p>${after ? '' : chart(60)}<p>${P[2]}</p><p>${P[3]}</p><p>${P[4]}</p></div>`,
+    `<div class="pb"><p>${P[2]}</p><p>Delivery normally takes ${after ? '<s>5</s>' : '5'} working days from the order date, and the fee is ${after ? '<s>EUR 9</s>' : 'EUR 9'} per item.</p><p>${P[3]}</p></div>`,
   ].join('');
 
 const paras = (n, off = 0) => Array.from({ length: n }, (_, k) => `<p>${k + 1 + off}. ${P[(k + off) % 5]}</p>`).join('');

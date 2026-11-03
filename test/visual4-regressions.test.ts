@@ -119,3 +119,17 @@ test('a blank page added is described as blank', { skip }, async () => {
   const back = await fixture('blank4-after.pdf', 'blank4-before.pdf');
   assert.equal(describeChange('zh', back.changes[0]), '删除了一页空白页（没有文字、图片或图形）');
 });
+
+test('a single figure struck through is found, and "EUR 9" struck is named whole', { skip }, async () => {
+  const { changes } = onPage(await reflow4(), 6);
+  assert.deepEqual(changes.map((c) => describeChange('en', c)).sort(), ['Struck through: “5”', 'Struck through: “EUR 9”']);
+});
+
+test('a reportlab logo moved by 1 pt is a minor shift; a light bar on a grey panel that grew by 3 pt is a change', { skip }, async () => {
+  const logo = await fixture('rl4-logo-before.pdf', 'rl4-logo-after.pdf');
+  assert.deepEqual(list(logo.changes), '');
+  assert.equal(logo.minor.length, 1);
+  const bars = await fixture('rl4-bars-before.pdf', 'rl4-bars-after.pdf');
+  assert.deepEqual(list(bars.changes), 'Graphic or image changed');
+  assert.equal(bars.minor.length, 0);
+});

@@ -551,6 +551,49 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
     else for (let x = X0; x <= X1; x++) (at(x, Y0), at(x, Y1));
     return n > 0 && ink / n >= 0.25;
   };
+  // Ink balance of a region that one offset (dx, dy) within SHIFT_PT
+  // explains: a shifted graphic keeps its ink; one that grew, shrank or got a
+  // parallel line added does not, even if every differing pixel matches
+  // something nearby. Where only one edge of a graphic lies in the region (a
+  // filled bar moved up), the ink it gains is lost at the other edge; see the
+  // grouping below. `ps` and `qs` are the region's pixels and the places they
+  // were compared with.
+  const inkBalance = (rect: Rect, ps: number[], qs: number[], idx: number[], step: number, dx: number, dy: number) => {
+    const pad = SHIFT_PT * scale;
+    const sx0 = rect.x * scale - pad;
+    const sy0 = rect.y * scale - pad;
+    const sx1 = (rect.x + rect.w) * scale + pad;
+    const sy1 = (rect.y + rect.h) * scale + pad;
+    // Across a page break only part of a page is comparable: the balance is
+    // only measured where every row around the region was compared.
+    let comparable = true;
+    if (!whole) for (let y = Math.max(0, Math.floor(sy0)), e = Math.min(h, Math.ceil(sy1)); y < e && comparable; y++) comparable = !!rowOk[y];
+    if (!comparable) return { shift: true, delta: 0, raw: 0, ox: 0, oy: 0, mx: 0, my: 0, inked: false };
+    const offX: number[] = [];
+    const offY: number[] = [];
+    for (let j = 0; j < idx.length; j += step) {
+      const q0 = qs[idx[j]];
+      if (q0 < 0) continue;
+      const p = ps[idx[j]];
+      offX.push((q0 % rd.width) - Math.round((p % w) * ratio));
+      offY.push(((q0 / rd.width) | 0) - Math.round(((p / w) | 0) * ratio));
+    }
+    const med = (a: number[]) => (a.length ? a.sort((u, v) => u - v)[a.length >> 1] : 0);
+    const mx = med(offX);
+    const my = med(offY);
+    const inkS = inkIn(src, sx0, sy0, sx1, sy1);
+    const inkD = inkIn(dst, sx0 * ratio + mx, sy0 * ratio + my, sx1 * ratio + mx, sy1 * ratio + my);
+    const delta = inkD - inkS;
+    // A thin line that moved within the region keeps its ink, give or take
+    // anti-aliasing (a hairline drawn one pixel over can gain or lose a
+    // tenth of it). Where the graphic goes on beyond the region in the
+    // direction it moved (the edge of a fill, the inside of an image), the
+    // part inside the region keeps its ink much more closely; a light bar
+    // with a dark outline that grew by 3 pt does not.
+    const edge = continuesBeyond(sx0, sy0, sx1, sy1, Math.abs(dx) >= Math.abs(dy));
+    const balanced = Math.abs(delta) <= (edge ? BALANCE_EDGE : BALANCE_LINE) * Math.max(inkS, inkD) + 0.5;
+    return { shift: true, delta: balanced ? 0 : delta, raw: delta, ox: dx, oy: dy, mx, my, inked: true };
+  };
   const cand = comps.map((c, k) => {
     const idx = members[k];
     const step = Math.max(1, Math.floor(idx.length / 1500));
@@ -568,49 +611,8 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
         qs = failQ2.map((q, j) => (q >= 0 ? q : failQ[j]));
       }
     }
-    const best = fit.best;
-    const pad = SHIFT_PT * scale;
-    const sx0 = c.rect.x * scale - pad;
-    const sy0 = c.rect.y * scale - pad;
-    const sx1 = (c.rect.x + c.rect.w) * scale + pad;
-    const sy1 = (c.rect.y + c.rect.h) * scale + pad;
-    // Across a page break only part of a page is comparable: the balance is
-    // only measured where every row around the region was compared.
-    let comparable = whole;
-    if (!whole) {
-      comparable = true;
-      for (let y = Math.max(0, Math.floor(sy0)), e = Math.min(h, Math.ceil(sy1)); y < e && comparable; y++) comparable = !!rowOk[y];
-    }
-    if (best < 0.85 || !comparable) return { rect: c.rect, shift: best >= 0.85, delta: 0, raw: 0, ox: 0, oy: 0, inked: false, blankHere };
-    // Ink balance: a shifted graphic keeps its ink; one that grew, shrank or
-    // got a parallel line added does not, even if every differing pixel
-    // matches something nearby. Where only one edge of a graphic lies in the
-    // region (a filled bar moved up), the ink it gains is lost at the other
-    // edge; see the grouping below.
-    const offX: number[] = [];
-    const offY: number[] = [];
-    for (let j = 0; j < idx.length; j += step) {
-      const q0 = qs[idx[j]];
-      if (q0 < 0) continue;
-      const p = failP[idx[j]];
-      offX.push((q0 % rd.width) - Math.round((p % w) * ratio));
-      offY.push(((q0 / rd.width) | 0) - Math.round(((p / w) | 0) * ratio));
-    }
-    const med = (a: number[]) => (a.length ? a.sort((u, v) => u - v)[a.length >> 1] : 0);
-    const mx = med(offX);
-    const my = med(offY);
-    const inkS = inkIn(src, sx0, sy0, sx1, sy1);
-    const inkD = inkIn(dst, sx0 * ratio + mx, sy0 * ratio + my, sx1 * ratio + mx, sy1 * ratio + my);
-    const delta = inkD - inkS;
-    // A thin line that moved within the region keeps its ink, give or take
-    // anti-aliasing (a hairline drawn one pixel over can gain or lose a
-    // tenth of it). Where the graphic goes on beyond the region in the
-    // direction it moved (the edge of a fill, the inside of an image), the
-    // part inside the region keeps its ink much more closely; a light bar
-    // with a dark outline that grew by 3 pt does not.
-    const edge = continuesBeyond(sx0, sy0, sx1, sy1, Math.abs(fit.dx) >= Math.abs(fit.dy));
-    const balanced = Math.abs(delta) <= (edge ? BALANCE_EDGE : BALANCE_LINE) * Math.max(inkS, inkD) + 0.5;
-    return { rect: c.rect, shift: true, delta: balanced ? 0 : delta, raw: delta, ox: fit.dx, oy: fit.dy, inked: true, blankHere };
+    if (fit.best < 0.85) return { rect: c.rect, shift: false, delta: 0, raw: 0, ox: 0, oy: 0, mx: 0, my: 0, inked: false, blankHere };
+    return { rect: c.rect, ...inkBalance(c.rect, failP, qs, idx, step, fit.dx, fit.dy), blankHere };
   });
   // Faint differences: a light fill (mean excess over an area of at least
   // 3×3 cells) or a hairline (a row or column of cells with a strong mean
@@ -683,8 +685,10 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
       const step = Math.max(1, Math.floor(idx.length / 1500));
       let best = 0;
       let still = 0;
-      for (let dy = -S; dy <= S && best < 0.85; dy++) {
-        for (let dx = -S; dx <= S && best < 0.85; dx++) {
+      let bx = 0;
+      let by = 0;
+      for (let dy = -S; dy <= S; dy++) {
+        for (let dx = -S; dx <= S; dx++) {
           let hit = 0;
           let total = 0;
           for (let j = 0; j < idx.length; j += step) {
@@ -697,13 +701,17 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
             const q = qy * rd.width + qx;
             if (outside(s0[p], n0[q], x0[q]) <= rel(s0[p]) && outside(s1[p], n1[q], x1[q]) <= rel(s1[p]) && outside(s2[p], n2[q], x2[q]) <= rel(s2[p])) hit++;
           }
-          if (total && hit / total > best) best = hit / total;
-          if (dx === 0 && dy === 0 && total) still = hit / total;
+          const f = total ? hit / total : 0;
+          if (dx === 0 && dy === 0) still = f;
+          else if (f > best || (f === best && f > 0 && Math.abs(dx) + Math.abs(dy) < Math.abs(bx) + Math.abs(by))) [best, bx, by] = [f, dx, dy];
         }
       }
       // The same light graphic, only anti-aliased differently: no difference.
       if (still >= 0.85) return;
-      cand.push({ rect: c.rect, shift: idx.length > 0 && best >= 0.85, delta: 0, raw: 0, ox: 0, oy: 0, inked: false, blankHere: paperShare(faintP, idx, step) >= 0.95 });
+      const blankHere = paperShare(faintP, idx, step) >= 0.95;
+      // A light fill that moved keeps its ink too; one that grew does not.
+      if (idx.length > 0 && best >= 0.85) cand.push({ rect: c.rect, ...inkBalance(c.rect, faintP, faintQ, idx, step, bx, by), blankHere });
+      else cand.push({ rect: c.rect, shift: false, delta: 0, raw: 0, ox: 0, oy: 0, mx: 0, my: 0, inked: false, blankHere });
       // Let appearance checks see the faint difference too.
       for (const ci of c.cells) if (cells[ci] < 3) cells[ci] = 3;
     });
@@ -743,11 +751,32 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
     else loss.set(g, (loss.get(g) ?? 0) - c.raw);
   });
   const balances = (u: number, v: number) => Math.abs(u - v) <= 0.35 * Math.max(u, v) + 0.5;
+  // The ink of the whole box around a group's edges (the whole graphic, when
+  // its edges on both sides are in the group): kept when it only moved. The
+  // edge that lost ink may lie inside a region that gained more elsewhere.
+  const boxKeeps = new Map<number, boolean>();
+  const keepsInk = (g: number) => {
+    let v = boxKeeps.get(g);
+    if (v !== undefined) return v;
+    const members = cand.filter((c, i) => c.shift && c.inked && root(i) === g);
+    v = false;
+    if (members.length >= 2) {
+      const b = union(members.map((c) => c.rect));
+      const pad = SHIFT_PT * scale;
+      const [bx0, by0, bx1, by1] = [b.x * scale - pad, b.y * scale - pad, (b.x + b.w) * scale + pad, (b.y + b.h) * scale + pad];
+      const { mx, my } = members[0];
+      const inkS = inkIn(src, bx0, by0, bx1, by1);
+      const inkD = inkIn(dst, bx0 * ratio + mx, by0 * ratio + my, bx1 * ratio + mx, by1 * ratio + my);
+      v = Math.abs(inkD - inkS) <= BALANCE_EDGE * Math.max(inkS, inkD) + 0.5;
+    }
+    boxKeeps.set(g, v);
+    return v;
+  };
   const paired = new Set<number>();
   cand.forEach((a, i) => {
     if (!a.shift || a.delta === 0) return;
     const g = root(i);
-    if (gain.has(g) && loss.has(g) && balances(gain.get(g)!, loss.get(g)!)) paired.add(i);
+    if ((gain.has(g) && loss.has(g) && balances(gain.get(g)!, loss.get(g)!)) || keepsInk(g)) paired.add(i);
   });
   cand.forEach((a, i) => {
     if (!a.shift || a.delta === 0 || paired.has(i)) return;
@@ -925,9 +954,13 @@ function boxDarkness(side: Prepared, rect: Rect): { d: Float32Array; cols: numbe
  * same glyph rendered at another sub-pixel position looks the same.
  */
 function addedLine(a: Prepared, ra: Rect, b: Prepared, rb: Rect): 'strike' | 'underline' | null {
-  // A word shorter than this has too few pixel columns to tell a line from
-  // a glyph drawn at another sub-pixel position.
-  if (rb.w < 8) return null;
+  // A box narrower than this has too few pixel columns to tell a line from
+  // a glyph drawn at another sub-pixel position. A single figure struck
+  // through ("<s>5</s> working days") is a common redline, so the limit is
+  // one narrow glyph: at the visual stage's 1.5 px/pt that is still 4–5
+  // columns, and the tests below need nearly all of them dark in the line's
+  // rows and the other rows unchanged.
+  if (rb.w < 3) return null;
   if (Math.abs(ra.w - rb.w) > 0.15 * Math.max(ra.w, rb.w) || Math.abs(ra.h - rb.h) > 0.15 * Math.max(ra.h, rb.h)) return null;
   const A = boxDarkness(a, ra);
   const B = boxDarkness(b, rb);
