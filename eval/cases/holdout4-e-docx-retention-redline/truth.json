@@ -1,0 +1,63 @@
+{
+  "description": "A records retention policy of an invented housing association, written as a Word document with python-docx: numbered headings and paragraphs (automatic multi-level list), a portrait section, a landscape section with the retention schedule table (Appendix A) and a portrait section for document control; Arial is substituted by Liberation Sans. The PDFs were rendered by LibreOffice 24.2 from the Office files (headless --convert-to pdf), not by Microsoft Office. The new version is the draft as circulated with tracked changes shown: one sentence added as a tracked insertion (LibreOffice shows it underlined in the reviewer colour with a change bar in the left margin) and one paragraph removed as a tracked deletion (still shown, struck through in the reviewer colour, with a change bar). Several other edits were made with tracking switched off, so they are not marked in the new PDF: the backup deletion period, one retention period and one owner in the landscape table, and a new row in the version history; the footer also changed. Consequences that are not listed: the change bars themselves; LibreOffice shows the list number of the deleted paragraph as \"[4.3]\" and that of the next paragraph as \"4.3[4.4]\", both in the reviewer colour (automatic renumbering shown as part of the redline); page 1 re-flows, and the R09 row in the landscape table becomes two lines tall.",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "insert",
+      "new": "Staff must complete the records management e-learning module within 30 days of joining.",
+      "newPage": 1,
+      "maxItems": 2,
+      "note": "Tracked insertion, shown underlined and coloured, with a change bar in the left margin; a separate graphic entry for that bar belongs to this item."
+    },
+    {
+      "type": "format",
+      "old": "Paper records may be scanned and the paper copy destroyed after a quality check",
+      "new": "Paper records may be scanned and the paper copy destroyed after a quality check",
+      "oldPage": 1,
+      "newPage": 1,
+      "maxItems": 3,
+      "note": "Tracked deletion: the text is still there but struck through and in the reviewer colour, with a change bar; strikethrough, colour and bar may be reported separately. The README claims strikethrough detection; reporting this as a plain deletion would be wrong because the words are still printed."
+    },
+    {
+      "type": "number",
+      "old": "within 90 days",
+      "new": "within 180 days",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Untracked edit in clause 5.2, no redline marking."
+    },
+    {
+      "type": "number",
+      "old": "10 years",
+      "new": "15 years",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Untracked edit, row R15 of the landscape retention schedule."
+    },
+    {
+      "type": "replace",
+      "old": "Neighbourhood Team",
+      "new": "Community Safety Officer",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Untracked edit, owner of row R09 (CCTV footage) in the landscape table; the new text wraps onto two lines."
+    },
+    {
+      "type": "insert",
+      "new": "3.2 12 October 2026 Draft for the Audit and Risk Committee",
+      "newPage": 4,
+      "note": "New row in the version history table."
+    },
+    {
+      "type": "furniture",
+      "old": "Version 3.1 · Approved 14 May 2025",
+      "new": "Version 3.2 · Draft with tracked changes · 12 October 2026",
+      "oldPage": 1,
+      "newPage": 1,
+      "maxItems": 4,
+      "note": "Footer, changed on all four pages (portrait and landscape)."
+    }
+  ]
+}

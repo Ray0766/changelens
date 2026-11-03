@@ -1,0 +1,70 @@
+{
+  "description": "Ten-year asset management plan of a fictional water utility (cover, 9 chapters with 9 templated treatment-works profiles and 24 templated supply-zone profiles, tables, glossary, a 600-row mains renewal schedule, a reservoir schedule and an approval record), 84 A4 pages (85 after the edits), printed by Chromium with running header and \"Page X of Y\" footer. Eight scattered edits: a paragraph and a five-row table inserted in section 1.3 on page 2, which push every later page down by about a third of a page (so every later page break, table split and repeated table header moves, and the document gains a page); a trunk-mains length in the Elmscar asset table; a sentence deleted in the Ivelstone condition paragraph; \"quarterly\" to \"monthly\" in the Pellow Bay risk paragraph; a missing minus sign restored on the Energy variance in the 2025/26 budget table (the old version printed 1,250 for an overspend); a new row R-16 added to the risk register; a scheme length in the 600-row mains renewal schedule in Appendix B; and the Board approval date on the last page. Zone totals, the capital programme and all other figures are unchanged. Re-flow, page breaks, repeated table header rows and footer page numbers change only as consequences. Producer: Chromium (Skia/PDF m153, Playwright page.pdf), HTML/CSS, Liberation Serif/Sans.",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "insert",
+      "new": "In response to consultation feedback, this version also sets out how the Authority will report progress against the plan to customers each year",
+      "oldPage": 2,
+      "newPage": 2,
+      "maxItems": 3,
+      "note": "A new paragraph plus a new five-row table \"Theme raised in consultation\" in section 1.3 (one inserted block, about a third of a page; the table continues at the top of the next new page with its header row repeated); every later page shifts. Reporting it as paragraph + table rows on each page (up to 3 items) is acceptable."
+    },
+    {
+      "type": "number",
+      "old": "148.6",
+      "new": "152.9",
+      "oldPage": 17,
+      "newPage": 17,
+      "note": "Trunk mains quantity (km) in the Elmscar asset register table."
+    },
+    {
+      "type": "delete",
+      "old": "A further 2.3 km of cast-iron main beneath Harbour Street will be relined during the quay works",
+      "oldPage": 25,
+      "newPage": 26,
+      "note": "Whole last sentence of the Ivelstone \"Condition and performance\" paragraph (it continues \"under a joint traffic management plan with the highway authority.\")."
+    },
+    {
+      "type": "replace",
+      "old": "inspected quarterly",
+      "new": "inspected monthly",
+      "oldPage": 36,
+      "newPage": 36,
+      "note": "Pellow Bay risk paragraph; only the frequency word changes."
+    },
+    {
+      "type": "number",
+      "old": "1,250",
+      "new": "−1,250",
+      "oldPage": 58,
+      "newPage": 59,
+      "note": "Energy row, Variance column of the 2025/26 budget table: sign added (overspend). Budget 4,820 and outturn 6,070 are unchanged."
+    },
+    {
+      "type": "insert",
+      "new": "Single approved supplier of sodium hypochlorite for disinfection",
+      "oldPage": 60,
+      "newPage": 60,
+      "note": "New last row R-16 of the risk register in chapter 8 (likelihood 2, impact 5, controls \"Second supplier qualified by 2028; 21 days of on-site stock\")."
+    },
+    {
+      "type": "number",
+      "old": "1,180",
+      "new": "1,810",
+      "oldPage": 79,
+      "newPage": 80,
+      "note": "Length (m) of scheme MR-0518 (Kelmarsh Vale, Market Place to Quarry Lane) in the mains renewal schedule, Appendix B; transposed digits corrected."
+    },
+    {
+      "type": "number",
+      "old": "18 March 2027",
+      "new": "25 March 2027",
+      "oldPage": 84,
+      "newPage": 85,
+      "note": "Board approval date in the record of approval on the last page; only the day changes."
+    }
+  ]
+}

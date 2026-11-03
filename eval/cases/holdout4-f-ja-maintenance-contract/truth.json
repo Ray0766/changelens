@@ -1,0 +1,62 @@
+{
+  "description": "Japanese system maintenance outsourcing contract (システム保守業務委託契約書) between two unnamed fictional parties 甲 and 乙: 18 articles with numbered paragraphs (２, ３) and items (（１）), a signature block and two schedules with tables, typeset with reportlab in IPAGothic with CJK line wrapping; full-width digits in the articles, half-width digits in the schedule tables. Seven edits: contract start date in article 4 (４月 to ５月, full-width); end of the service hours in article 5; the monthly fee in article 9 (full-width digits and comma); a new paragraph ４ added at the end of article 12; the title of article 13 modernised from 瑕疵担保責任 to 契約不適合責任; the proviso deleted from article 14 paragraph ２; and the overtime rate in schedule 2. Re-flow changes only as a consequence. The README lists Japanese as tested by unit tests only. Producer: reportlab 5 (platypus, wordWrap CJK), IPAGothic.",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "４月１日",
+      "new": "５月１日",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Start date in article 4, full-width digits; the end date ２０２８年３月３１日 is unchanged."
+    },
+    {
+      "type": "number",
+      "old": "午後６時",
+      "new": "午後８時",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "End of the service hours in article 5 paragraph 1 (full-width digit)."
+    },
+    {
+      "type": "number",
+      "old": "３８５，０００",
+      "new": "４１８，０００",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Monthly fee in article 9, full-width digits and full-width comma (金３８５，０００円 to 金４１８，０００円)."
+    },
+    {
+      "type": "insert",
+      "new": "乙は、本業務の遂行にあたり生成ＡＩその他の外部サービスに甲の情報を入力する場合には、事前に甲の書面による承諾を得るものとする。",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "New paragraph ４ at the end of article 12; no renumbering."
+    },
+    {
+      "type": "replace",
+      "old": "瑕疵担保責任",
+      "new": "契約不適合責任",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Article 13 heading only (第１３条（瑕疵担保責任） to 第１３条（契約不適合責任）); the body text is unchanged."
+    },
+    {
+      "type": "delete",
+      "old": "ただし、乙の故意又は重大な過失による場合は、この限りでない。",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Proviso at the end of article 14 paragraph ２ deleted (the liability cap now applies without exception). Article 5 paragraph ３ has a similar but different proviso, which is unchanged."
+    },
+    {
+      "type": "number",
+      "old": "14,500",
+      "new": "16,000",
+      "oldPage": 5,
+      "newPage": 5,
+      "note": "Overtime rate (時間外対応, per hour) in the schedule 2 table, half-width digits."
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "description": "Quarterly footbridge inspection report (4 pages) assembled with pypdf: pages 1 and 4 come from one python-docx / LibreOffice Writer document, page 2 is a site plan drawn with reportlab, page 3 a landscape defect register exported by LibreOffice Calc from an openpyxl workbook. In the after version one figure on page 1 was revised in the Writer source, and the assembled file was then post-processed: page 2 was rotated by 90° by mistake (/Rotate 90, now displayed 842 × 595 pt with sideways text), and page 4 was cropped by 40 pt on the right (CropBox 595.3 → 555.3 pt wide), which cuts into the planned-works table that extends 1.4 cm into the right margin. Not a change: page 3 was re-written in the after version as a portrait MediaBox with its content turned by 90° and /Rotate 90, so it displays exactly as before (842 × 595 pt, same text, renders differ only by anti-aliasing); nothing is listed for it. Nothing re-flows. Consequence of the rotation, not listed separately: the site plan's footer line, which repeats the report footer, now runs vertically along the left edge.",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "11.2",
+      "new": "12.6",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Maximum deflection under the test load, in mm."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 2,
+      "newPage": 2,
+      "oldRect": [
+        0,
+        0,
+        595.3,
+        841.9
+      ],
+      "newRect": [
+        0,
+        0,
+        841.9,
+        595.3
+      ],
+      "note": "Whole site-plan page rotated by 90° clockwise (/Rotate 90): portrait page now displayed as landscape, drawing and labels turned. Page orientation change; content unchanged."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 4,
+      "newPage": 4,
+      "oldRect": [
+        0,
+        0,
+        595.3,
+        841.9
+      ],
+      "newRect": [
+        0,
+        0,
+        555.3,
+        841.9
+      ],
+      "note": "Page size changed by a CropBox: width 595.3 → 555.3 pt, height unchanged. Same edit as the cut-off item below, but a separate finding for a reviewer (the page format changed)."
+    },
+    {
+      "type": "overflow",
+      "old": "Budget (EUR)",
+      "new": "Budget (EUR)",
+      "oldPage": 4,
+      "newPage": 4,
+      "maxItems": 5,
+      "oldRect": [
+        511,
+        142.9,
+        58.1,
+        75
+      ],
+      "newRect": [
+        511,
+        142.9,
+        44.3,
+        75
+      ],
+      "note": "The right-aligned \"Budget (EUR)\" column (header and the amounts 4,800 / 2,350 / 6,900 / 3,150) is cut by the new right page edge; the text itself is unchanged in the content stream. pdftotext still returns the full words on the after page; PDF.js returns only the visible part (\"Budget (EU\", \"4,8\"). One item per cut line is acceptable."
+    }
+  ]
+}

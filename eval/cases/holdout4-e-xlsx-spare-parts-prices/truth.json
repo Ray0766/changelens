@@ -1,0 +1,60 @@
+{
+  "description": "A spare parts price list of an invented pump maker, built as an Excel workbook with openpyxl: 101 parts in 8 product groups over four A4 landscape pages, the column header row set as print title row, prices in euro and pound currency formats, dates in dd.mm.yyyy, core refunds as red negative euro amounts, a header and a \"Page X of Y\" footer, fit to page width. Arial is substituted by Liberation Sans. The PDFs were rendered by LibreOffice 24.2 from the Office files (headless --convert-to pdf), not by Microsoft Office. Edits: the metal surcharge raised; a new impeller IMP-1065 inserted after IMP-1060; the euro price of SEA-1010 raised; the price date of MOT-1120 moved; control panel CTL-1080 deleted; the pound price of HSG-1040 raised; the core refund of REM-2070 increased. Consequences that are not listed: rows shift by one across the page breaks (SEA-1030 moves to page 2, the Motors group heading moves from the foot of page 2 to the top of page 3) under the repeated header row.",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "4.5%",
+      "new": "6.0%",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Metal surcharge in the header block."
+    },
+    {
+      "type": "insert",
+      "new": "IMP-1065 Closed impeller, DN125",
+      "newPage": 1,
+      "note": "New row (each, € 468.00, £402.50, B, 20); every cell of the row is new."
+    },
+    {
+      "type": "number",
+      "old": "€ 74.00",
+      "new": "€ 89.00",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "SEA-1010 euro price."
+    },
+    {
+      "type": "number",
+      "old": "01.04.2027",
+      "new": "01.07.2027",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Price valid-from date of MOT-1120."
+    },
+    {
+      "type": "delete",
+      "old": "CTL-1080 Control panel, ATEX",
+      "oldPage": 3,
+      "note": "Whole row removed (each, € 491.00, £417.00, B, 10)."
+    },
+    {
+      "type": "number",
+      "old": "£664.50",
+      "new": "£710.50",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "HSG-1040 pound price; the euro price in the same row is unchanged."
+    },
+    {
+      "type": "number",
+      "old": "-€ 300.00",
+      "new": "-€ 335.00",
+      "oldPage": 4,
+      "newPage": 4,
+      "note": "Core refund of REM-2070, a red negative amount in both versions."
+    }
+  ]
+}

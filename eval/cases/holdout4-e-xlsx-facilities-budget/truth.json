@@ -1,0 +1,69 @@
+{
+  "description": "An operating budget of an invented facilities department, built as an Excel workbook with openpyxl: 104 line items in 12 sections over three A4 portrait pages, the column header row set as print title row, amounts in the format #,##0;[Red](#,##0) (income in red brackets), a Change column computed by formula with red negative percentages, dates in d mmm yyyy, a header and a \"Page X of Y\" footer, fit to page width. Calibri is substituted by Carlito. LibreOffice Calc computed the formulas. The PDFs were rendered by LibreOffice 24.2 from the Office files (headless --convert-to pdf), not by Microsoft Office. Edits: the energy price inflation assumption lowered; the electricity budget lowered, which turns its Change from 4.9% into a red negative percentage; a new line 6219 for a lift modernisation study inserted after lift maintenance; the note of the guarding contract changed; the one-off line 7010 for office moves deleted; as a result the FY2027 total and its Change percentage changed. Account codes are fixed per line, so nothing renumbers. Consequences that are not listed: one row moves from page 1 to page 2 and one from page 2 to page 3, under the repeated column header row; the FY2025 and FY2026 totals do not change.",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "8.0%",
+      "new": "6.5%",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Energy price inflation assumption."
+    },
+    {
+      "type": "number",
+      "old": "184,000",
+      "new": "171,500",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Electricity, FY2027 budget."
+    },
+    {
+      "type": "number",
+      "old": "4.9%",
+      "new": "-2.2%",
+      "oldPage": 1,
+      "newPage": 1,
+      "maxItems": 2,
+      "note": "Electricity Change, computed by formula; the sign changes and the cell turns red (number format [Red]), so a separate colour entry is legitimate."
+    },
+    {
+      "type": "insert",
+      "new": "6219 Lift modernisation feasibility study",
+      "newPage": 1,
+      "note": "New budget line (– – 22,000 new, with a note); every cell of the row is new."
+    },
+    {
+      "type": "replace",
+      "old": "CPI-linked",
+      "new": "fixed price",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Note of line 6501, manned guarding."
+    },
+    {
+      "type": "delete",
+      "old": "7010 Office moves and reconfigurations",
+      "oldPage": 3,
+      "note": "Whole line removed (– – 26,000 new, with a note)."
+    },
+    {
+      "type": "number",
+      "old": "2,329,800",
+      "new": "2,313,300",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Total FY2027 budget (formula)."
+    },
+    {
+      "type": "number",
+      "old": "2.2%",
+      "new": "1.5%",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Change of the total (formula)."
+    }
+  ]
+}
