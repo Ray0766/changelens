@@ -39,3 +39,25 @@ test('minus signs and accounting notation', () => {
   assert.ok(isNumericPhrase(['(1,200)']));
   assert.ok(isNumericPhrase(['−500']));
 });
+
+test('parseNumber returns null for times, dates, fractions and several numbers', () => {
+  for (const s of ['1/2', '3/4', '12:30', '11/03/2026', '2026-11-03', '10-20', '10–20', '8,000 12', '8,000 12%', '1,200 300', '12% 3%', '1,2,3'])
+    assert.equal(parseNumber(s), null, s);
+});
+
+test('parseNumber: leading-zero decimals, space-grouped thousands, full-width forms', () => {
+  assert.equal(parseNumber('0,125'), 0.125);
+  assert.equal(parseNumber('0,15'), 0.15);
+  assert.equal(parseNumber('-0,5'), -0.5);
+  assert.equal(parseNumber('1.234'), 1.234);
+  assert.equal(parseNumber('1 234 567'), 1234567);
+  assert.equal(parseNumber('1 234,50'), 1234.5);
+  assert.equal(parseNumber('1 234 EUR'), 1234);
+  assert.equal(parseNumber("1'234'567"), 1234567);
+  assert.equal(parseNumber('１２，０００'), 12000);
+  assert.equal(parseNumber('（１，２００）'), -1200);
+  assert.equal(parseNumber('− 500'), -500);
+  assert.ok(isNumericPhrase(['１２，０００']));
+  assert.ok(isNumericPhrase(['1 234 567']));
+  assert.ok(isNumericPhrase(['10–20']));
+});
