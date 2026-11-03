@@ -142,6 +142,13 @@ async function makeCrops(result: CompareResult, pdfs: { old: PDFDocumentProxy; n
   return crops;
 }
 
+// A reader that stops early (`changelens a.pdf b.pdf -o r.html | head`)
+// closes stdout. That is not an error: keep going so the report and JSON
+// are still written, and drop the rest of the terminal output.
+process.stdout.on('error', (e: NodeJS.ErrnoException) => {
+  if (e.code !== 'EPIPE') throw e;
+});
+
 async function main(): Promise<number> {
   let parsed;
   try {

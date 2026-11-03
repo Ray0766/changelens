@@ -202,3 +202,16 @@ test('--no-format says that formatting was not compared', () => {
   assert.match(full.out, /font LiberationSerif/);
   assert.doesNotMatch(full.out, /font size and font were not compared/);
 });
+
+test('a reader that closes the output early does not stop the report from being written', async () => {
+  const { spawn } = await import('node:child_process');
+  const dir = mkdtempSync(join(tmpdir(), 'cl-epipe-'));
+  const out = join(dir, 'r.json');
+  const child = spawn(process.execPath, [cli, evalCase('numbers', 'before'), evalCase('numbers', 'after'), '--no-visual', '--json', out], { stdio: ['ignore', 'pipe', 'pipe'] });
+  // Like `| head -1`: read the first chunk, then close the pipe.
+  child.stdout.once('data', () => child.stdout.destroy());
+  const code = await new Promise<number | null>((resolve) => child.on('close', resolve));
+  assert.equal(code, 0);
+  assert.ok(existsSync(out), 'JSON written');
+  assert.ok(JSON.parse(readFileSync(out, 'utf8')).changes.length > 0);
+});
