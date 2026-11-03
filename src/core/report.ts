@@ -320,7 +320,8 @@ export function buildJson(input: ReportInput): unknown {
     notices: notes,
     files: input.files,
     manualPairs: result.pageLinks.filter((l) => l.manual).map((l) => ({ old: l.oldPage + 1, new: l.newPage + 1 })),
-    minor: result.minor.map((c) => ({ id: c.id, description: describeChange(lang, c), location: locationLabel(lang, c) })),
+    // Listed in the app with "Show"; a reviewer may have marked them too.
+    minor: result.minor.map((c) => ({ id: c.id, description: describeChange(lang, c), location: locationLabel(lang, c), review: reviews[c.id] })),
     pageMap: { oldToNew: result.oldToNew.map((p) => (p < 0 ? null : p + 1)), newToOld: result.newToOld.map((p) => (p < 0 ? null : p + 1)) },
     changes: result.changes.map((c) => ({
       id: c.id,

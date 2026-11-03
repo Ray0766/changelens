@@ -342,7 +342,13 @@ export class App {
     else destroy();
   }
 
-  private async run(): Promise<void> {
+  /**
+   * Compare the picked files. Afterwards the focus returns to the control
+   * that had it, or, if the new result no longer has that control (the
+   * notice whose "Show" was pressed, the pairing form), to the first of
+   * `fallback` that exists.
+   */
+  private async run(fallback: string[] = []): Promise<void> {
     if (!this.picked.old || !this.picked.new) return;
     if (this.busy) {
       this.rerun = true;
@@ -394,6 +400,8 @@ export class App {
         store.set('changelens.options', JSON.stringify(this.options));
         this.savePairs(this.shown.pairs);
         this.syncSettings();
+        // Also the change list: e.g. a pairing form closed by its Pair button.
+        this.sidebar?.update(this.result);
       } else this.showLanding();
       if (!abort.signal.aborted) {
         console.error(e);
@@ -403,7 +411,7 @@ export class App {
       ov.close();
       this.root.inert = false;
       this.busy = false;
-      restoreFocus(this.root, focus);
+      if (!restoreFocus(this.root, focus)) fallback.some((key) => restoreFocus(this.root, key));
     }
     const again = this.rerun && ok;
     this.rerun = false;
@@ -440,10 +448,13 @@ export class App {
     }
   }
 
-  /** Reviews keyed by the current change ids (backed by stable signatures). */
+  /**
+   * Reviews keyed by the current change ids (backed by stable signatures),
+   * including minor shifts the reviewer listed with "Show" and marked.
+   */
   private reviewsById(): Record<string, Review> {
     const out: Record<string, Review> = {};
-    for (const c of this.result?.changes ?? []) {
+    for (const c of [...(this.result?.changes ?? []), ...(this.result?.minor ?? [])]) {
       const r = this.reviewsBySig[signature(c)];
       if (r) out[c.id] = { ...r };
     }
@@ -484,11 +495,12 @@ export class App {
       onPair: async (o, n) => {
         const pairs = this.loadPairs().filter(([a, b]) => a !== o && b !== n);
         this.savePairs([...pairs, [o, n]]);
-        await this.run();
+        // The form is gone afterwards: go to the new pair's remove button.
+        await this.run([`unpair-${o}-${n}`, 'pair-open']);
       },
       onUnpair: async (o, n) => {
         this.savePairs(this.loadPairs().filter(([a, b]) => !(a === o && b === n)));
-        await this.run();
+        await this.run(['pair-open']);
       },
       onNotice: async (action) => {
         if (action === 'minor') {
@@ -499,7 +511,8 @@ export class App {
         } else {
           this.options.ignoreFurniture = false;
           store.set('changelens.options', JSON.stringify(this.options));
-          await this.run();
+          // The notice goes away with the re-run: go to the new summary.
+          await this.run(['summary']);
         }
       },
       onMapToggle: (open) => (this.mapOpen = open),
@@ -533,7 +546,9 @@ export class App {
     };
     const sideToggle = h('div', { class: 'seg only-sm', role: 'group' }, seg('old'), seg('new'));
 
-    const exportBtn = h('button', { class: 'btn primary', 'data-fk': 'export', onclick: () => this.doExport() }, icon('download'), h('span', {}, this.tr('exportReport')));
+    // On very narrow screens only the icon shows; the label stays its name.
+    const exportBtn = h('button', { class: 'btn primary', 'data-fk': 'export', title: this.tr('exportReport'), onclick: () => this.doExport() },
+      icon('download'), h('span', { class: 'lbl' }, this.tr('exportReport')), h('span', { class: 'pct' }));
     const listOpen = this.root.classList.contains('list-open');
     const top = h('header', { class: 'topbar' },
       h('button', { class: 'brand', 'data-fk': 'brand', title: this.tr('newComparison'), onclick: () => this.reset(), html: `${LOGO}<span class="hide-sm">ChangeLens</span>` }),
@@ -596,7 +611,7 @@ export class App {
     const viewerWrap = h('section', { class: 'viewer' }, tools, this.viewer.root);
     this.root.append(h('div', { class: 'results' }, top, h('div', { class: 'workspace' }, this.sidebar.root, viewerWrap)));
     this.sidebar.listScrollTop = listTop;
-    // The off-canvas list (narrow screens) is out of the tab order while closed.
+    // The off-canvas list (narrow screens) and what it covers: see updateSidebarInert.
     window.matchMedia(narrowQuery).addEventListener('change', () => this.updateSidebarInert(), { signal });
     this.updateSidebarInert();
     this.paintExport();
@@ -613,9 +628,18 @@ export class App {
     if (!open && hadFocus && sb?.inert) restoreFocus(this.root, 'list-menu');
   }
 
+  /**
+   * Narrow screens: the off-canvas list is out of the tab order while
+   * closed, and the viewer it covers while open (no focus on hidden
+   * controls; Escape or the list button closes it).
+   */
   private updateSidebarInert(): void {
+    const narrow = window.matchMedia(narrowQuery).matches;
+    const open = this.root.classList.contains('list-open');
     const sb = this.sidebar?.root;
-    if (sb) sb.inert = window.matchMedia(narrowQuery).matches && !this.root.classList.contains('list-open');
+    if (sb) sb.inert = narrow && !open;
+    const viewer = this.root.querySelector<HTMLElement>('.viewer');
+    if (viewer) viewer.inert = narrow && open;
   }
 
   /** Page-map click: on narrow screens show that version first, then scroll it. */
@@ -734,7 +758,7 @@ export class App {
     // aria-disabled rather than disabled, so a focused button keeps the focus.
     if (running) btn.setAttribute('aria-disabled', 'true');
     else btn.removeAttribute('aria-disabled');
-    btn.querySelector('span')!.textContent = this.tr('exportReport') + (running?.progress ?? '');
+    btn.querySelector('.pct')!.textContent = running?.progress ?? '';
   }
 
   private reset(): void {

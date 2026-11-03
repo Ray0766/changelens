@@ -106,7 +106,8 @@ export class Sidebar {
     const counts = countChanges(this.result.changes);
     clear(this.summary);
     const { oldDoc, newDoc, stats } = this.result;
-    const big = h('div', { class: 'summary-head' },
+    // Focus target after a re-run removed the control that had the focus.
+    const big = h('div', { class: 'summary-head', 'data-fk': 'summary', tabindex: -1 },
       h('div', { class: 'summary-count' }, String(counts.total)),
       h('div', {},
         h('div', { class: 'summary-title' }, counts.total === 1 ? t(lang, 'totalChange1') : counts.total ? t(lang, 'totalChanges') : t(lang, 'noChanges')),
@@ -142,7 +143,7 @@ export class Sidebar {
     const pairs = manual.length
       ? h('ul', { class: 'pairs' }, manual.map((l) =>
           h('li', {}, h('span', { class: 'pair-dash', 'aria-hidden': 'true' }), pairLabel(lang, l.oldPage, l.newPage),
-            h('button', { class: 'btn link', title: t(lang, 'removePair'), 'aria-label': `${t(lang, 'removePair')}: ${pairLabel(lang, l.oldPage, l.newPage)}`, onclick: () => this.cb.onUnpair(l.oldPage, l.newPage) }, '✕'))))
+            h('button', { class: 'btn link', 'data-fk': `unpair-${l.oldPage}-${l.newPage}`, title: t(lang, 'removePair'), 'aria-label': `${t(lang, 'removePair')}: ${pairLabel(lang, l.oldPage, l.newPage)}`, onclick: () => this.cb.onUnpair(l.oldPage, l.newPage) }, '✕'))))
       : null;
     const pairButton = this.pairing ? null : h('button', { class: 'btn link pair-btn', 'data-fk': 'pair-open', onclick: () => this.openPairing() }, t(lang, 'pairPages'));
     const mapSummary = h('summary', { 'data-fk': 'map' }, t(lang, 'pageMap'));
@@ -292,8 +293,8 @@ export class Sidebar {
       h('label', {}, t(lang, 'oldVersion'), ' ', selOld),
       h('span', { 'aria-hidden': 'true' }, '↔'),
       h('label', {}, t(lang, 'newVersion'), ' ', selNew),
-      h('button', { class: 'btn primary sm', onclick: () => this.finishPair(Number(selOld.value), Number(selNew.value)) }, t(lang, 'pair')),
-      h('button', { class: 'btn link', onclick: () => { this.pairing = false; this.render(); restoreFocus(this.root, 'pair-open'); } }, t(lang, 'pairCancel')),
+      h('button', { class: 'btn primary sm', 'data-fk': 'pair-submit', onclick: () => this.finishPair(Number(selOld.value), Number(selNew.value)) }, t(lang, 'pair')),
+      h('button', { class: 'btn link', 'data-fk': 'pair-cancel', onclick: () => { this.pairing = false; this.render(); restoreFocus(this.root, 'pair-open'); } }, t(lang, 'pairCancel')),
     );
   }
 
