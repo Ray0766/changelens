@@ -6,11 +6,12 @@ import { addVisualChanges } from '../core/pipeline.ts';
 import { detectLang, explainOpenError, t, type Lang, type MessageKey } from '../core/i18n.ts';
 import type { Review } from '../core/report.ts';
 import { extractText } from '../pdf/extract.ts';
-import { h, icon, clear, LOGO } from './dom.ts';
+import { h, icon, clear, focusKeyOf, restoreFocus, narrowQuery, LOGO } from './dom.ts';
 import { openPdf, renderRaster, type PDFDocumentProxy } from './pdf.ts';
 import { Viewer } from './viewer.ts';
 import { Sidebar, type Filter } from './sidebar.ts';
-import { exportJson, exportReport } from './export.ts';
+import { exportJson, exportReport, ExportPageError } from './export.ts';
+import { fileIdentity, reuseLoaded } from './filekey.ts';
 
 const REPO = 'https://github.com/Ray0766/changelens';
 
@@ -24,11 +25,20 @@ interface Loaded {
   name: string;
   pdf: PDFDocumentProxy;
   model: DocModel;
-  fingerprint: string;
+  /** Full-content key (see filekey.ts): cache, reviews and page pairs. */
+  key: string;
   sha256: string;
 }
 
 type Options = DiffOptions & { graphics: boolean };
+
+/** What the shown result was computed with (settings may change later). */
+interface RunInputs {
+  options: Options;
+  pairs: [number, number][];
+}
+
+const cancelled = () => new DOMException('Comparison cancelled', 'AbortError');
 
 const store = {
   get(key: string): string | null {
@@ -46,24 +56,6 @@ const store = {
     }
   },
 };
-
-async function sha256(bytes: Uint8Array): Promise<string> {
-  try {
-    const d = await crypto.subtle.digest('SHA-256', bytes.slice() as Uint8Array<ArrayBuffer>);
-    return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
-  } catch {
-    return '';
-  }
-}
-
-async function fingerprint(bytes: Uint8Array): Promise<string> {
-  try {
-    const d = await crypto.subtle.digest('SHA-256', bytes.slice(0, 4_000_000));
-    return [...new Uint8Array(d).slice(0, 12)].map((b) => b.toString(16).padStart(2, '0')).join('') + ':' + bytes.length;
-  } catch {
-    return `${bytes.length}`;
-  }
-}
 
 /** Stable identity of a change across re-runs with different settings. */
 function signature(c: Change): string {
@@ -84,10 +76,19 @@ export class App {
   private selected: string | null = null;
   private reviewsBySig: Record<string, Review> = {};
   private options: Options;
+  /** Inputs of the shown result; `options` is what the next run will use. */
+  private shown?: RunInputs;
   private busy = false;
+  /** run() was called during a run: run once more with the latest settings. */
+  private rerun = false;
   private root: HTMLElement;
   /** Aborts document-level listeners of the current results view. */
   private viewAbort?: AbortController;
+  /** User's page-map open/closed choice for the current comparison. */
+  private mapOpen?: boolean;
+  private settingsOpen = false;
+  /** Report exports in progress, by result (progress text for the button). */
+  private exporting = new Map<CompareResult, { job: Promise<void>; progress: string }>();
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -109,16 +110,19 @@ export class App {
   }
 
   private setLang(lang: Lang): void {
+    const focus = focusKeyOf(this.root);
     this.lang = lang;
     store.set('changelens.lang', lang);
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
     if (this.result) this.showResults();
     else this.showLanding();
+    restoreFocus(this.root, focus);
   }
 
   private langToggle(): HTMLElement {
     return h('button', {
       class: 'btn ghost',
+      'data-fk': 'lang',
       title: this.tr('language'),
       onclick: () => this.setLang(this.lang === 'zh' ? 'en' : 'zh'),
     }, icon('globe'), h('span', {}, this.lang === 'zh' ? 'English' : '中文'));
@@ -196,7 +200,7 @@ export class App {
         h('p', { class: 'lead' }, this.tr('appTagline')),
         h('div', { class: 'drops' }, zone('old'), h('div', { class: 'arrow', 'aria-hidden': 'true' }, icon('right', 26)), zone('new')),
         h('div', { class: 'cta' },
-          h('button', { class: 'btn primary lg', disabled: !ready, onclick: () => this.run() }, this.tr('compare')),
+          h('button', { class: 'btn primary lg', 'data-fk': 'compare', disabled: !ready, onclick: () => this.run() }, this.tr('compare')),
           h('div', { class: 'demo' },
             h('button', { class: 'btn link', onclick: () => this.loadDemo('proposal') }, this.tr('tryDemo')),
             h('span', { class: 'dot' }, '·'),
@@ -222,7 +226,25 @@ export class App {
   private message(text: string): void {
     const el = this.root.querySelector('#msg');
     if (el) el.textContent = text;
-    else alert(text);
+    else this.banner(text);
+  }
+
+  /** Error banner under the top bar of the results view, with an optional retry. */
+  private banner(text: string, retry?: { label: string; run: () => void; focus?: string }): void {
+    const results = this.root.querySelector('.results');
+    if (!results) return void console.error(text);
+    results.querySelector('.banner')?.remove();
+    const close = () => {
+      el.remove();
+      restoreFocus(this.root, retry?.focus ?? null);
+    };
+    const el = h('div', { class: 'banner', role: 'alert' },
+      icon('alert', 16),
+      h('span', { class: 'banner-text' }, text),
+      retry ? h('button', { class: 'btn sm', 'data-fk': 'banner-retry', onclick: () => { close(); retry.run(); } }, retry.label) : null,
+      h('button', { class: 'btn icon sm', title: this.tr('dismiss'), 'aria-label': this.tr('dismiss'), onclick: close }, icon('x', 16)),
+    );
+    results.querySelector('.topbar')?.after(el);
   }
 
   private async pickFiles(files: File[], side?: 'old' | 'new'): Promise<void> {
@@ -256,13 +278,24 @@ export class App {
 
   // ------------------------------------------------------------ running ---
 
-  private overlay(): { set(text: string, frac?: number): void; close(): void } {
+  private overlay(onCancel: () => void): { set(text: string, frac?: number): void; close(): void } {
     const bar = h('span', {});
-    const label = h('div', { class: 'ov-label' }, this.tr('readingFiles'));
-    const box = h('div', { class: 'overlay', role: 'status', 'aria-live': 'polite' },
-      h('div', { class: 'ov-box' }, h('div', { class: 'ov-logo', html: LOGO }), label, h('div', { class: 'bar' }, bar)),
+    const label = h('div', { class: 'ov-label', role: 'status', 'aria-live': 'polite' }, this.tr('readingFiles'));
+    const cancel = h('button', {
+      class: 'btn ghost ov-cancel',
+      onclick: () => {
+        if (cancel.getAttribute('aria-disabled')) return;
+        cancel.setAttribute('aria-disabled', 'true');
+        cancel.textContent = this.tr('cancelling');
+        onCancel();
+      },
+    }, this.tr('cancel'));
+    const box = h('div', { class: 'overlay' },
+      h('div', { class: 'ov-box' }, h('div', { class: 'ov-logo', html: LOGO }), label, h('div', { class: 'bar' }, bar), cancel),
     );
     document.body.append(box);
+    // The page behind is inert while this runs; keep the focus in reach.
+    cancel.focus();
     return {
       set: (text, frac) => {
         label.textContent = text;
@@ -272,63 +305,113 @@ export class App {
     };
   }
 
-  private async load(side: 'old' | 'new', p: Picked, ov: ReturnType<App['overlay']>, base: number): Promise<Loaded> {
+  private async load(side: 'old' | 'new', p: Picked, ov: ReturnType<App['overlay']>, base: number, check: () => void): Promise<Loaded> {
     const prev = this.loaded[side];
-    const fp = await fingerprint(p.bytes);
-    if (prev && prev.fingerprint === fp) return prev;
+    // Reuse a loaded document only if every byte is the same.
+    const id = await fileIdentity(p.bytes);
+    const same = reuseLoaded(prev, id.key, p.name);
+    if (same) return same;
+    check();
     let pdf: PDFDocumentProxy;
     try {
       pdf = await openPdf(p.bytes);
     } catch (e) {
       throw new Error(explainOpenError(this.lang, p.name, e));
     }
-    const doc = await extractText(pdf, p.name, (page, total) =>
-      ov.set(this.tr('extracting', { doc: p.name, page, total }), base + 0.25 * (page / total)),
-    );
-    const model = buildDocModel(doc);
-    if (model.tokens.length === 0) throw new Error(this.tr('noText', { name: p.name }));
-    await prev?.pdf.loadingTask.destroy();
-    return { name: p.name, pdf, model, fingerprint: fp, sha256: await sha256(p.bytes) };
+    let model: DocModel;
+    try {
+      const doc = await extractText(pdf, p.name, (page, total) => {
+        check();
+        ov.set(this.tr('extracting', { doc: p.name, page, total }), base + 0.25 * (page / total));
+      });
+      model = buildDocModel(doc);
+      if (model.tokens.length === 0) throw new Error(this.tr('noText', { name: p.name }));
+    } catch (e) {
+      void pdf.loadingTask.destroy();
+      throw e;
+    }
+    if (prev) this.release(prev.pdf);
+    return { name: p.name, pdf, model, key: id.key, sha256: id.sha256 };
+  }
+
+  /** Close a replaced document, but not while a report export still renders it. */
+  private release(pdf: PDFDocumentProxy): void {
+    const destroy = () => void pdf.loadingTask.destroy();
+    const running = [...this.exporting.values()].map((e) => e.job);
+    if (running.length) void Promise.allSettled(running).then(destroy);
+    else destroy();
   }
 
   private async run(): Promise<void> {
-    if (this.busy || !this.picked.old || !this.picked.new) return;
+    if (!this.picked.old || !this.picked.new) return;
+    if (this.busy) {
+      this.rerun = true;
+      return;
+    }
     this.busy = true;
-    const ov = this.overlay();
+    const focus = focusKeyOf(this.root);
+    const abort = new AbortController();
+    const check = () => {
+      if (abort.signal.aborted) throw cancelled();
+    };
+    const ov = this.overlay(() => abort.abort());
+    // Nothing behind the overlay may change settings or start another task.
+    this.root.inert = true;
+    const options = { ...this.options };
+    let ok = false;
     try {
-      this.loaded.old = await this.load('old', this.picked.old, ov, 0);
-      this.loaded.new = await this.load('new', this.picked.new, ov, 0.25);
+      const lo = (this.loaded.old = await this.load('old', this.picked.old, ov, 0, check));
+      const ln = (this.loaded.new = await this.load('new', this.picked.new, ov, 0.25, check));
       ov.set(this.tr('comparingText'), 0.5);
       await new Promise((r) => setTimeout(r, 16));
-      const { graphics, ...diffOpts } = this.options;
-      const result = compareDocs(this.loaded.old.model, this.loaded.new.model, { ...diffOpts, manualPairs: this.loadPairs() });
-      this.showMinor = false;
+      check();
+      const { graphics, ...diffOpts } = options;
+      const pairs = this.loadPairs();
+      const result = compareDocs(lo.model, ln.model, { ...diffOpts, manualPairs: pairs });
       if (graphics) {
-        const lo = this.loaded.old;
-        const ln = this.loaded.new;
         await addVisualChanges(
           result,
-          (p) => renderRaster(lo.pdf, p, 1.5),
-          (p) => renderRaster(ln.pdf, p, 1.5),
-          (done, total) => ov.set(this.tr('comparingVisual', { page: done, total }), 0.55 + 0.45 * (done / total)),
+          (p) => (check(), renderRaster(lo.pdf, p, 1.5)),
+          (p) => (check(), renderRaster(ln.pdf, p, 1.5)),
+          (done, total) => {
+            check();
+            ov.set(this.tr('comparingVisual', { page: done, total }), 0.55 + 0.45 * (done / total));
+          },
         );
       }
+      check();
+      this.showMinor = false;
       this.result = result;
+      this.shown = { options, pairs };
       this.reviewsBySig = this.loadReviews();
       this.selected = null;
       this.showResults();
+      ok = true;
     } catch (e) {
-      console.error(e);
-      if (!this.result) this.showLanding();
-      this.message((e as Error).message);
+      if (this.result && this.shown) {
+        // The shown result stays: show the settings and pairs it was made with.
+        this.options = { ...this.shown.options };
+        store.set('changelens.options', JSON.stringify(this.options));
+        this.savePairs(this.shown.pairs);
+        this.syncSettings();
+      } else this.showLanding();
+      if (!abort.signal.aborted) {
+        console.error(e);
+        this.message((e as Error).message);
+      }
     } finally {
       ov.close();
+      this.root.inert = false;
       this.busy = false;
+      restoreFocus(this.root, focus);
     }
+    const again = this.rerun && ok;
+    this.rerun = false;
+    if (again) await this.run();
   }
 
   private pairsKey(): string {
-    return `changelens.pairs.${this.loaded.old?.fingerprint}.${this.loaded.new?.fingerprint}`;
+    return `changelens.pairs.${this.loaded.old?.key}.${this.loaded.new?.key}`;
   }
 
   /** Manual page pairs for the current pair of files (kept in local storage). */
@@ -346,7 +429,7 @@ export class App {
   }
 
   private reviewKey(): string {
-    return `changelens.reviews.${this.loaded.old?.fingerprint}.${this.loaded.new?.fingerprint}`;
+    return `changelens.reviews.${this.loaded.old?.key}.${this.loaded.new?.key}`;
   }
 
   private loadReviews(): Record<string, Review> {
@@ -373,9 +456,14 @@ export class App {
     const result = this.result!;
     const lo = this.loaded.old!;
     const ln = this.loaded.new!;
+    // A rebuilt view of the same documents (language switch, re-run) keeps
+    // the zoom, side and reading position of the previous one.
+    const restore = this.viewer?.viewState();
+    const listTop = this.sidebar?.listScrollTop ?? 0;
     this.viewer?.destroy();
     this.viewAbort?.abort();
     this.viewAbort = new AbortController();
+    const signal = this.viewAbort.signal;
     clear(this.root);
     document.title = `${ln.name} — ChangeLens`;
     const reviews = this.reviewsById();
@@ -392,7 +480,7 @@ export class App {
         this.reviewsBySig[signature(c)] = review;
         store.set(this.reviewKey(), JSON.stringify(this.reviewsBySig));
       },
-      onPage: (side, page) => this.viewer?.scrollToPage(side, page),
+      onPage: (side, page) => this.jumpToPage(side, page),
       onPair: async (o, n) => {
         const pairs = this.loadPairs().filter(([a, b]) => a !== o && b !== n);
         this.savePairs([...pairs, [o, n]]);
@@ -414,20 +502,24 @@ export class App {
           await this.run();
         }
       },
+      onMapToggle: (open) => (this.mapOpen = open),
     });
     this.sidebar.filter = this.filter;
     this.sidebar.showMinor = this.showMinor;
+    this.sidebar.mapOpen = this.mapOpen;
     this.sidebar.update(result);
 
     this.viewer = new Viewer(result, { old: lo.pdf, new: ln.pdf }, { old: lo.name, new: ln.name }, {
       lang: this.lang,
       onSelect: (id) => this.select(id),
+      restore,
     });
     this.viewer.setChanges(this.sidebar.visible());
 
     const zoomLabel = h('span', { class: 'zoom-val' }, '100%');
     this.viewer.onZoom = (z) => (zoomLabel.textContent = `${Math.round(z * 100)}%`);
-    const syncBtn = h('button', { class: 'btn icon on', title: this.tr('syncScroll'), 'aria-pressed': 'true' }, icon('link'));
+    const sync = this.viewer.sync;
+    const syncBtn = h('button', { class: `btn icon${sync ? ' on' : ''}`, 'data-fk': 'sync', title: this.tr('syncScroll'), 'aria-pressed': String(sync) }, icon(sync ? 'link' : 'unlink'));
     syncBtn.addEventListener('click', () => {
       const v = this.viewer!;
       v.sync = !v.sync;
@@ -435,50 +527,66 @@ export class App {
       syncBtn.setAttribute('aria-pressed', String(v.sync));
       syncBtn.replaceChildren(icon(v.sync ? 'link' : 'unlink'));
     });
-    const sideToggle = h('div', { class: 'seg only-sm', role: 'group' },
-      h('button', { class: 'seg-b', 'data-side': 'old', onclick: () => this.showSide('old') }, this.tr('oldVersion')),
-      h('button', { class: 'seg-b on', 'data-side': 'new', onclick: () => this.showSide('new') }, this.tr('newVersion')),
-    );
+    const seg = (side: 'old' | 'new') => {
+      const on = this.viewer!.show === side;
+      return h('button', { class: `seg-b${on ? ' on' : ''}`, 'data-side': side, 'data-fk': `side-${side}`, 'aria-pressed': String(on), onclick: () => this.showSide(side) }, this.tr(side === 'old' ? 'oldVersion' : 'newVersion'));
+    };
+    const sideToggle = h('div', { class: 'seg only-sm', role: 'group' }, seg('old'), seg('new'));
 
-    const exportBtn = h('button', { class: 'btn primary', onclick: () => this.doExport(exportBtn) }, icon('download'), h('span', {}, this.tr('exportReport')));
+    const exportBtn = h('button', { class: 'btn primary', 'data-fk': 'export', onclick: () => this.doExport() }, icon('download'), h('span', {}, this.tr('exportReport')));
+    const listOpen = this.root.classList.contains('list-open');
     const top = h('header', { class: 'topbar' },
-      h('button', { class: 'brand', title: this.tr('newComparison'), onclick: () => this.reset(), html: `${LOGO}<span class="hide-sm">ChangeLens</span>` }),
+      h('button', { class: 'brand', 'data-fk': 'brand', title: this.tr('newComparison'), onclick: () => this.reset(), html: `${LOGO}<span class="hide-sm">ChangeLens</span>` }),
       h('div', { class: 'files' },
         h('span', { class: 'fname old', title: lo.name }, lo.name),
         icon('right', 16),
         h('span', { class: 'fname new', title: ln.name }, ln.name),
       ),
       h('div', { class: 'spacer' }),
-      h('button', { class: 'btn ghost only-sm', onclick: () => this.root.classList.toggle('list-open') }, icon('menu')),
+      h('button', {
+        class: 'btn ghost only-sm',
+        'data-fk': 'list-menu',
+        title: this.tr('changeList'),
+        'aria-label': this.tr('changeList'),
+        'aria-controls': this.sidebar.root.id,
+        'aria-expanded': String(listOpen),
+        onclick: () => this.setListOpen(!this.root.classList.contains('list-open')),
+      }, icon('menu')),
       this.settingsButton(),
       this.langToggle(),
-      h('button', { class: 'btn ghost hide-sm', title: this.tr('exportJson'), onclick: () => exportJson(this.exportInput()) }, 'JSON'),
+      h('button', { class: 'btn ghost hide-sm', 'data-fk': 'json', title: this.tr('exportJson'), onclick: () => exportJson(this.exportInput()) }, 'JSON'),
       exportBtn,
-      h('button', { class: 'btn ghost hide-sm', title: this.tr('newComparison'), onclick: () => this.reset() }, icon('refresh')),
+      h('button', { class: 'btn ghost hide-sm', 'data-fk': 'new', title: this.tr('newComparison'), onclick: () => this.reset() }, icon('refresh')),
     );
+    const hideBtn = h('button', {
+      class: `btn icon hide-sm${this.listHidden ? ' on' : ''}`,
+      'data-fk': 'list-hide',
+      // A toggle keeps its label; aria-pressed carries the state.
+      title: this.tr('hideList'),
+      'aria-label': this.tr('hideList'),
+      'aria-pressed': String(this.listHidden),
+      onclick: () => {
+        this.listHidden = !this.listHidden;
+        this.root.classList.toggle('list-hidden', this.listHidden);
+        hideBtn.classList.toggle('on', this.listHidden);
+        hideBtn.setAttribute('aria-pressed', String(this.listHidden));
+        this.viewer?.refit();
+      },
+    }, icon('menu'));
     const tools = h('div', { class: 'viewer-tools' },
       sideToggle,
       h('div', { class: 'tool-group' },
-        h('button', { class: 'btn icon', title: this.tr('zoomOut'), onclick: () => this.viewer?.zoomBy(1 / 1.2) }, icon('minus')),
+        h('button', { class: 'btn icon', 'data-fk': 'zoom-out', title: this.tr('zoomOut'), onclick: () => this.viewer?.zoomBy(1 / 1.2) }, icon('minus')),
         zoomLabel,
-        h('button', { class: 'btn icon', title: this.tr('zoomIn'), onclick: () => this.viewer?.zoomBy(1.2) }, icon('plus')),
-        h('button', { class: 'btn icon', title: this.tr('fitWidth'), onclick: () => this.viewer?.fit() }, icon('fit')),
+        h('button', { class: 'btn icon', 'data-fk': 'zoom-in', title: this.tr('zoomIn'), onclick: () => this.viewer?.zoomBy(1.2) }, icon('plus')),
+        h('button', { class: 'btn icon', 'data-fk': 'fit', title: this.tr('fitWidth'), onclick: () => this.viewer?.fit() }, icon('fit')),
       ),
       syncBtn,
       h('div', { class: 'tool-group' },
-        h('button', { class: 'btn icon', title: this.tr('prevChange'), onclick: () => this.step(-1) }, icon('up')),
-        h('button', { class: 'btn icon', title: this.tr('nextChange'), onclick: () => this.step(1) }, icon('down')),
+        h('button', { class: 'btn icon', 'data-fk': 'prev', title: this.tr('prevChange'), onclick: () => this.step(-1) }, icon('up')),
+        h('button', { class: 'btn icon', 'data-fk': 'next', title: this.tr('nextChange'), onclick: () => this.step(1) }, icon('down')),
       ),
-      h('button', {
-        class: 'btn icon hide-sm',
-        title: this.tr(this.listHidden ? 'showList' : 'hideList'),
-        'aria-pressed': String(this.listHidden),
-        onclick: (e: Event) => {
-          this.listHidden = !this.listHidden;
-          this.root.classList.toggle('list-hidden', this.listHidden);
-          (e.currentTarget as HTMLElement).title = this.tr(this.listHidden ? 'showList' : 'hideList');
-        },
-      }, icon('menu')),
+      hideBtn,
       h('span', { class: 'legend hide-sm', 'aria-label': 'Legend' },
         ([['del', 'legendDel'], ['ins', 'legendIns'], ['mv', 'legendMove'], ['vis', 'legendVisual'], ['num', 'legendNumber']] as const).map(([k, label]) =>
           h('span', { class: 'lg' }, h('i', { class: `sw ${k}` }), this.tr(label)))),
@@ -487,20 +595,57 @@ export class App {
     this.root.classList.toggle('list-hidden', this.listHidden);
     const viewerWrap = h('section', { class: 'viewer' }, tools, this.viewer.root);
     this.root.append(h('div', { class: 'results' }, top, h('div', { class: 'workspace' }, this.sidebar.root, viewerWrap)));
+    this.sidebar.listScrollTop = listTop;
+    // The off-canvas list (narrow screens) is out of the tab order while closed.
+    window.matchMedia(narrowQuery).addEventListener('change', () => this.updateSidebarInert(), { signal });
+    this.updateSidebarInert();
+    this.paintExport();
     if (this.selected) this.select(this.selected, false);
+  }
+
+  private setListOpen(open: boolean): void {
+    const sb = this.sidebar?.root;
+    const hadFocus = !!sb && sb.contains(document.activeElement);
+    this.root.classList.toggle('list-open', open);
+    this.root.querySelector('[data-fk="list-menu"]')?.setAttribute('aria-expanded', String(open));
+    this.updateSidebarInert();
+    // Closing the list must not drop the keyboard focus with it.
+    if (!open && hadFocus && sb?.inert) restoreFocus(this.root, 'list-menu');
+  }
+
+  private updateSidebarInert(): void {
+    const sb = this.sidebar?.root;
+    if (sb) sb.inert = window.matchMedia(narrowQuery).matches && !this.root.classList.contains('list-open');
+  }
+
+  /** Page-map click: on narrow screens show that version first, then scroll it. */
+  private jumpToPage(side: 'old' | 'new', page: number): void {
+    if (window.matchMedia(narrowQuery).matches) {
+      if (this.viewer?.show !== side) this.showSide(side);
+      this.setListOpen(false);
+    }
+    this.viewer?.scrollToPage(side, page);
   }
 
   private showSide(side: 'old' | 'new'): void {
     this.viewer?.setShow(side);
-    for (const b of this.root.querySelectorAll<HTMLElement>('.seg-b')) b.classList.toggle('on', b.dataset.side === side);
-    this.viewer?.fit();
+    for (const b of this.root.querySelectorAll<HTMLElement>('.seg-b')) {
+      b.classList.toggle('on', b.dataset.side === side);
+      b.setAttribute('aria-pressed', String(b.dataset.side === side));
+    }
+    this.viewer?.refit();
   }
 
   private settingsButton(): HTMLElement {
     const wrap = h('div', { class: 'pop-wrap' });
-    const pop = h('div', { class: 'pop', hidden: true });
+    const pop = h('div', { class: 'pop', hidden: !this.settingsOpen });
+    const setOpen = (open: boolean) => {
+      this.settingsOpen = open;
+      pop.hidden = !open;
+      btn.setAttribute('aria-expanded', String(open));
+    };
     const opt = (key: keyof Options, label: MessageKey) => {
-      const input = h('input', { type: 'checkbox', checked: !!this.options[key] });
+      const input = h('input', { type: 'checkbox', 'data-opt': key, 'data-fk': `opt-${key}`, checked: !!this.options[key] });
       input.addEventListener('change', async () => {
         (this.options as unknown as Record<string, boolean>)[key] = input.checked;
         store.set('changelens.options', JSON.stringify(this.options));
@@ -516,20 +661,29 @@ export class App {
       opt('detectFormatting', 'detectFormatting'),
       opt('graphics', 'detectGraphics'),
     );
-    const btn = h('button', { class: 'btn ghost', title: this.tr('settings'), 'aria-haspopup': 'true' }, icon('settings'), h('span', { class: 'hide-sm' }, this.tr('settings')));
+    const btn = h('button', { class: 'btn ghost', 'data-fk': 'settings', title: this.tr('settings'), 'aria-haspopup': 'true', 'aria-expanded': String(this.settingsOpen) }, icon('settings'), h('span', { class: 'hide-sm' }, this.tr('settings')));
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      pop.hidden = !pop.hidden;
+      setOpen(!this.settingsOpen);
     });
     document.addEventListener(
       'click',
       (e) => {
-        if (!wrap.contains(e.target as Node)) pop.hidden = true;
+        // Clicks on the progress overlay (outside the app) leave it open.
+        const target = e.target as Node;
+        if (this.settingsOpen && this.root.contains(target) && !wrap.contains(target)) setOpen(false);
       },
       { signal: this.viewAbort?.signal },
     );
     wrap.append(btn, pop);
     return wrap;
+  }
+
+  /** Show the stored settings in the open settings panel. */
+  private syncSettings(): void {
+    for (const input of this.root.querySelectorAll<HTMLInputElement>('input[data-opt]')) {
+      input.checked = !!this.options[input.dataset.opt as keyof Options];
+    }
   }
 
   private exportInput() {
@@ -540,25 +694,55 @@ export class App {
       lang: this.lang,
       reviews: this.reviewsById(),
       files: { old: { sha256: this.loaded.old!.sha256 }, new: { sha256: this.loaded.new!.sha256 } },
-      visualCompared: this.options.graphics,
+      // What the shown result was computed with, not the current setting.
+      visualCompared: (this.shown?.options ?? this.options).graphics,
     };
   }
 
-  private async doExport(btn: HTMLButtonElement): Promise<void> {
-    if (btn.disabled) return;
-    btn.disabled = true;
-    const label = btn.querySelector('span')!;
+  private async doExport(): Promise<void> {
+    const result = this.result;
+    if (!result || this.exporting.has(result)) return;
+    this.root.querySelector('.banner')?.remove();
+    const input = this.exportInput();
+    const entry = { job: Promise.resolve(), progress: '' };
+    entry.job = exportReport(input, (d, n) => {
+      entry.progress = ` ${Math.round((d / n) * 100)}%`;
+      this.paintExport();
+    });
+    this.exporting.set(result, entry);
+    this.paintExport();
     try {
-      await exportReport(this.exportInput(), (d, n) => (label.textContent = `${this.tr('exportReport')} ${Math.round((d / n) * 100)}%`));
+      await entry.job;
+    } catch (e) {
+      console.error(e);
+      // Only if that comparison is still on screen.
+      if (this.result === result) {
+        const text = e instanceof ExportPageError ? e.message : this.tr('exportFailed', { error: (e as Error)?.message ?? String(e) });
+        this.banner(text, { label: this.tr('retry'), run: () => void this.doExport(), focus: 'export' });
+      }
     } finally {
-      label.textContent = this.tr('exportReport');
-      btn.disabled = false;
+      this.exporting.delete(result);
+      this.paintExport();
     }
+  }
+
+  /** Export button: progress while the shown result is being exported. */
+  private paintExport(): void {
+    const btn = this.root.querySelector<HTMLButtonElement>('button[data-fk="export"]');
+    if (!btn) return;
+    const running = this.result ? this.exporting.get(this.result) : undefined;
+    // aria-disabled rather than disabled, so a focused button keeps the focus.
+    if (running) btn.setAttribute('aria-disabled', 'true');
+    else btn.removeAttribute('aria-disabled');
+    btn.querySelector('span')!.textContent = this.tr('exportReport') + (running?.progress ?? '');
   }
 
   private reset(): void {
     this.result = undefined;
+    this.shown = undefined;
     this.selected = null;
+    this.mapOpen = undefined;
+    this.settingsOpen = false;
     this.root.classList.remove('list-open');
     this.showLanding();
   }
@@ -567,7 +751,7 @@ export class App {
     this.selected = id;
     this.sidebar?.select(id);
     this.viewer?.select(id, scroll);
-    this.root.classList.remove('list-open');
+    if (this.root.classList.contains('list-open')) this.setListOpen(false);
   }
 
   private step(dir: 1 | -1): void {
@@ -579,10 +763,13 @@ export class App {
   }
 
   private onKey(e: KeyboardEvent): void {
-    if (!this.result) return;
+    if (!this.result || this.busy) return;
     const tag = (e.target as HTMLElement).tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key === 'j' || e.key === 'n') this.step(1);
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'Escape' && this.root.classList.contains('list-open')) {
+      this.setListOpen(false);
+      restoreFocus(this.root, 'list-menu');
+    } else if (e.key === 'j' || e.key === 'n') this.step(1);
     else if (e.key === 'k' || e.key === 'p') this.step(-1);
     else if (e.key === '+' || e.key === '=') this.viewer?.zoomBy(1.2);
     else if (e.key === '-') this.viewer?.zoomBy(1 / 1.2);

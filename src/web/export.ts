@@ -1,7 +1,7 @@
 import type { CompareResult } from '../core/types.ts';
 import { cropRegions, drawCrop, type CanvasLike, type Region } from '../core/crops.ts';
 import { buildJson, buildReport, type Review } from '../core/report.ts';
-import type { Lang } from '../core/i18n.ts';
+import { t, type Lang } from '../core/i18n.ts';
 import { download } from './dom.ts';
 import { renderCanvas, type PDFDocumentProxy } from './pdf.ts';
 
@@ -15,6 +15,9 @@ export interface ExportInput {
   files?: { old?: { sha256?: string }; new?: { sha256?: string } };
   visualCompared?: boolean;
 }
+
+/** A report page could not be rendered; the message names the page and file. */
+export class ExportPageError extends Error {}
 
 function baseName(name: string): string {
   return name.replace(/\.pdf$/i, '').replace(/[^\p{L}\p{N}._-]+/gu, '-').slice(0, 60) || 'document';
@@ -46,7 +49,14 @@ export async function exportReport(input: ExportInput, onProgress?: (done: numbe
   const crops: Record<string, { old?: string; new?: string; wide?: boolean }> = {};
   let done = 0;
   for (const job of jobs) {
-    const canvas = await renderCanvas(input.pdfs[job.side], job.page, scale);
+    let canvas: HTMLCanvasElement;
+    try {
+      canvas = await renderCanvas(input.pdfs[job.side], job.page, scale);
+    } catch (e) {
+      // Name the page and file, so the message says what could not be done.
+      const error = (e as Error)?.message ?? String(e);
+      throw new ExportPageError(t(input.lang, 'exportPageFailed', { page: job.page + 1, name: input.names[job.side], error }), { cause: e });
+    }
     for (const { id, region } of job.items) {
       const c = changes.find((x) => x.id === id)!;
       const entry = (crops[id] ??= {});
