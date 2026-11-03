@@ -84,4 +84,34 @@ Each reference was viewed as a real screenshot or as source text.
 ## D9 · Accessibility status
 
 - **Done**: keyboard navigation (`j`/`k`, Enter/Space on list items, focus outlines), text labels alongside colour, reduced motion, layout down to 390 px wide.
-- **Not done**: a full WCAG 2.2 audit (screen-reader flow and contrast of every state have not been measured), so no compliance is claimed.
+- **Done in the review round (2026-11-03)**:
+  - The page map is keyboard-operable: one tab stop, arrow keys, Up/Down to the other version, Enter/Space. Tiles are named ("New version, page 6, has changes").
+  - Focus stays in place after filter tabs and review buttons.
+  - The off-canvas list is inert while closed; the menu button has a name and `aria-expanded`; the comparison overlay makes the page inert and has a Cancel button.
+  - Measured contrast (computed styles, Chromium): change badges 5.2–7.3 : 1, drop-zone tags 5.35–5.57 : 1, error text 5.15 : 1, resting review icons 3.40 : 1 (light) / 4.46 : 1 (dark). WCAG 2.2 needs 4.5 : 1 for text (1.4.3) and 3 : 1 for icons (1.4.11).
+- **Not done**: a full WCAG 2.2 audit. The screen-reader flow, the 3 px review status bar and the page-map tiles were not measured, and only Chromium was tested. No compliance is claimed.
+
+## D10 · Code review round and what it changed (2026-11-03)
+
+**Decision**: before claiming the core highlight, review the code adversarially and fix what a second, independent agent reproduces.
+
+- **How**: six reviewers (diff, text extraction, visual, web, CLI, evaluation) wrote findings with a scenario; six verifiers reproduced each one independently. 72 findings were confirmed, 9 of them high. Each was fixed with a regression test that fails before the fix, in five separate branches that were then merged. The full list with repro scripts stays out of the repository (it is working material); the tests are the durable record.
+- **High-severity examples**:
+  - A moved paragraph hid edits inside it ("Moved a paragraph" while 100 became 900).
+  - A fully revised table collapsed into "Rewrote N words".
+  - Amounts at the top or bottom of a page were treated as page numbers and hidden.
+  - Inserted pages without text were never compared.
+  - The text mask hid strikethrough and underline.
+  - The web app's file cache key hashed only the first 4 MB.
+  - Report crops kept every rendered page in memory: 6.8 GB on 151 pages, 0.74 GB after.
+- **Scoring changed with it** (`eval/score.ts`):
+  - *found* now follows the documented rule: one reported item may cover several truth items.
+  - A *separate* count keeps the stricter one-to-one view.
+  - Kinds must match (a deletion reported as a move is a miss).
+  - Truth items without text need a region.
+  - Pages must be explicit when a snippet is ambiguous.
+  - `maxItems` caps how many reported items one edit may explain.
+
+  Under the old greedy one-to-one rule the baselines had too little credit: on the original 17 pairs the text line diff goes from 29 to 42 of 60 found, and the pixel diff from 51 to 60. ChangeLens stays at 60.
+- **Rejected alternative**: fixing only the high findings. Most medium findings were wrong numbers or misplaced highlights in common documents (percent rates, several figures in one row, centred lines after a font change), which is exactly what the brief asks to verify.
+- **Limits**: every finding came from synthetic documents written by agents. The fixes were tuned on the same scenarios they were found with, so they are evidence that those cases work, not that the class of problem is gone.
