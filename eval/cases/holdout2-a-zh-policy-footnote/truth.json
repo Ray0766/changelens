@@ -1,0 +1,41 @@
+{
+  "description": "合成样例。两页中文差旅报销办法：第1页长段落中间删除一句、住宿限额表中一个数字修改、7 pt 脚注中一位数字修改；第2页报销系统名称和施行日期修改。",
+  "synthetic": true,
+  "holdout": true,
+  "author": "a",
+  "truth": [
+    {
+      "type": "delete",
+      "old": "未经批准乘坐头等舱或公务舱的",
+      "oldPage": 1
+    },
+    {
+      "type": "number",
+      "old": "480",
+      "new": "520",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "number",
+      "old": "10",
+      "new": "15",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "replace",
+      "old": "TravelDesk",
+      "new": "ExpensePoint",
+      "oldPage": 2,
+      "newPage": 2
+    },
+    {
+      "type": "number",
+      "old": "18",
+      "new": "28",
+      "oldPage": 2,
+      "newPage": 2
+    }
+  ]
+}

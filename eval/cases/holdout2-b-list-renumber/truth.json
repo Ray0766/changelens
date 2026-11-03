@@ -1,0 +1,32 @@
+{
+  "description": "Synthetic. Two-page procedure. A numbered step is inserted as step 3 (old steps 3–8 renumber to 4–9 automatically: not edits), the written cross-reference on page 2 is updated from step 3 to step 4, one bullet is deleted, and one heading changes from regular to bold weight.",
+  "synthetic": true,
+  "holdout": true,
+  "author": "b",
+  "truth": [
+    {
+      "type": "insert",
+      "new": "Ventilate the chamber with the portable blower",
+      "newPage": 1
+    },
+    {
+      "type": "delete",
+      "old": "Intrinsically safe torch",
+      "oldPage": 1
+    },
+    {
+      "type": "format",
+      "old": "Equipment to check before entry",
+      "new": "Equipment to check before entry",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "number",
+      "old": "3",
+      "new": "4",
+      "oldPage": 2,
+      "newPage": 2
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "description": "Synthetic invoice (EN, 1 page). Digits of one line amount transposed (totals unchanged), the minus sign of a discount removed, bank name and last IBAN digit changed, and a new no-wrap notice line that is cut off at the right page edge.",
+  "synthetic": true,
+  "holdout": true,
+  "author": "a",
+  "truth": [
+    {
+      "type": "number",
+      "old": "1,180.00",
+      "new": "1,810.00",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "number",
+      "old": "−€62.40",
+      "new": "€62.40",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "replace",
+      "old": "Nordhafen Sparkasse",
+      "new": "Elbtal Direktbank",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "number",
+      "old": "31",
+      "new": "37",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "insert",
+      "new": "Payments made to any account other than",
+      "newPage": 1
+    },
+    {
+      "type": "overflow",
+      "newPage": 1
+    }
+  ]
+}

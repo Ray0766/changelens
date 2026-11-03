@@ -1,0 +1,30 @@
+{
+  "description": "Synthetic. Two-page letter in justified serif text. One word inserted at the start of a long justified paragraph re-wraps all its lines; one sentence changes only its text colour to red; on page 2 a word is replaced and a sentence deleted in a justified paragraph.",
+  "synthetic": true,
+  "holdout": true,
+  "author": "b",
+  "truth": [
+    {
+      "type": "insert",
+      "new": "independently",
+      "newPage": 1
+    },
+    {
+      "type": "graphic",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "replace",
+      "old": "quarterly",
+      "new": "every six months",
+      "oldPage": 2,
+      "newPage": 2
+    },
+    {
+      "type": "delete",
+      "old": "Late reports may delay the second instalment",
+      "oldPage": 2
+    }
+  ]
+}

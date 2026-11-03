@@ -1,0 +1,32 @@
+{
+  "description": "Synthetic tenancy agreement (EN, 3 → 4 pages). A long new clause 5.9 is added at the end of section 5, pushing everything after it down and onto a new fourth page (no renumbering); the start month and the monthly rent change on page 1; one sentence is removed from the middle of a long paragraph in section 7.",
+  "synthetic": true,
+  "holdout": true,
+  "author": "a",
+  "truth": [
+    {
+      "type": "replace",
+      "old": "February",
+      "new": "March",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "number",
+      "old": "1,450.00",
+      "new": "1,495.00",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "insert",
+      "new": "the Tenant may keep one cat or one small dog",
+      "newPage": 2
+    },
+    {
+      "type": "delete",
+      "old": "Such visits shall not take place on Sundays or public holidays",
+      "oldPage": 2
+    }
+  ]
+}

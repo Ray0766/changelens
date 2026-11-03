@@ -1,0 +1,42 @@
+{
+  "description": "Synthetic services agreement (EN, 3 pages). The supplier’s name changes in every occurrence across all pages, the subcontracting paragraph moves from section 2 (page 1) to section 11 (page 3), the late-payment interest rate changes, the limitation-of-liability paragraph becomes bold, and one digit of the company number in 6.5 pt small print changes.",
+  "synthetic": true,
+  "holdout": true,
+  "author": "a",
+  "truth": [
+    {
+      "type": "replace",
+      "old": "Quillfield",
+      "new": "Brackenridge",
+      "many": true
+    },
+    {
+      "type": "move",
+      "old": "The Supplier may not subcontract",
+      "new": "The Supplier may not subcontract",
+      "oldPage": 1,
+      "newPage": 3
+    },
+    {
+      "type": "number",
+      "old": "4%",
+      "new": "8%",
+      "oldPage": 2,
+      "newPage": 2
+    },
+    {
+      "type": "format",
+      "old": "Neither party limits its liability",
+      "new": "Neither party limits its liability",
+      "oldPage": 2,
+      "newPage": 2
+    },
+    {
+      "type": "number",
+      "old": "08412763",
+      "new": "08412768",
+      "oldPage": 3,
+      "newPage": 3
+    }
+  ]
+}

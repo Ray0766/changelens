@@ -1,0 +1,30 @@
+{
+  "description": "Synthetic. Three-page data sheet. A footnote is added (superscript marker in the body text and the note at the foot of page 2), the storage paragraph of page 1 is pasted again on page 3 (the original stays on page 1), and a lap width changes on page 3.",
+  "synthetic": true,
+  "holdout": true,
+  "author": "b",
+  "truth": [
+    {
+      "type": "insert",
+      "new": "Cold-bend test on samples conditioned",
+      "newPage": 2
+    },
+    {
+      "type": "insert",
+      "new": "1",
+      "newPage": 2
+    },
+    {
+      "type": "insert",
+      "new": "Store rolls upright",
+      "newPage": 3
+    },
+    {
+      "type": "number",
+      "old": "80",
+      "new": "100",
+      "oldPage": 3,
+      "newPage": 3
+    }
+  ]
+}

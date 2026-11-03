@@ -1,0 +1,39 @@
+{
+  "description": "合成样例 / synthetic. 中英混排项目进度计划（2页）：T3 完成比例、T4 结束日期（ISO 格式）和 T5 负责人修改；甘特图中 T4 的条形加长；里程碑列表新增一项（中英两种日期格式）。",
+  "synthetic": true,
+  "holdout": true,
+  "author": "a",
+  "truth": [
+    {
+      "type": "number",
+      "old": "60%",
+      "new": "75%",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "number",
+      "old": "09",
+      "new": "23",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "replace",
+      "old": "王磊 Wang Lei",
+      "new": "孙悦 Sun Yue",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "graphic",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "insert",
+      "new": "数据迁移演练完成",
+      "newPage": 1
+    }
+  ]
+}

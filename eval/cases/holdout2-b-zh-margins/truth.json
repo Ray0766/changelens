@@ -1,0 +1,27 @@
+{
+  "description": "Synthetic. 合成样例：三页中文设备租赁协议（两端对齐）。第 1 页在长段落开头插入“书面”二字导致整段重新换行；第 2 页文字未改，仅左右页边距各加宽 11 mm（换行全部变化，不算修改）；第 3 页修改一个天数和一种送达方式。",
+  "synthetic": true,
+  "holdout": true,
+  "author": "b",
+  "truth": [
+    {
+      "type": "insert",
+      "new": "书面",
+      "newPage": 1
+    },
+    {
+      "type": "number",
+      "old": "15",
+      "new": "10",
+      "oldPage": 3,
+      "newPage": 3
+    },
+    {
+      "type": "replace",
+      "old": "电子邮件",
+      "new": "挂号信",
+      "oldPage": 3,
+      "newPage": 3
+    }
+  ]
+}
