@@ -176,6 +176,12 @@ test/         node:test suites and fixture PDFs
 
 Development requires Node.js 22.18+ (tests run TypeScript directly via type stripping). See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Contributor and agent guidance / 开发规范
+
+Before implementing anything, read [AGENTS.md](AGENTS.md) and the [project quality brief](docs/QUALITY_BRIEF.md). They cover research, differentiation, design references and acceptance criteria. Decisions and evaluation evidence are recorded in [docs/DECISIONS.md](docs/DECISIONS.md) and [docs/EVALUATION.md](docs/EVALUATION.md).
+
+后续开发（包括 Agent）请先阅读上述工作规范与项目 brief：先验证技术选择和核心亮点，再完成设计、实现与验收。
+
 ## Privacy
 
 The web app is a static site. PDFs are read with the File API and processed in your browser, and nothing is sent anywhere. Review marks and notes are kept in your browser's local storage, keyed by a hash of the two files.
