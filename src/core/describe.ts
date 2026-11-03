@@ -143,11 +143,29 @@ export function describeChange(lang: Lang, c: Change): string {
     }
     case 'graphic':
       if (c.minor) return t(lang, 'minorShift', { n: SHIFT_PT });
+      if (c.pageChange) return describePage(lang, c);
+      if (c.format?.decoration) {
+        const d = c.format.decoration;
+        const key = d.line === 'strike' ? (d.added ? 'strikeAdded' : 'strikeRemoved') : d.added ? 'underlineAdded' : 'underlineRemoved';
+        return t(lang, key, { text: truncate((d.added ? c.new : c.old).text, 32) });
+      }
       if (c.format) return t(lang, 'colorChanged');
       if (!c.old.rects.length) return t(lang, 'graphicAdded');
       if (!c.new.rects.length) return t(lang, 'graphicRemoved');
       return t(lang, 'graphicChanged');
   }
+}
+
+function describePage(lang: Lang, c: Change): string {
+  if (c.pageChange === 'added') return t(lang, 'pageAddedNoText');
+  if (c.pageChange === 'removed') return t(lang, 'pageRemovedNoText');
+  const size = (s: Side) => {
+    const r = s.rects[0]?.rect;
+    return r ? `${Math.round(r.w)} × ${Math.round(r.h)} pt` : '';
+  };
+  const text = t(lang, 'pageResized', { from: size(c.old), to: size(c.new) });
+  if (!c.places) return text;
+  return lang === 'zh' ? `${text}（${t(lang, 'inPlaces', { n: c.places })}）` : `${text} (${t(lang, 'inPlaces', { n: c.places })})`;
 }
 
 /** Short badge label for the change type. */
@@ -207,6 +225,10 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
       out.push({ level: 'warn', text: t(lang, 'noticeUnreadable', { side: side(s), pages: pageRuns(lang, cov.unreadable.map((u) => u.page)), n: cov.unreadable.reduce((n, u) => n + u.count, 0) }) });
     if (cov.privateUse?.length)
       out.push({ level: 'info', text: t(lang, 'noticePrivateUse', { side: side(s), pages: pageRuns(lang, cov.privateUse.map((u) => u.page)), n: cov.privateUse.reduce((n, u) => n + u.count, 0) }) });
+  }
+  for (const s of ['old', 'new'] as const) {
+    const skipped = r.coverage?.[s]?.visualSkipped ?? [];
+    if (skipped.length) out.push({ level: 'warn', text: t(lang, 'noticeVisualSkipped', { side: side(s), pages: pageRuns(lang, skipped) }) });
   }
   for (const u of r.coverage?.new.uncertain ?? []) out.push({ level: 'warn', text: t(lang, 'noticeUncertain', { pages: pageRuns(lang, [u.page]), pct: Math.round(u.matched * 100) + '%' }), action: 'pair' });
   if (r.stats?.unalignedTokens) out.push({ level: 'warn', text: t(lang, 'noticeUnaligned') });

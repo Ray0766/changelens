@@ -60,6 +60,8 @@ export interface Coverage {
   privateUse?: { page: number; count: number }[];
   /** (New version only) pages whose text mostly has no counterpart: pairing is uncertain. */
   uncertain?: { page: number; matched: number }[];
+  /** Pages whose graphics were not compared: too large to render, or rendering failed. */
+  visualSkipped?: number[];
 }
 
 export interface DocText {
@@ -190,6 +192,8 @@ export interface FormatDetail {
   fontTo?: string;
   /** Colour or stroke weight of the glyphs changed (found visually). */
   appearanceChanged?: boolean;
+  /** A line through or under the text was added or removed (found visually). */
+  decoration?: { line: 'strike' | 'underline'; added: boolean };
 }
 
 export interface Change {
@@ -217,6 +221,11 @@ export interface Change {
   places?: number;
   /** Graphics only displaced by a few points (layout drift); hidden by default. */
   minor?: boolean;
+  /**
+   * A whole page changed: a page without text was added or removed, or the
+   * page size or orientation changed (rects cover the page).
+   */
+  pageChange?: 'added' | 'removed' | 'resized';
   /** Not an edit but a consequence of one (e.g. list items renumbered after an insertion). */
   consequence?: 'renumber';
   /** Inserted content that repeats text found elsewhere in the new version (0-based page). */

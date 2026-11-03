@@ -1,13 +1,15 @@
-import type { Change, CompareResult, Rect } from './types.ts';
+import type { Change, CompareResult, DocModel, Rect, Side } from './types.ts';
 import { sortAndNumber } from './compare.ts';
-import { compareRasters, dedupeGraphics, visualPairs, type Raster } from './visual.ts';
+import { alignPages, compareRasters, dedupeGraphics, pageSignature, planVisual, tooLargeToCompare, type Raster, type VisualPair } from './visual.ts';
 
 export type RenderFn = (page: number) => Promise<Raster>;
 
 /**
  * Add visual (graphic / colour) changes to a text comparison. Pages are
  * rendered on demand through the supplied callbacks and released as soon
- * as no later page pair needs them.
+ * as no later page pair needs them. A page that is too large, or that fails
+ * to render or compare, is skipped and listed in `coverage.*.visualSkipped`;
+ * the text result is kept either way.
  */
 export async function addVisualChanges(
   result: CompareResult,
@@ -15,29 +17,144 @@ export async function addVisualChanges(
   renderNew: RenderFn,
   onProgress?: (done: number, total: number) => void,
 ): Promise<Change[]> {
-  const pairs = visualPairs(result);
+  const docs = { old: result.oldDoc, new: result.newDoc };
+  const render = { old: renderOld, new: renderNew };
+  const skipped = { old: new Set<number>(), new: new Set<number>() };
+  const large = (side: 'old' | 'new', p: number) => {
+    const pg = docs[side].pages[p];
+    return !!pg && tooLargeToCompare(pg.width, pg.height);
+  };
+  /** Render a page once for a quick look; null if it cannot be. */
+  const look = async (side: 'old' | 'new', p: number) => {
+    if (large(side, p)) {
+      skipped[side].add(p);
+      return null;
+    }
+    try {
+      return pageSignature(await render[side](p));
+    } catch {
+      skipped[side].add(p);
+      return null;
+    }
+  };
+
+  // Pages without text that the page map could not pair: pair them by their
+  // look, and report the rest as added or removed pages.
+  const plan = planVisual(result);
+  const pairs: VisualPair[] = [...plan.pairs];
+  const pageChanges: Change[] = [];
+  for (const gap of plan.gaps) {
+    const sigOld = await Promise.all(gap.old.map((p) => look('old', p)));
+    const sigNew = await Promise.all(gap.new.map((p) => look('new', p)));
+    const matched =
+      gap.old.length && gap.new.length
+        ? alignPages(
+            sigOld.map((s) => s?.grid ?? new Float32Array(256)),
+            sigNew.map((s) => s?.grid ?? new Float32Array(256)),
+          )
+        : [];
+    for (const [i, j] of matched) pairs.push({ old: gap.old[i], new: gap.new[j], whole: true });
+    // The other side's caret goes before the next paired page (one matched
+    // within the gap, or the one after it), or after the last one.
+    const next = (side: 0 | 1, k: number): [number, number] | null => {
+      const m = matched.find((pair) => pair[side] > k);
+      return m ? [gap.old[m[0]], gap.new[m[1]]] : gap.after;
+    };
+    gap.old.forEach((p, i) => {
+      if (matched.some(([k]) => k === i)) return;
+      const at = next(0, i);
+      pageChanges.push(wholePage('removed', result, p, sigOld[i]?.ink, at ?? gap.before, !at));
+    });
+    gap.new.forEach((p, j) => {
+      if (matched.some(([, k]) => k === j)) return;
+      const at = next(1, j);
+      pageChanges.push(wholePage('added', result, p, sigNew[j]?.ink, at ?? gap.before, !at));
+    });
+  }
+  pairs.sort((a, b) => a.new - b.new || a.old - b.old);
+
   const cacheOld = new Map<number, Promise<Raster>>();
   const cacheNew = new Map<number, Promise<Raster>>();
   const found: Change[] = [];
+  const sizes = new Map<string, { pair: VisualPair; count: number }>();
   for (let k = 0; k < pairs.length; k++) {
-    const [op, np] = pairs[k];
-    if (!cacheOld.has(op)) cacheOld.set(op, renderOld(op));
-    if (!cacheNew.has(np)) cacheNew.set(np, renderNew(np));
-    const [ra, rb] = await Promise.all([cacheOld.get(op)!, cacheNew.get(np)!]);
-    found.push(...compareRasters(result, op, np, ra, rb));
+    const pair = pairs[k];
+    const { old: op, new: np } = pair;
+    const a = docs.old.pages[op];
+    const b = docs.new.pages[np];
+    if (pair.whole && (Math.abs(a.width - b.width) > 1 || Math.abs(a.height - b.height) > 1)) {
+      const key = `${Math.round(a.width)}x${Math.round(a.height)}:${Math.round(b.width)}x${Math.round(b.height)}`;
+      const cur = sizes.get(key);
+      if (cur) cur.count++;
+      else sizes.set(key, { pair, count: 1 });
+    }
+    if (large('old', op) || large('new', np)) {
+      if (large('old', op)) skipped.old.add(op);
+      if (large('new', np)) skipped.new.add(np);
+    } else {
+      if (!cacheOld.has(op)) cacheOld.set(op, renderOld(op));
+      if (!cacheNew.has(np)) cacheNew.set(np, renderNew(np));
+      try {
+        const [ra, rb] = await Promise.all([cacheOld.get(op)!, cacheNew.get(np)!]);
+        found.push(...compareRasters(result, op, np, ra, rb, { whole: pair.whole }));
+      } catch {
+        skipped.old.add(op);
+        skipped.new.add(np);
+      }
+    }
     const rest = pairs.slice(k + 1);
-    for (const p of [...cacheOld.keys()]) if (!rest.some(([o]) => o === p)) cacheOld.delete(p);
-    for (const p of [...cacheNew.keys()]) if (!rest.some(([, n]) => n === p)) cacheNew.delete(p);
+    for (const p of [...cacheOld.keys()]) if (!rest.some((r) => r.old === p)) cacheOld.delete(p);
+    for (const p of [...cacheNew.keys()]) if (!rest.some((r) => r.new === p)) cacheNew.delete(p);
     onProgress?.(k + 1, pairs.length);
   }
-  const visual = dedupeGraphics(found.filter((c) => !c.minor));
+  // A change of page size or orientation, once per kind of change.
+  for (const { pair, count } of sizes.values()) {
+    const c = wholePage('resized', result, pair.new, undefined, [pair.old, pair.new], false);
+    if (count > 1) c.places = count;
+    pageChanges.push(c);
+  }
+  const visual = [...dedupeGraphics(found.filter((c) => !c.minor)), ...pageChanges];
   const shifts = found.filter((c) => c.minor);
   result.minor = [...result.minor.filter((c) => c.consequence), ...shifts].sort((a, b) => a.order - b.order);
   result.minor.forEach((c, k) => (c.id = 'm' + (k + 1)));
   result.ignored.minorShifts = shifts.length;
+  for (const side of ['old', 'new'] as const) {
+    if (skipped[side].size && result.coverage?.[side]) result.coverage[side].visualSkipped = [...skipped[side]].sort((x, y) => x - y);
+  }
   result.changes.push(...visual);
   sortAndNumber(result.changes);
   return visual;
+}
+
+/**
+ * A change that concerns a whole page: a page without text that has no
+ * counterpart (added / removed), or a page whose size changed (resized; `p`
+ * is then the new page and `near` the pair). `near` is a paired page next to
+ * the added or removed one, where the other side shows a caret; `after`
+ * means the page comes after that pair.
+ */
+function wholePage(what: 'added' | 'removed' | 'resized', result: CompareResult, p: number, ink: Rect | null | undefined, near: [number, number] | null, after: boolean): Change {
+  const pageRect = (doc: DocModel, page: number): Rect => ({ x: 0, y: 0, w: doc.pages[page].width, h: doc.pages[page].height });
+  const full = (doc: DocModel, page: number): Side => ({ pages: [page], rects: [{ page, rect: ink ?? pageRect(doc, page) }], text: '' });
+  const caret = (doc: DocModel, page: number | undefined): Side => {
+    if (page === undefined || !doc.pages[page]) return { pages: [], rects: [], text: '' };
+    const h = doc.pages[page].height;
+    return { pages: [], rects: [], text: '', caret: { page, x: 36, y: after ? h - 30 : 12, h: 18 } };
+  };
+  let old: Side;
+  let nw: Side;
+  if (what === 'resized') {
+    old = { pages: [near![0]], rects: [{ page: near![0], rect: pageRect(result.oldDoc, near![0]) }], text: '' };
+    nw = { pages: [p], rects: [{ page: p, rect: pageRect(result.newDoc, p) }], text: '' };
+  } else if (what === 'added') {
+    old = caret(result.oldDoc, near?.[0]);
+    nw = full(result.newDoc, p);
+  } else {
+    old = full(result.oldDoc, p);
+    nw = caret(result.newDoc, near?.[1]);
+  }
+  const order = what === 'removed' ? (near ? near[1] + (after ? 0.99 : 0) : 0) * 100000 : p * 100000;
+  return { id: '', kind: 'graphic', category: 'visual', old, new: nw, pageChange: what, size: 0, cjk: false, contextBefore: '', contextAfter: '', order };
 }
 
 export interface Counts {

@@ -41,6 +41,22 @@ export function sideColor(c: Change, side: 'old' | 'new'): string {
 export type Region = { page: number; rect: Rect };
 
 /**
+ * Pixels per point of rendered page canvases. Renderers lower the scale of
+ * very large pages (see renderScale in visual.ts) and record the scale they
+ * used here, so drawCrop maps page points to canvas pixels correctly even
+ * when it is passed the scale that was requested.
+ */
+const renderedScale = new WeakMap<object, number>();
+
+export function noteCanvasScale(canvas: object, scale: number): void {
+  renderedScale.set(canvas, scale);
+}
+
+export function canvasScale(canvas: object, fallback: number): number {
+  return renderedScale.get(canvas) ?? fallback;
+}
+
+/**
  * Regions to show for both sides of a change. Both get the same width so
  * that, displayed side by side at equal size, they share one zoom level.
  */
@@ -82,8 +98,8 @@ export function cropRegion(c: Change, side: 'old' | 'new', doc: DocModel, width?
     x0 = cx - minW / 2;
     x1 = cx + minW / 2;
   }
-  const maxH = 360;
-  if (y1 - y0 > maxH) y1 = y0 + maxH;
+  // A tall change (a full-page chart, a long insertion) is shown whole:
+  // drawCrop scales the image down instead of cutting part of it off.
   // Clamp to the page.
   if (x0 < 0) {
     x1 -= x0;
@@ -110,9 +126,11 @@ export function drawCrop(
   c: Change,
   side: 'old' | 'new',
   maxWidth = 900,
+  maxHeight = 1400,
 ): string {
+  scale = canvasScale(page, scale);
   const r = region.rect;
-  const out = Math.min(1, maxWidth / (r.w * scale));
+  const out = Math.min(1, maxWidth / (r.w * scale), maxHeight / (r.h * scale));
   const w = Math.max(1, Math.round(r.w * scale * out));
   const h = Math.max(1, Math.round(r.h * scale * out));
   const canvas = make(w, h);

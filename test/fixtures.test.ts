@@ -85,8 +85,10 @@ test('LibreOffice: moves, numbers and whole paragraphs', async () => {
   assert.deepEqual(compareDocs(a, b, { ignoreCase: true }).changes.map((c) => describeChange('en', c)), expected);
 });
 
-// A chart-only page after an inserted page cannot be paired from text; a
-// manual pair makes its change visible (scripts/make-pairing-fixture.mjs).
+// A chart-only page after an inserted page cannot be paired from text. It
+// is the only page without text between two paired pages on both sides, so
+// it is paired with its counterpart automatically; a manual pair gives the
+// same result (scripts/make-pairing-fixture.mjs).
 test('manual page pairing finds a change on a page without text', { skip: !(await canRender()) && 'no canvas' }, async () => {
   const pa = await openPdf(dir + 'textless-before.pdf');
   const pb = await openPdf(dir + 'textless-after.pdf');
@@ -99,7 +101,9 @@ test('manual page pairing finds a change on a page without text', { skip: !(awai
   };
   const auto = await run([]);
   assert.deepEqual(auto.coverage.old.textless, [1]);
-  assert.ok(!auto.changes.some((c) => c.kind === 'graphic'), 'without pairing the chart change is not found');
+  const ga = auto.changes.filter((c) => c.kind === 'graphic');
+  assert.equal(ga.length, 1, 'the chart pages are paired without help');
+  assert.equal(pages(ga[0]), '2→3');
   const paired = await run([[1, 2]]);
   const g = paired.changes.filter((c) => c.kind === 'graphic');
   assert.equal(g.length, 1);

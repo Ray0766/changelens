@@ -183,6 +183,14 @@ const en = {
   noticeUnaligned: 'Some passages differ too much to be aligned word by word and are shown as rewritten as a whole — check them in full.',
   ruleLength: 'Line of “{char}” changed length: {from} → {to} characters',
   noticePrivateUse: '{side} {pages}: {n} {n:character uses|characters use} a font’s own code instead of a standard character. {n:It is|They are} still compared, but may show as boxes.',
+  strikeAdded: 'Struck through: “{text}”',
+  strikeRemoved: 'Strikethrough removed: “{text}”',
+  underlineAdded: 'Underlined: “{text}”',
+  underlineRemoved: 'Underline removed: “{text}”',
+  pageAddedNoText: 'Page without text added (images or drawings only)',
+  pageRemovedNoText: 'Page without text removed (images or drawings only)',
+  pageResized: 'Page size changed: {from} → {to}',
+  noticeVisualSkipped: '{side} {pages}: graphics and images were not compared (the page is too large to render, or could not be rendered).',
 };
 
 export type MessageKey = keyof typeof en;
@@ -369,6 +377,14 @@ const zh: Record<MessageKey, string> = {
   noticeUnaligned: '部分段落差异过大，无法逐词对齐，按整段改写显示——请完整核对。',
   ruleLength: '「{char}」连线长度变化：{from} → {to} 个字符',
   noticePrivateUse: '{side}{pages}有 {n} 个字符使用字体自定义编码而非标准字符，仍参与比较，但可能显示为方框。',
+  strikeAdded: '加了删除线：「{text}」',
+  strikeRemoved: '去掉了删除线：「{text}」',
+  underlineAdded: '加了下划线：「{text}」',
+  underlineRemoved: '去掉了下划线：「{text}」',
+  pageAddedNoText: '新增了一页没有文字的页面（只有图片或图形）',
+  pageRemovedNoText: '删除了一页没有文字的页面（只有图片或图形）',
+  pageResized: '页面尺寸变化：{from} → {to}',
+  noticeVisualSkipped: '{side}{pages}未比较图形和图片（页面太大无法渲染，或渲染失败）。',
 };
 
 const dicts: Record<Lang, Record<MessageKey, string>> = { en, zh };

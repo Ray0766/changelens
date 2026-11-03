@@ -299,6 +299,7 @@ export function buildJson(input: ReportInput): unknown {
     textless: c.textless.map((p) => p + 1),
     unreadable: c.unreadable.map(page1),
     ...(c.privateUse ? { privateUse: c.privateUse.map(page1) } : {}),
+    ...(c.visualSkipped ? { visualSkipped: c.visualSkipped.map((p) => p + 1) } : {}),
     ...(c.uncertain ? { uncertain: c.uncertain.map(page1) } : {}),
   });
   return {
