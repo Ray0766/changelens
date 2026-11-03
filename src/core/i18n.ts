@@ -176,6 +176,12 @@ const en = {
   exportPageFailed: 'Could not render page {page} of {name} for the report: {error}',
   retry: 'Try again',
   dismiss: 'Dismiss',
+  movedEditedParagraph: 'Moved and edited a paragraph',
+  movedEditedParagraphs: 'Moved and edited {n} paragraphs',
+  movedEditedText: 'Moved and edited “{text}”',
+  percentPoints: '{n} pp',
+  noticeUnaligned: 'Some passages differ too much to be aligned word by word and are shown as rewritten as a whole — check them in full.',
+  ruleLength: 'Line of “{char}” changed length: {from} → {to} characters',
 };
 
 export type MessageKey = keyof typeof en;
@@ -355,6 +361,12 @@ const zh: Record<MessageKey, string> = {
   exportPageFailed: '无法为报告渲染 {name} 的第 {page} 页：{error}',
   retry: '重试',
   dismiss: '关闭',
+  movedEditedParagraph: '移动并修改了一段',
+  movedEditedParagraphs: '移动并修改了 {n} 段',
+  movedEditedText: '移动并修改了「{text}」',
+  percentPoints: '{n} 个百分点',
+  noticeUnaligned: '部分段落差异过大，无法逐词对齐，按整段改写显示——请完整核对。',
+  ruleLength: '「{char}」连线长度变化：{from} → {to} 个字符',
 };
 
 const dicts: Record<Lang, Record<MessageKey, string>> = { en, zh };

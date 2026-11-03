@@ -219,6 +219,15 @@ export interface Change {
   consequence?: 'renumber';
   /** Inserted content that repeats text found elsewhere in the new version (0-based page). */
   duplicateOf?: number;
+  /** (Moves) Number of edits inside the moved text; each is listed as its own change. */
+  moveEdits?: number;
+  /** An edit inside a moved passage: id of that move change. */
+  inMove?: string;
+  /**
+   * (Changes aggregated over several places, see `places`) each place's own
+   * text and location; `old.rects` / `new.rects` cover all of them.
+   */
+  parts?: { old: Side; new: Side }[];
   /** Order key for sorting (position in the new document, then old). */
   order: number;
 }
@@ -259,5 +268,12 @@ export interface CompareResult {
   ignored: { furniture: number; caseOnly: number; minorShifts: number; renumbered: number };
   /** Minor layout shifts, kept apart from `changes` (shown on request). */
   minor: Change[];
-  stats: { oldTokens: number; newTokens: number; matchedTokens: number; similarity: number };
+  stats: {
+    oldTokens: number;
+    newTokens: number;
+    matchedTokens: number;
+    similarity: number;
+    /** Tokens (both versions) in passages too different to align word by word. */
+    unalignedTokens?: number;
+  };
 }

@@ -256,9 +256,10 @@ function neighbour(chars: Char[], i: number, dir: 1 | -1): string {
  * group exactly three digits that no letter follows, and all spaces inside
  * one text run (a gap between runs, such as a table column, never joins).
  * PDF.js often reports no-break and thin spaces as plain spaces, so a plain
- * space only joins in an amount-like context: a 1–2 digit lead, three or
- * more groups, or a currency sign, code or % next to the number. "100 200"
- * alone stays two numbers.
+ * space only joins in an amount-like context: three or more groups, a
+ * decimal part, or a currency sign, code or % next to the number. "100 200" and "10 500" alone
+ * stay two numbers: in a table row or a list they are usually separate
+ * figures, and joining them would invent an amount.
  */
 function groupEnd(chars: Char[], start: number, j: number): number {
   if (j <= start || !GROUP_SPACE.has(chars[j].ch)) return -1;
@@ -284,7 +285,9 @@ function groupEnd(chars: Char[], start: number, j: number): number {
   }
   if (groups === 0) return -1;
   const amount = (w: string) => CURRENCY.has(w) || w === '%' || w === '\u2030' || AMOUNT_WORD.test(w);
-  const context = special || j - start <= 2 || groups >= 2 || amount(neighbour(chars, start - 1, -1)) || amount(neighbour(chars, e, 1));
+  // A decimal part after the last group ("12 500,50") marks one amount too.
+  const decimal = (chars[e]?.n === ',' || chars[e]?.n === '.') && chars[e].run === run && DIGIT.test(chars[e + 1]?.n ?? '');
+  const context = special || decimal || groups >= 2 || amount(neighbour(chars, start - 1, -1)) || amount(neighbour(chars, e, 1));
   return context ? e : -1;
 }
 

@@ -29,6 +29,8 @@ test('space-grouped thousands are one number (NBSP, thin, narrow NBSP; plain spa
   assert.ok(tokens('Somme 12 500,50 HT').includes('12 500,50'));
   // Not amounts: two numbers side by side, a year before a number, a 4-digit group.
   assert.deepEqual(tokens('Revenue 100 200').slice(1), ['100', '200']);
+  assert.deepEqual(tokens('Pens 10 500').slice(1), ['10', '500']);
+  assert.deepEqual(tokens('Table 2 150 participants').slice(1, 3), ['2', '150']);
   assert.deepEqual(tokens('In 2025 100 people').slice(1, 3), ['2025', '100']);
   assert.deepEqual(tokens('Call 555 123 4567').slice(1), ['555', '123', '4567']);
   // Table cells are separate runs: never joined.
