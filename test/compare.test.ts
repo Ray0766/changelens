@@ -146,7 +146,8 @@ test('units written onto a number are part of the shown change', () => {
   const a = makeDoc('a', [[['The late fee is 4% of the amount due per month.']]]);
   const b = makeDoc('b', [[['The late fee is 8% of the amount due per month.']]]);
   const r = compareDocs(model(a), model(b));
-  assert.equal(describeChange('en', r.changes[0]), 'Number changed: 4% → 8% (+100%)');
+  // A rate changes by percentage points, not by a relative percentage.
+  assert.equal(describeChange('en', r.changes[0]), 'Number changed: 4% → 8% (+4 pp)');
 });
 
 test('the same replacement in many places is one change', () => {

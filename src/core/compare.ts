@@ -13,7 +13,7 @@ import type {
 } from './types.ts';
 import { defaultOptions } from './types.ts';
 import { baseKey, joinTokens } from './tokenize.ts';
-import { cleanupSemantic, intern, matchSequences, opsFromMatches, type DiffOp, type Span } from './diff.ts';
+import { cleanupSemantic, intern, matchSequences, opsFromMatches, type DiffOp, type MatchInfo, type Span } from './diff.ts';
 import { mergeLineRects } from './geometry.ts';
 import { isNumericPhrase, parseNumber } from './numbers.ts';
 import { findOverflow } from './overflow.ts';
@@ -38,8 +38,180 @@ interface Ctx {
   newDoc: DocModel;
   A: Token[];
   B: Token[];
+  /** Interned comparison keys of A and B. */
+  ka: Int32Array;
+  kb: Int32Array;
   blocksA: Map<number, [number, number]>;
   blocksB: Map<number, [number, number]>;
+}
+
+/** How often each interned key occurs in a sequence. */
+function keyCounts(keys: Int32Array, n: number): Int32Array {
+  const c = new Int32Array(n);
+  for (const k of keys) c[k]++;
+  return c;
+}
+
+/**
+ * Which unchanged runs between two edits the semantic clean-up may fold into
+ * one rewrite: coincidental matches inside prose. Structure a reader uses to
+ * locate edits is never folded away, so a fully revised table still yields
+ * one change per figure or row instead of one "rewrote N words".
+ */
+function foldRule(ctx: Ctx): (eq: Span, before: Span, after: Span) => boolean {
+  const { A, B, ka, kb } = ctx;
+  let n = 0;
+  for (const k of ka) if (k >= n) n = k + 1;
+  for (const k of kb) if (k >= n) n = k + 1;
+  const countA = keyCounts(ka, n);
+  const countB = keyCounts(kb, n);
+  // The equality touches or crosses a block boundary (it starts or ends a
+  // paragraph, heading or table row, or spans two of them).
+  const crosses = (T: Token[], s: number, e: number) => s === 0 || e >= T.length || T[s - 1].block !== T[e].block;
+  const numeric = (T: Token[], s: number, e: number) => e === s || isNumericPhrase(T.slice(s, e).map((t) => t.text));
+  const numericEdit = (g: Span) => numeric(A, g.a0, g.a1) && numeric(B, g.b0, g.b1);
+  const direction = (g: Span) => (g.a1 > g.a0 && g.b1 > g.b0 ? 'mixed' : g.a1 > g.a0 ? 'delete' : 'insert');
+  const lineStart = (T: Token[], s: number) => s === 0 || T[s - 1].line !== T[s].line;
+  const big = (g: Span) => g.orig > 8;
+  return (eq, before, after) => {
+    const db = direction(before);
+    const da = direction(after);
+    if (db !== 'mixed' && da !== 'mixed') {
+      // A deleted passage next to an inserted one is not one rewrite (it may
+      // be a move), unless both are a word or two ("Testing Launch" →
+      // "Launch Testing"). Two deletions (or insertions) only when the
+      // equality is a few coincidental words inside a large block, such as
+      // a moved paragraph.
+      if (db !== da && (before.orig > 2 || after.orig > 2)) return false;
+      if (db === da && (!big(before) || !big(after))) return false;
+    }
+    // Structure on both sides (a heading, the end of a paragraph, a row that
+    // is its own block) stays visible and keeps the edits around it apart.
+    if (crosses(A, eq.a0, eq.a1) && crosses(B, eq.b0, eq.b1)) return false;
+    // A row label: starts a line in both versions.
+    const label = lineStart(A, eq.a0) && lineStart(B, eq.b0);
+    let words = 0;
+    let latin = false;
+    for (let i = eq.a0; i < eq.a1; i++) {
+      if (A[i].kind === 'punct') continue;
+      words++;
+      if (A[i].kind === 'word') latin = true;
+      // A row label found exactly once in each version is a real anchor,
+      // not a coincidence.
+      if (label && countA[ka[i]] === 1 && countB[kb[eq.b0 + (i - eq.a0)]] === 1) return false;
+    }
+    // Revised figures separated by a label ("Q1 -120 Q2 340", "between 10
+    // and 20") stay separate changes; the parts of a date ("11 月 30 日")
+    // are folded into one.
+    if ((label || latin) && numericEdit(before) && numericEdit(after)) return false;
+    // Sizes of the original edits (orig), not of groups merged earlier:
+    // merging must not snowball across a document.
+    // Keep a small edit apart from a large block (which may be a moved
+    // paragraph): only fold equalities between changes of similar scale.
+    if (big(before) !== big(after)) return false;
+    // A few coincidentally matching words inside a large rewrite or block.
+    if (big(before)) return words <= 5 && eq.a1 - eq.a0 <= 0.2 * Math.min(before.orig, after.orig);
+    return words <= 2 && eq.a1 - eq.a0 <= 4;
+  };
+}
+
+/** Clean-up shared by the main diff and the diff inside a moved passage. */
+function refine(ctx: Ctx, ops: DiffOp[], fold: (eq: Span, before: Span, after: Span) => boolean): DiffOp[] {
+  const { A, B } = ctx;
+  ops = cleanupSemantic(ops, (i) => weight(A[i]), (i) => weight(B[i]), fold);
+  ops = normalizeReplaces(ops, A, B);
+  slideToBoundaries(ops, A, B);
+  return ops;
+}
+
+/** Runs of consecutive non-equal ops. */
+function hunksOf(ops: DiffOp[]): Hunk[] {
+  const hunks: Hunk[] = [];
+  let cur: Hunk | null = null;
+  for (const op of ops) {
+    if (op.type === 'equal') {
+      if (cur) hunks.push(cur);
+      cur = null;
+      continue;
+    }
+    if (!cur) cur = { a0: op.a0, a1: op.a0, b0: op.b0, b1: op.b0 };
+    if (op.type === 'delete') cur.a1 = op.a1;
+    else cur.b1 = op.b1;
+  }
+  if (cur) hunks.push(cur);
+  return hunks;
+}
+
+/**
+ * Split a hunk whose deleted and inserted text lie in blocks that do not
+ * correspond, e.g. a figure appended to one paragraph next to a number
+ * removed from the start of the next one: two edits, not "2 → 1,500".
+ * Each side is cut into the part that belongs to the block before the hunk,
+ * whole blocks in between, and the part that belongs to the block after it;
+ * the parts are paired in that order.
+ */
+function splitAtBlocks(ctx: Ctx, h: Hunk): Hunk[] {
+  const { A, B } = ctx;
+  if (h.a1 === h.a0 || h.b1 === h.b0) return [h];
+  const pa = A[h.a0 - 1];
+  const na = A[h.a1];
+  const pb = B[h.b0 - 1];
+  const nb = B[h.b1];
+  if (!pa || !na || !pb || !nb || pa.block === na.block || pb.block === nb.block) return [h];
+  const cut = (T: Token[], s: number, e: number, prev: Token, next: Token): [number, number] => {
+    let i = s;
+    while (i < e && T[i].block === prev.block) i++;
+    let j = e;
+    while (j > i && T[j - 1].block === next.block) j--;
+    return [i, j];
+  };
+  const [ai, aj] = cut(A, h.a0, h.a1, pa, na);
+  const [bi, bj] = cut(B, h.b0, h.b1, pb, nb);
+  return [
+    { a0: h.a0, a1: ai, b0: h.b0, b1: bi },
+    { a0: ai, a1: aj, b0: bi, b1: bj },
+    { a0: aj, a1: h.a1, b0: bj, b1: h.b1 },
+  ].filter((p) => p.a1 > p.a0 || p.b1 > p.b0);
+}
+
+const hasDigit = (t: Token) => /\d/.test(t.text);
+
+/**
+ * Several revised figures in a row ("10 500" → "50 100") become one change
+ * per figure when both sides hold the same number of figures, so each gets
+ * its own percentage and sign check.
+ */
+function splitNumbers(ctx: Ctx, h: Hunk): Hunk[] {
+  const { A, B } = ctx;
+  const da = A.slice(h.a0, h.a1);
+  const db = B.slice(h.b0, h.b1);
+  if (!da.length || !db.length || !isNumericPhrase(da.map((t) => t.text)) || !isNumericPhrase(db.map((t) => t.text))) return [h];
+  // Where each figure starts, including a currency sign written onto it.
+  const starts = (T: Token[], s: number, e: number) => {
+    const out: number[] = [];
+    for (let k = s; k < e; k++) {
+      if (!hasDigit(T[k])) continue;
+      let at = k;
+      const floor = out.length ? out[out.length - 1] + 1 : s;
+      while (at > floor && !T[at].spaceBefore && !hasDigit(T[at - 1])) at--;
+      out.push(out.length ? at : s);
+    }
+    return out;
+  };
+  const sa = starts(A, h.a0, h.a1);
+  const sb = starts(B, h.b0, h.b1);
+  if (sa.length < 2 || sa.length !== sb.length) return [h];
+  const out: Hunk[] = [];
+  for (let k = 0; k < sa.length; k++) {
+    const p = { a0: sa[k], a1: sa[k + 1] ?? h.a1, b0: sb[k], b1: sb[k + 1] ?? h.b1 };
+    const same = p.a1 - p.a0 === p.b1 - p.b0 && A.slice(p.a0, p.a1).every((t, j) => t.key === B[p.b0 + j].key);
+    if (!same) out.push(p);
+  }
+  return out;
+}
+
+function splitHunk(ctx: Ctx, h: Hunk): Hunk[] {
+  return splitAtBlocks(ctx, h).flatMap((p) => splitNumbers(ctx, p));
 }
 
 function blockRanges(toks: Token[]): Map<number, [number, number]> {
@@ -167,9 +339,25 @@ function textChange(ctx: Ctx, h: Hunk): Change {
     const to = pre + newSide.text + post;
     oldSide.text = from;
     newSide.text = to;
-    change.numeric = { from, to, fromValue: parseNumber(from), toValue: parseNumber(to) };
+    // A value (for the percentage and sign check) only when each side is one
+    // figure: several figures run together would give a meaningless number.
+    const single = delToks.filter(hasDigit).length === 1 && insToks.filter(hasDigit).length === 1;
+    const value = single && !isListLabel(A, h.a0, from) && !isListLabel(B, h.b0, to);
+    change.numeric = { from, to, fromValue: value ? parseNumber(from) : null, toValue: value ? parseNumber(to) : null };
   }
   return change;
+}
+
+/**
+ * "(1)" → "1)" or "(3)" → "(4)" at the start of a line are list labels, not
+ * negative amounts: no sign change or percentage is computed for them.
+ */
+function isListLabel(T: Token[], at: number, text: string): boolean {
+  const open = (text.match(/\(/g) ?? []).length;
+  const close = (text.match(/\)/g) ?? []).length;
+  if (open !== close) return true;
+  const lineStart = at === 0 || T[at - 1].line !== T[at].line;
+  return lineStart && /^\(?\d{1,2}\)?[.)]?$/.test(text);
 }
 
 /** Unit and currency symbols that are written directly onto numbers. */
@@ -294,8 +482,26 @@ function slideToBoundaries(ops: DiffOp[], A: Token[], B: Token[]): void {
 
 // ---------------------------------------------------------------- moves ---
 
-function detectMoves(ctx: Ctx, hunks: Hunk[], ka: Int32Array, kb: Int32Array): { moves: Change[]; rest: Hunk[] } {
+interface Moves {
+  moves: Change[];
+  /** Edits inside moved passages, reported as their own changes. */
+  inner: Change[];
+  /** Equal ops pairing the unchanged words of each moved passage. */
+  innerOps: DiffOp[];
+  rest: Hunk[];
+}
+
+/**
+ * A deleted passage that reappears elsewhere is a move. Pairing uses an
+ * order-aware similarity (matched words in sequence, not a bag of words),
+ * and the two texts are then diffed, so a figure or a negation changed
+ * inside a moved paragraph is reported as its own change, located in both
+ * versions, rather than hidden behind "Moved a paragraph".
+ */
+function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, after: Span) => boolean): Moves {
   const MIN = 6;
+  const SIM = 0.8;
+  const { ka, kb } = ctx;
   const content = (keys: Int32Array, toks: Token[], s: number, e: number) => {
     const m = new Map<number, number>();
     let n = 0;
@@ -312,21 +518,26 @@ function detectMoves(ctx: Ctx, hunks: Hunk[], ka: Int32Array, kb: Int32Array): {
   const inss = hunks
     .map((h, idx) => ({ h, idx, ...content(kb, ctx.B, h.b0, h.b1) }))
     .filter((d) => d.h.a0 === d.h.a1 && d.n >= MIN);
-  const candidates: { d: number; i: number; sim: number }[] = [];
+  const candidates: { d: number; i: number; sim: number; matches: Int32Array }[] = [];
   dels.forEach((d, di) =>
     inss.forEach((ins, ii) => {
       if (Math.min(d.n, ins.n) / Math.max(d.n, ins.n) < 0.7) return;
+      // The bag of words bounds the in-order similarity from above: a cheap filter.
       let common = 0;
       for (const [k, c] of d.m) common += Math.min(c, ins.m.get(k) ?? 0);
-      const sim = (2 * common) / (d.n + ins.n);
-      if (sim >= 0.8) candidates.push({ d: di, i: ii, sim });
+      if ((2 * common) / (d.n + ins.n) < SIM) return;
+      const matches = matchSequences(ka.subarray(d.h.a0, d.h.a1), kb.subarray(ins.h.b0, ins.h.b1));
+      let inOrder = 0;
+      for (let p = 0; p < matches.length; p += 2) if (ctx.A[d.h.a0 + matches[p]].kind !== 'punct') inOrder++;
+      const sim = (2 * inOrder) / (d.n + ins.n);
+      if (sim >= SIM) candidates.push({ d: di, i: ii, sim, matches });
     }),
   );
   candidates.sort((x, y) => y.sim - x.sim);
   const usedD = new Set<number>();
   const usedI = new Set<number>();
   const consumed = new Set<number>();
-  const moves: Change[] = [];
+  const out: Moves = { moves: [], inner: [], innerOps: [], rest: [] };
   for (const c of candidates) {
     if (usedD.has(c.d) || usedI.has(c.i)) continue;
     usedD.add(c.d);
@@ -335,11 +546,24 @@ function detectMoves(ctx: Ctx, hunks: Hunk[], ka: Int32Array, kb: Int32Array): {
     const ins = inss[c.i];
     consumed.add(d.idx);
     consumed.add(ins.idx);
+    // Diff the moved text against its old wording.
+    const local = opsFromMatches(c.matches, d.h.a1 - d.h.a0, ins.h.b1 - ins.h.b0);
+    const ops = refine(
+      ctx,
+      local.map((o) => ({ ...o, a0: o.a0 + d.h.a0, a1: o.a1 + d.h.a0, b0: o.b0 + ins.h.b0, b1: o.b1 + ins.h.b0 })),
+      fold,
+    );
+    const edits = hunksOf(ops)
+      .flatMap((h) => splitHunk(ctx, h))
+      .map((h) => textChange(ctx, h));
+    for (const e of edits) e.inMove = '';
+    out.inner.push(...edits);
+    out.innerOps.push(...ops.filter((o) => o.type === 'equal'));
     const oldSide = makeSide(ctx.A, d.h.a0, d.h.a1, false);
     const newSide = makeSide(ctx.B, ins.h.b0, ins.h.b1, false);
     const toks = ctx.B.slice(ins.h.b0, ins.h.b1).filter((t) => t.kind !== 'punct');
     const [cb, ca] = context(ctx.B, ins.h.b0, ins.h.b1);
-    moves.push({
+    const move: Change = {
       id: '',
       kind: 'move',
       category: 'text',
@@ -351,9 +575,12 @@ function detectMoves(ctx: Ctx, hunks: Hunk[], ka: Int32Array, kb: Int32Array): {
       contextAfter: ca,
       wholeParagraphs: wholeBlocks(ctx.blocksB, ctx.B, ins.h.b0, ins.h.b1) || undefined,
       order: sideOrder(newSide, ctx.newDoc),
-    });
+    };
+    if (edits.length) move.moveEdits = edits.length;
+    out.moves.push(move);
   }
-  return { moves, rest: hunks.filter((_, idx) => !consumed.has(idx)) };
+  out.rest = hunks.filter((_, idx) => !consumed.has(idx));
+  return out;
 }
 
 // ----------------------------------------------------------- formatting ---
@@ -364,7 +591,15 @@ interface Style {
   italic: boolean;
 }
 
+const styles = new Map<string, Style>();
+
 function styleOf(font: string): Style {
+  let s = styles.get(font);
+  if (!s) styles.set(font, (s = parseStyle(font)));
+  return s;
+}
+
+function parseStyle(font: string): Style {
   const f = font.toLowerCase();
   const bold = /bold|black|heavy|semibold|demi|w[6-9]\b/.test(f);
   const italic = /italic|oblique|-it\b|kursiv/.test(f);
@@ -577,61 +812,30 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
     A.map((t) => t.key),
     B.map((t) => t.key),
   );
-
-  const raw = matchSequences(ka, kb);
-  let ops = opsFromMatches(raw, A.length, B.length);
-  ops = cleanupSemantic(
-    ops,
-    (i) => weight(A[i]),
-    (i) => weight(B[i]),
-    (eq, before, after) => {
-      let words = 0;
-      for (let i = eq.a0; i < eq.a1; i++) if (A[i].kind !== 'punct') words++;
-      const big = (g: Span) => g.a1 - g.a0 + (g.b1 - g.b0) > 8;
-      // Keep a small edit apart from a large block (which may be a moved
-      // paragraph): only fold equalities between changes of similar scale.
-      if (big(before) !== big(after)) return false;
-      // A few coincidentally matching words inside a large rewrite or block.
-      if (big(before)) {
-        const min = Math.min(before.a1 - before.a0 + before.b1 - before.b0, after.a1 - after.a0 + after.b1 - after.b0);
-        return words <= 5 && eq.a1 - eq.a0 <= 0.2 * min;
-      }
-      return words <= 2 && eq.a1 - eq.a0 <= 4;
-    },
-  );
-
-  ops = normalizeReplaces(ops, A, B);
-  slideToBoundaries(ops, A, B);
+  const ctx: Ctx = { oldDoc, newDoc, A, B, ka, kb, blocksA: blockRanges(A), blocksB: blockRanges(B) };
+  const weak = new Uint8Array(ka.length + kb.length);
+  for (let i = 0; i < A.length; i++) if (A[i].kind === 'number' || A[i].kind === 'punct') weak[ka[i]] = 1;
+  for (let j = 0; j < B.length; j++) if (B[j].kind === 'number' || B[j].kind === 'punct') weak[kb[j]] = 1;
+  const info: MatchInfo = { unaligned: 0, weak };
+  const fold = foldRule(ctx);
+  const ops = refine(ctx, opsFromMatches(matchSequences(ka, kb, info), A.length, B.length), fold);
 
   // Final matched pairs after clean-up.
   const pairList: number[] = [];
   for (const op of ops) if (op.type === 'equal') for (let k = 0; k < op.a1 - op.a0; k++) pairList.push(op.a0 + k, op.b0 + k);
   const pairs = Int32Array.from(pairList);
 
-  const hunks: Hunk[] = [];
-  let cur: Hunk | null = null;
-  for (const op of ops) {
-    if (op.type === 'equal') {
-      if (cur) hunks.push(cur);
-      cur = null;
-      continue;
-    }
-    if (!cur) cur = { a0: op.a0, a1: op.a0, b0: op.b0, b1: op.b0 };
-    if (op.type === 'delete') cur.a1 = op.a1;
-    else cur.b1 = op.b1;
-  }
-  if (cur) hunks.push(cur);
-
-  const ctx: Ctx = { oldDoc, newDoc, A, B, blocksA: blockRanges(A), blocksB: blockRanges(B) };
-  const { moves, rest } = detectMoves(ctx, hunks, ka, kb);
-  const changes: Change[] = [...rest.map((h) => textChange(ctx, h)), ...moves];
+  const moved = detectMoves(ctx, hunksOf(ops), fold);
+  const changes: Change[] = [...moved.rest.flatMap((h) => splitHunk(ctx, h)).map((h) => textChange(ctx, h)), ...moved.moves, ...moved.inner];
   mergeNearby(changes, oldDoc, newDoc);
   markDuplicates(changes, B);
   const renumbered = extractRenumbering(changes, oldDoc, newDoc);
   aggregateReplacements(changes);
-  if (options.detectFormatting) changes.push(...aggregateFormatting(detectFormatting(ctx, ops)));
-
-  if (options.detectFormatting) changes.push(...detectPositions(ctx, pairs));
+  if (options.detectFormatting) {
+    const formats = [...detectFormatting(ctx, ops), ...detectFormatting(ctx, moved.innerOps)];
+    changes.push(...aggregateFormatting(formats, ctx, pairs));
+    changes.push(...detectPositions(ctx, pairs));
+  }
   const map = pageMap(oldDoc, newDoc, A, B, pairs);
   const manual = validPairs(options.manualPairs ?? [], oldDoc.pages.length, newDoc.pages.length);
   for (const [o, n] of manual) {
@@ -653,7 +857,7 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
     anchors: withManualAnchors(buildAnchors(A, B, pairs), manual, oldDoc, newDoc),
     matches: Int32Array.from(pairs, (v, k) => (k % 2 === 0 ? A[v].i : B[v].i)),
     options,
-    coverage: { old: coverageOf(oldDoc), new: { ...coverageOf(newDoc), uncertain: uncertainPages(newDoc, B, pairs) } },
+    coverage: { old: coverageOf(oldDoc), new: { ...coverageOf(newDoc), uncertain: uncertainPages(newDoc, B, pairs, moved.innerOps) } },
     ignored: {
       furniture: options.ignoreFurniture ? furnitureDifferences(oldDoc, newDoc) : 0,
       caseOnly: options.ignoreCase ? caseOnlyDifferences(A, B, pairs) : 0,
@@ -666,6 +870,7 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
       newTokens: B.length,
       matchedTokens: pairs.length / 2,
       similarity: A.length + B.length ? pairs.length / (A.length + B.length) : 1,
+      unalignedTokens: info.unaligned,
     },
   };
 }
@@ -674,45 +879,59 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
  * Unchanged lines that moved sideways on the page (e.g. a stamp moved from
  * left to right, a heading re-aligned). Only lines that are intact in both
  * versions are considered, so ordinary re-flow never triggers this; the
- * displacement is measured against the page's typical displacement.
+ * displacement is measured against the page's typical displacement. A line
+ * set in a wider or narrower font keeps its alignment edge (left, centre or
+ * right), so the edge that moved least counts, and lines whose font, size or
+ * weight changed are left to the formatting change.
  */
 function detectPositions(ctx: Ctx, pairs: Int32Array): Change[] {
   const { A, B, oldDoc, newDoc } = ctx;
   const byOldLine = new Map<number, number[]>();
+  const reformatted = new Set<number>();
   for (let p = 0; p < pairs.length; p += 2) {
     const a = A[pairs[p]];
     let arr = byOldLine.get(a.line);
     if (!arr) byOldLine.set(a.line, (arr = []));
     arr.push(p);
+    if (formatDiff(a, B[pairs[p + 1]])) reformatted.add(a.line);
   }
   const countNewLine = new Map<number, number>();
   for (const t of B) countNewLine.set(t.line, (countNewLine.get(t.line) ?? 0) + 1);
   const countOldLine = new Map<number, number>();
   for (const t of A) countOldLine.set(t.line, (countOldLine.get(t.line) ?? 0) + 1);
-  type Moved = { oldLine: number; newLine: number; dx: number; dy: number; page: [number, number] };
+  /** Displacement of the left edge, the centre and the right edge. */
+  type Moved = { oldLine: number; newLine: number; edges: [number, number, number]; page: [number, number] };
   const intact: Moved[] = [];
   for (const [ol, ps] of byOldLine) {
+    if (reformatted.has(ol)) continue;
     const newLines = new Set(ps.map((p) => B[pairs[p + 1]].line));
     if (newLines.size !== 1) continue;
     const nl = [...newLines][0];
     // Every comparable token of both lines is matched to the other line.
     if (ps.length !== countOldLine.get(ol) || ps.length !== countNewLine.get(nl)) continue;
-    const lo = oldDoc.lines[ol];
-    const ln = newDoc.lines[nl];
-    intact.push({ oldLine: ol, newLine: nl, dx: ln.rect.x - lo.rect.x, dy: ln.rect.y - lo.rect.y, page: [lo.page, ln.page] });
+    const lo = oldDoc.lines[ol].rect;
+    const ln = newDoc.lines[nl].rect;
+    const dl = ln.x - lo.x;
+    const dr = ln.x + ln.w - (lo.x + lo.w);
+    intact.push({ oldLine: ol, newLine: nl, edges: [dl, (dl + dr) / 2, dr], page: [oldDoc.lines[ol].page, newDoc.lines[nl].page] });
   }
+  /** Displacement relative to `t` of the edge that moved closest to `t`. */
+  const nearest = (m: Moved, t: number) => m.edges.reduce((best, e) => (Math.abs(e - t) < Math.abs(best - t) ? e : best)) - t;
   const out: Change[] = [];
   const byPair = new Map<string, Moved[]>();
   for (const m of intact) {
     const k = m.page.join(':');
-    byPair.set(k, [...(byPair.get(k) ?? []), m]);
+    let list = byPair.get(k);
+    if (!list) byPair.set(k, (list = []));
+    list.push(m);
   }
   for (const list of byPair.values()) {
-    const dxs = list.map((m) => m.dx).sort((u, v) => u - v);
-    const median = dxs[dxs.length >> 1];
+    if (list.length < 3) continue;
+    // The page's own displacement (e.g. new margins).
+    const typical = list.map((m) => nearest(m, 0)).sort((u, v) => u - v)[list.length >> 1];
     for (const m of list) {
-      const rel = m.dx - median;
-      if (Math.abs(rel) <= 12 || list.length < 3) continue;
+      const rel = nearest(m, typical);
+      if (Math.abs(rel) <= 12) continue;
       const lo = oldDoc.lines[m.oldLine];
       const ln = newDoc.lines[m.newLine];
       const words = newDoc.tokens.slice(ln.start, ln.end).filter((t) => t.kind !== 'punct');
@@ -736,24 +955,48 @@ function detectPositions(ctx: Ctx, pairs: Int32Array): Change[] {
 }
 
 /**
- * The same formatting change in many places (typically a font replaced
- * throughout) becomes one change listing every place, instead of one entry
- * per paragraph.
+ * A formatting change applied throughout the document (a font replaced, a
+ * heading size changed everywhere) becomes one change listing every place,
+ * instead of one entry per paragraph. Only document-wide substitutions are
+ * aggregated: the places must cover at least half of the text that had the
+ * old style. Three unrelated words set in bold stay three changes.
+ * The aggregated change's `old.rects` / `new.rects` cover every place, and
+ * `parts` keeps each place's own text and location.
  */
-function aggregateFormatting(changes: Change[]): Change[] {
+function aggregateFormatting(changes: Change[], ctx: Ctx, pairs: Int32Array): Change[] {
+  const fam = (n?: string) => (n ? styleOf(n).family : '');
   const key = (c: Change) => {
     const f = c.format ?? {};
-    const fam = (n?: string) => (n ? styleOf(n).family : '');
     return JSON.stringify([!!f.boldAdded, !!f.boldRemoved, !!f.italicAdded, !!f.italicRemoved, f.sizeFrom, f.sizeTo, fam(f.fontFrom), fam(f.fontTo)]);
   };
   const groups = new Map<string, Change[]>();
   for (const c of changes) {
     const k = key(c);
-    groups.set(k, [...(groups.get(k) ?? []), c]);
+    let list = groups.get(k);
+    if (!list) groups.set(k, (list = []));
+    list.push(c);
   }
+  /** Matched words of the old version that have the style the change starts from. */
+  const withOldStyle = (f: FormatDetail) => {
+    let n = 0;
+    for (let p = 0; p < pairs.length; p += 2) {
+      const a = ctx.A[pairs[p]];
+      if (a.kind === 'punct') continue;
+      const s = styleOf(a.font);
+      if (f.boldAdded && s.bold) continue;
+      if (f.boldRemoved && !s.bold) continue;
+      if (f.italicAdded && s.italic) continue;
+      if (f.italicRemoved && !s.italic) continue;
+      if (f.sizeFrom !== undefined && Math.round(a.size * 10) / 10 !== f.sizeFrom) continue;
+      if (f.fontFrom && s.family !== fam(f.fontFrom)) continue;
+      n++;
+    }
+    return n;
+  };
   const out: Change[] = [];
   for (const list of groups.values()) {
-    if (list.length < 3) {
+    const words = list.reduce((n, c) => n + c.size, 0);
+    if (list.length < 3 || words < 0.5 * withOldStyle(list[0].format ?? {})) {
       out.push(...list);
       continue;
     }
@@ -762,8 +1005,9 @@ function aggregateFormatting(changes: Change[]): Change[] {
       ...first,
       old: { ...first.old, rects: list.flatMap((c) => c.old.rects), pages: [...new Set(list.flatMap((c) => c.old.pages))].sort((a, b) => a - b) },
       new: { ...first.new, rects: list.flatMap((c) => c.new.rects), pages: [...new Set(list.flatMap((c) => c.new.pages))].sort((a, b) => a - b) },
-      size: list.reduce((n, c) => n + c.size, 0),
+      size: words,
       places: list.length,
+      parts: list.map((c) => ({ old: c.old, new: c.new })),
     };
     out.push(merged);
   }
@@ -835,16 +1079,25 @@ function aggregateReplacements(changes: Change[]): void {
   for (const c of changes) {
     if (c.kind !== 'replace') continue;
     const k = c.old.text + '\u0000' + c.new.text;
-    groups.set(k, [...(groups.get(k) ?? []), c]);
+    let list = groups.get(k);
+    if (!list) groups.set(k, (list = []));
+    list.push(c);
   }
+  const absorbed = new Set<Change>();
   for (const list of groups.values()) {
     if (list.length < 3) continue;
     const first = list[0];
+    const parts = list.map((c) => ({ old: c.old, new: c.new }));
     first.old = { ...first.old, rects: list.flatMap((c) => c.old.rects), pages: [...new Set(list.flatMap((c) => c.old.pages))].sort((a, b) => a - b) };
     first.new = { ...first.new, rects: list.flatMap((c) => c.new.rects), pages: [...new Set(list.flatMap((c) => c.new.pages))].sort((a, b) => a - b) };
     first.places = list.length;
+    first.parts = parts;
     first.size = list.reduce((n, c) => n + c.size, 0);
-    for (const c of list.slice(1)) changes.splice(changes.indexOf(c), 1);
+    for (const c of list.slice(1)) absorbed.add(c);
+  }
+  if (absorbed.size) {
+    const kept = changes.filter((c) => !absorbed.has(c));
+    changes.splice(0, changes.length, ...kept);
   }
 }
 
@@ -879,15 +1132,20 @@ function markDuplicates(changes: Change[], B: Token[]): void {
   }
 }
 
-/** New pages with ≥ 20 words of which less than half are matched to the old version. */
-function uncertainPages(doc: DocModel, B: Token[], pairs: Int32Array): { page: number; matched: number }[] {
+/**
+ * New pages with ≥ 20 words of which less than half are matched to the old
+ * version. Words of a moved passage count as matched; punctuation (a
+ * signature rule, dot leaders) does not count.
+ */
+function uncertainPages(doc: DocModel, B: Token[], pairs: Int32Array, moved: DiffOp[]): { page: number; matched: number }[] {
   const total = new Map<number, number>();
   const matched = new Map<number, number>();
-  for (const t of B) total.set(t.page, (total.get(t.page) ?? 0) + 1);
-  for (let p = 1; p < pairs.length; p += 2) {
-    const t = B[pairs[p]];
-    matched.set(t.page, (matched.get(t.page) ?? 0) + 1);
-  }
+  for (const t of B) if (t.kind !== 'punct') total.set(t.page, (total.get(t.page) ?? 0) + 1);
+  const hit = (t: Token) => {
+    if (t.kind !== 'punct') matched.set(t.page, (matched.get(t.page) ?? 0) + 1);
+  };
+  for (let p = 1; p < pairs.length; p += 2) hit(B[pairs[p]]);
+  for (const op of moved) for (let j = op.b0; j < op.b1; j++) hit(B[j]);
   const out: { page: number; matched: number }[] = [];
   for (const pg of doc.pages) {
     const n = total.get(pg.index) ?? 0;
@@ -898,10 +1156,17 @@ function uncertainPages(doc: DocModel, B: Token[], pairs: Int32Array): { page: n
 }
 
 function coverageOf(doc: DocModel): Coverage {
+  const byPage = new Map<number, Token[]>();
+  for (const t of doc.tokens) {
+    if (t.furniture) continue;
+    let list = byPage.get(t.page);
+    if (!list) byPage.set(t.page, (list = []));
+    list.push(t);
+  }
   const textless: number[] = [];
   const unreadable: { page: number; count: number }[] = [];
   for (const pg of doc.pages) {
-    const toks = doc.tokens.filter((t) => t.page === pg.index && !t.furniture);
+    const toks = byPage.get(pg.index) ?? [];
     if (toks.length === 0) textless.push(pg.index);
     // Private-use code points come from glyphs without a proper Unicode mapping.
     let count = pg.unmapped;
@@ -928,47 +1193,67 @@ function caseOnlyDifferences(A: Token[], B: Token[], pairs: Int32Array): number 
 /**
  * Merge insertions (or deletions) that are separated by only a few unchanged
  * tokens across consecutive lines — typically new table cells row after row —
- * so the reviewer sees one change instead of many fragments.
+ * so the reviewer sees one change instead of many fragments. Insertions and
+ * deletions are merged in separate passes, each in its own document's order.
  */
 function mergeNearby(changes: Change[], oldDoc: DocModel, newDoc: DocModel): void {
-  const sideOf = (c: Change) => (c.kind === 'insert' ? c.new : c.old);
-  const docOf = (c: Change) => (c.kind === 'insert' ? newDoc : oldDoc);
-  changes.sort((x, y) => (sideOf(x).start ?? 0) - (sideOf(y).start ?? 0));
-  for (let k = 0; k < changes.length - 1; k++) {
-    const a = changes[k];
-    if (a.kind !== 'insert' && a.kind !== 'delete') continue;
-    let j = k + 1;
-    while (j < changes.length) {
-      const b = changes[j];
-      if (b.kind !== a.kind) break;
+  const absorbed = new Set<Change>();
+  for (const kind of ['insert', 'delete'] as const) {
+    const doc = kind === 'insert' ? newDoc : oldDoc;
+    const sideOf = (c: Change) => (kind === 'insert' ? c.new : c.old);
+    const list = changes.filter((c) => c.kind === kind && sideOf(c).start !== undefined).sort((x, y) => sideOf(x).start! - sideOf(y).start!);
+    for (let k = 0; k < list.length; k++) {
+      const a = list[k];
       const sa = sideOf(a);
-      const sb = sideOf(b);
-      const doc = docOf(a);
-      if (sb.start! < sa.end!) break;
-      // Unchanged words in between (a run of CJK characters counts as one).
-      let gap = 0;
-      for (let t = sa.end!; t < sb.start!; t++) {
-        const tok = doc.tokens[t];
-        if (tok.kind === 'punct' || (tok.kind === 'cjk' && doc.tokens[t - 1]?.kind === 'cjk')) continue;
-        gap++;
+      let j = k + 1;
+      for (; j < list.length; j++) {
+        const b = list[j];
+        const sb = sideOf(b);
+        if (sb.start! < sa.end!) break;
+        // An edit inside a moved passage stays apart from edits around it,
+        // and whole paragraphs (more than a short table row) stay apart.
+        const paragraph = (c: Change) => !!c.wholeParagraphs && c.size > 6;
+        if ((a.inMove === undefined) !== (b.inMove === undefined) || paragraph(a) || paragraph(b)) break;
+        // Unchanged words in between (CJK: about three characters to a word,
+        // so a short row label such as 首席工程师 still counts as a gap of
+        // two words, while a clause of 30 characters keeps edits apart).
+        let words = 0;
+        let cjk = 0;
+        for (let t = sa.end!; t < sb.start! && words + cjk / 3 <= 3; t++) {
+          const tk = doc.tokens[t].kind;
+          if (tk === 'cjk') cjk++;
+          else if (tk !== 'punct') words++;
+        }
+        const lastA = doc.tokens[sa.end! - 1];
+        const firstB = doc.tokens[sb.start!];
+        if (words + cjk / 3 > 3 || firstB.line === lastA.line || firstB.line - lastA.line > 2 || firstB.page !== lastA.page) break;
+        sa.rects.push(...sb.rects);
+        sa.pages = [...new Set([...sa.pages, ...sb.pages])].sort((x, y) => x - y);
+        sa.text += ' … ' + sb.text;
+        sa.end = sb.end;
+        a.size += b.size;
+        a.contextAfter = b.contextAfter;
+        a.wholeParagraphs = undefined;
+        absorbed.add(b);
       }
-      const lastA = doc.tokens[sa.end! - 1];
-      const firstB = doc.tokens[sb.start!];
-      if (gap > 3 || firstB.line === lastA.line || firstB.line - lastA.line > 2 || firstB.page !== lastA.page) break;
-      sa.rects.push(...sb.rects);
-      sa.pages = [...new Set([...sa.pages, ...sb.pages])].sort((x, y) => x - y);
-      sa.text += ' … ' + sb.text;
-      sa.end = sb.end;
-      a.size += b.size;
-      a.contextAfter = b.contextAfter;
-      a.wholeParagraphs = undefined;
-      changes.splice(j, 1);
+      k = j - 1;
     }
+  }
+  if (absorbed.size) {
+    const kept = changes.filter((c) => !absorbed.has(c));
+    changes.splice(0, changes.length, ...kept);
   }
 }
 
 export function sortAndNumber(changes: Change[]): void {
   changes.sort((x, y) => x.order - y.order || (x.category === y.category ? 0 : x.category === 'text' ? -1 : 1));
   changes.forEach((c, k) => (c.id = 'c' + (k + 1)));
+  // Link each edit inside a moved passage to its move (ids change on renumbering).
+  const moves = changes.filter((c) => c.kind === 'move');
+  const inside = (s: Side, m: Side) => s.start !== undefined && m.start !== undefined && m.start <= s.start && s.start < m.end!;
+  for (const c of changes) {
+    if (c.inMove === undefined) continue;
+    const m = moves.find((m) => (c.old.start !== undefined ? inside(c.old, m.old) : inside(c.new, m.new)));
+    c.inMove = m?.id ?? '';
+  }
 }
-

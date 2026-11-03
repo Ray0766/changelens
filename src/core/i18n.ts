@@ -166,6 +166,11 @@ const en = {
   pairCancel: 'Cancel',
   removePair: 'Remove this pair',
   pair: 'Pair pages',
+  movedEditedParagraph: 'Moved and edited a paragraph',
+  movedEditedParagraphs: 'Moved and edited {n} paragraphs',
+  movedEditedText: 'Moved and edited “{text}”',
+  percentPoints: '{n} pp',
+  noticeUnaligned: 'Some passages differ too much to be aligned word by word and are shown as rewritten as a whole — check them in full.',
 };
 
 export type MessageKey = keyof typeof en;
@@ -335,6 +340,11 @@ const zh: Record<MessageKey, string> = {
   pairCancel: '取消',
   removePair: '删除这组配对',
   pair: '配对页面',
+  movedEditedParagraph: '移动并修改了一段',
+  movedEditedParagraphs: '移动并修改了 {n} 段',
+  movedEditedText: '移动并修改了「{text}」',
+  percentPoints: '{n} 个百分点',
+  noticeUnaligned: '部分段落差异过大，无法逐词对齐，按整段改写显示——请完整核对。',
 };
 
 const dicts: Record<Lang, Record<MessageKey, string>> = { en, zh };

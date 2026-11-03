@@ -38,19 +38,42 @@ export function percentChange(from: number | null, to: number | null): string | 
 
 type CountKey = (w: 'addedWords' | 'deletedWords' | 'rewrote') => 'addedWords' | 'deletedWords' | 'rewrote' | 'addedChars' | 'deletedChars' | 'rewroteChars';
 
+const percentUnit = (s: string) => /[%％]$/.test(s.trim());
+
+/** "+2.5", "-0.25": a difference shown with at most two decimals. */
+function signed(d: number): string {
+  const s = (Math.round(Math.abs(d) * 100) / 100).toString();
+  return (d > 0 ? '+' : d < 0 ? '-' : '') + s;
+}
+
+/**
+ * What to add after "a → b": the sign flip, the change in percentage points
+ * for rates, or the relative change. When both values are negative ("(1,200)"
+ * → "(1,500)" or "-1,200" → "-1,500"), the relative change of the amount's
+ * size is shown, the same in both notations.
+ */
+function numberNote(lang: Lang, from: string, to: string, a: number | null, b: number | null): string | null {
+  if (a === null || b === null) return null;
+  // A sign flip is the important fact; a percentage would only confuse.
+  if (a !== 0 && b !== 0 && Math.sign(a) !== Math.sign(b)) return t(lang, 'signChanged');
+  if (percentUnit(from) || percentUnit(to)) {
+    // "12.5% → 15%" is +2.5 percentage points, not +20%.
+    if (!percentUnit(from) || !percentUnit(to) || Math.abs(b - a) < 1e-9) return null;
+    return t(lang, 'percentPoints', { n: signed(b - a) });
+  }
+  if (a < 0 && b < 0) return percentChange(-a, -b);
+  return percentChange(a, b);
+}
+
 function describeReplace(lang: Lang, c: Change, countKey: CountKey): string {
   if (c.numeric) {
-    const { fromValue: a, toValue: b } = c.numeric;
     const base = t(lang, 'numberChanged', { from: c.numeric.from, to: c.numeric.to });
-    // A sign flip is the important fact; a percentage would only confuse.
-    if (a !== null && b !== null && a !== 0 && b !== 0 && Math.sign(a) !== Math.sign(b))
-      return lang === 'zh' ? `${base}（${t(lang, 'signChanged')}）` : `${base} (${t(lang, 'signChanged')})`;
-    // "(3)" → "(4)" are labels or both negative: compare magnitudes.
-    const bothParen = c.numeric.from.startsWith('(') && c.numeric.to.startsWith('(');
-    const pct = bothParen ? percentChange(Math.abs(a ?? 0) || null, Math.abs(b ?? 0) || null) : percentChange(a, b);
-    return pct ? (lang === 'zh' ? `${base}（${pct}）` : `${base} (${pct})`) : base;
+    const note = numberNote(lang, c.numeric.from, c.numeric.to, c.numeric.fromValue, c.numeric.toValue);
+    return note ? (lang === 'zh' ? `${base}（${note}）` : `${base} (${note})`) : base;
   }
-  if (Array.from(c.old.text).length <= 40 && Array.from(c.new.text).length <= 40) return t(lang, 'changedText', { from: c.old.text, to: c.new.text });
+  // Short text, or only punctuation (a rule, dot leaders): quote it.
+  if ((Array.from(c.old.text).length <= 40 && Array.from(c.new.text).length <= 40) || c.size === 0)
+    return t(lang, 'changedText', { from: truncate(c.old.text, 40), to: truncate(c.new.text, 40) });
   return t(lang, countKey('rewrote'), { n: c.size });
 }
 
@@ -65,19 +88,26 @@ export function describeChange(lang: Lang, c: Change): string {
       // Short content is clearer quoted than summarised (e.g. one table row).
       if (Array.from(c.new.text).length <= short) return t(lang, 'addedText', { text: c.new.text });
       if (c.wholeParagraphs) return c.wholeParagraphs === 1 ? t(lang, 'addedParagraph') : t(lang, 'addedParagraphs', { n: c.wholeParagraphs });
+      // Only punctuation (e.g. a signature rule): quote it rather than count 0 words.
+      if (c.size === 0) return t(lang, 'addedText', { text: truncate(c.new.text, short) });
       return t(lang, countKey('addedWords'), { n: c.size });
     case 'delete':
       if (Array.from(c.old.text).length <= short) return t(lang, 'deletedText', { text: c.old.text });
       if (c.wholeParagraphs) return c.wholeParagraphs === 1 ? t(lang, 'deletedParagraph') : t(lang, 'deletedParagraphs', { n: c.wholeParagraphs });
+      if (c.size === 0) return t(lang, 'deletedText', { text: truncate(c.old.text, short) });
       return t(lang, countKey('deletedWords'), { n: c.size });
     case 'replace': {
       if (c.consequence === 'renumber') return t(lang, 'renumbered', { from: c.old.text, to: c.new.text });
       const places = c.places ? (lang === 'zh' ? `（${t(lang, 'inPlaces', { n: c.places })}）` : ` (${t(lang, 'inPlaces', { n: c.places })})`) : '';
       return describeReplace(lang, c, countKey) + places;
     }
-    case 'move':
-      if (c.wholeParagraphs) return c.wholeParagraphs === 1 ? t(lang, 'movedParagraph') : t(lang, 'movedParagraphs', { n: c.wholeParagraphs });
-      return t(lang, 'movedText', { text: truncate(c.new.text, 32) });
+    case 'move': {
+      // Edits inside the moved text are listed as their own changes.
+      const edited = !!c.moveEdits;
+      if (c.wholeParagraphs === 1) return t(lang, edited ? 'movedEditedParagraph' : 'movedParagraph');
+      if (c.wholeParagraphs) return t(lang, edited ? 'movedEditedParagraphs' : 'movedParagraphs', { n: c.wholeParagraphs });
+      return t(lang, edited ? 'movedEditedText' : 'movedText', { text: truncate(c.new.text, 32) });
+    }
     case 'format': {
       const f = c.format ?? {};
       const parts: string[] = [];
@@ -122,7 +152,11 @@ export function kindLabel(lang: Lang, c: Change): string {
   return t(lang, `kind_${c.kind}` as const);
 }
 
-/** Excerpt shown under the description: the changed text with context. */
+/**
+ * Excerpt shown under the description: the changed text with context. For a
+ * move, `old` is the wording before the move; it differs from `new` when the
+ * move has `moveEdits`.
+ */
 export function excerpt(c: Change): { before: string; old: string; new: string; after: string } {
   return {
     before: truncate(c.contextBefore, 40),
@@ -167,6 +201,7 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
       out.push({ level: 'warn', text: t(lang, 'noticeUnreadable', { side: side(s), pages: pageRuns(lang, cov.unreadable.map((u) => u.page)), n: cov.unreadable.reduce((n, u) => n + u.count, 0) }) });
   }
   for (const u of r.coverage?.new.uncertain ?? []) out.push({ level: 'warn', text: t(lang, 'noticeUncertain', { pages: pageRuns(lang, [u.page]), pct: Math.round(u.matched * 100) + '%' }), action: 'pair' });
+  if (r.stats?.unalignedTokens) out.push({ level: 'warn', text: t(lang, 'noticeUnaligned') });
   for (const l of manual) out.push({ level: 'info', text: t(lang, 'noticePaired', { pair: pairLabel(lang, l.oldPage, l.newPage) }) });
   if (r.ignored?.furniture) out.push({ level: 'info', text: t(lang, 'noticeFurniture', { n: r.ignored.furniture }), action: 'furniture' });
   if (r.ignored?.renumbered) out.push({ level: 'info', text: t(lang, 'noticeRenumbered', { n: r.ignored.renumbered }), action: 'minor' });
