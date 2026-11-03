@@ -128,7 +128,9 @@ async function makeCrops(result: CompareResult, pdfs: { old: PDFDocumentProxy; n
       const r = await renderPage(pdfs[side], page, scale);
       for (const { change, region } of list) {
         const entry = (crops[change.id] ??= {});
-        entry[side] = drawCrop(make, r.canvas as unknown as CanvasLike, scale, region, change, side);
+        // A page too large for the pixel budget at this scale: render each crop on its own.
+        const src = r.scale < scale ? (await renderPage(pdfs[side], page, scale, region.rect)).canvas : r.canvas;
+        entry[side] = drawCrop(make, src as unknown as CanvasLike, scale, region, change, side);
         if (region.rect.w > 380) entry.wide = true;
       }
     }

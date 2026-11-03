@@ -56,6 +56,13 @@ export function canvasScale(canvas: object, fallback: number): number {
   return renderedScale.get(canvas) ?? fallback;
 }
 
+/** Page point at the top left of a canvas that holds only part of a page. */
+const renderedOrigin = new WeakMap<object, { x: number; y: number }>();
+
+export function noteCanvasOrigin(canvas: object, x: number, y: number): void {
+  renderedOrigin.set(canvas, { x, y });
+}
+
 /**
  * Regions to show for both sides of a change. Both get the same width so
  * that, displayed side by side at equal size, they share one zoom level.
@@ -129,6 +136,7 @@ export function drawCrop(
   maxHeight = 1400,
 ): string {
   scale = canvasScale(page, scale);
+  const origin = renderedOrigin.get(page) ?? { x: 0, y: 0 };
   const r = region.rect;
   const out = Math.min(1, maxWidth / (r.w * scale), maxHeight / (r.h * scale));
   const w = Math.max(1, Math.round(r.w * scale * out));
@@ -138,7 +146,7 @@ export function drawCrop(
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, w, h);
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(page, r.x * scale, r.y * scale, r.w * scale, r.h * scale, 0, 0, w, h);
+  ctx.drawImage(page, (r.x - origin.x) * scale, (r.y - origin.y) * scale, r.w * scale, r.h * scale, 0, 0, w, h);
   const k = scale * out;
   const color = sideColor(c, side);
   const s = c[side];

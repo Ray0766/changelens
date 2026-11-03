@@ -1,6 +1,7 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type { Rect } from '../core/types.ts';
 import { renderScale, type Raster } from '../core/visual.ts';
-import { noteCanvasScale } from '../core/crops.ts';
+import { noteCanvasOrigin, noteCanvasScale } from '../core/crops.ts';
 
 interface CanvasLike {
   width: number;
@@ -20,21 +21,27 @@ interface FactoryLike {
  * draw the canvas (report crops) do not pay for it. The page's parsed
  * resources are released after rendering; without that, every rendered page
  * stays in memory until the document is closed.
+ *
+ * With `clip` (page points), only that part of the page is rendered, so a
+ * report crop of a very large page keeps the requested scale; drawCrop
+ * finds the part's origin through noteCanvasOrigin.
  */
-export async function renderPage(pdf: PDFDocumentProxy, index: number, scale: number): Promise<Raster & { canvas: CanvasLike }> {
+export async function renderPage(pdf: PDFDocumentProxy, index: number, scale: number, clip?: Rect): Promise<Raster & { canvas: CanvasLike }> {
   const page = await pdf.getPage(index + 1);
   try {
     const unit = page.getViewport({ scale: 1 });
-    const s = renderScale(unit.width, unit.height, scale);
-    const viewport = page.getViewport({ scale: s });
+    const area = clip ?? { x: 0, y: 0, w: unit.width, h: unit.height };
+    const s = renderScale(area.w, area.h, scale);
+    const viewport = page.getViewport({ scale: s, offsetX: -area.x * s, offsetY: -area.y * s });
     const factory = (pdf as unknown as { canvasFactory: FactoryLike }).canvasFactory;
-    const w = Math.ceil(viewport.width);
-    const h = Math.ceil(viewport.height);
+    const w = Math.max(1, Math.ceil(area.w * s));
+    const h = Math.max(1, Math.ceil(area.h * s));
     const { canvas, context } = factory.create(w, h);
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, w, h);
     await page.render({ canvasContext: context, canvas: canvas as unknown as HTMLCanvasElement, viewport }).promise;
     noteCanvasScale(canvas, s);
+    if (clip) noteCanvasOrigin(canvas, clip.x, clip.y);
     let data: Uint8ClampedArray | null = null;
     return {
       width: w,
