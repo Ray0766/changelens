@@ -5,18 +5,18 @@
     "description": "English demo proposal (8 → 9 pages): inserted paragraph shifts all later pages; price, total and date changes; chart bar changed; paragraph moved; paragraph deleted; phrase made bold; phrase turned red; table widened past the page edge.",
     "truth": [
       { "type": "replace", "old": "30 November", "new": "15 December" },
-      { "type": "number", "old": "24,500", "new": "26,000", "newPage": 1 },
+      { "type": "number", "old": "24,500", "new": "26,000", "oldPage": 1, "newPage": 1 },
       { "type": "insert", "new": "Accessibility is a further goal" },
       { "type": "number", "old": "8,000", "new": "9,500" },
       { "type": "number", "old": "24,500", "new": "26,000", "oldPage": 3, "newPage": 4 },
-      { "type": "graphic", "oldPage": 4, "newPage": 5 },
+      { "type": "graphic", "oldPage": 4, "newPage": 5, "oldRect": [262, 222, 156, 32], "newRect": [262, 222, 156, 32], "note": "One bar of the chart longer and recoloured." },
       { "type": "move", "old": "Maya Chen", "new": "Maya Chen" },
       { "type": "delete", "old": "Late payment" },
       { "type": "format", "new": "30 days", "newPage": 7 },
       { "type": "format", "new": "within two hours" },
       { "type": "insert", "new": "Weekend rate" },
-      { "type": "overflow", "newPage": 9 },
-      { "type": "graphic", "oldPage": 8, "newPage": 9 }
+      { "type": "overflow", "newPage": 9, "newRect": [530, 140, 70, 25] },
+      { "type": "graphic", "oldPage": 8, "newPage": 9, "newRect": [155, 135, 445, 155], "note": "The rate table widened by a column." }
     ]
   },
   "demo-zh": {
@@ -25,17 +25,17 @@
     "description": "中文示例报价方案（8 → 9 页），修改内容同英文示例；粗体在该字体下无可见变化，不计入真值。",
     "truth": [
       { "type": "replace", "old": "11 月 30", "new": "12 月 15" },
-      { "type": "number", "old": "24,500", "new": "26,000", "newPage": 1 },
+      { "type": "number", "old": "24,500", "new": "26,000", "oldPage": 1, "newPage": 1 },
       { "type": "insert", "new": "无障碍访问纳入项目范围" },
       { "type": "number", "old": "8,000", "new": "9,500" },
       { "type": "number", "old": "24,500", "new": "26,000", "oldPage": 3, "newPage": 4 },
-      { "type": "graphic", "oldPage": 4, "newPage": 5 },
+      { "type": "graphic", "oldPage": 4, "newPage": 5, "oldRect": [262, 206, 156, 32], "newRect": [262, 206, 156, 32], "note": "One bar of the chart longer and recoloured." },
       { "type": "move", "old": "陈曼", "new": "陈曼" },
       { "type": "delete", "old": "逾期付款" },
       { "type": "format", "new": "两小时内处理" },
       { "type": "insert", "new": "周末费率" },
-      { "type": "overflow", "newPage": 9 },
-      { "type": "graphic", "oldPage": 8, "newPage": 9 }
+      { "type": "overflow", "newPage": 9, "newRect": [545, 138, 55, 130] },
+      { "type": "graphic", "oldPage": 8, "newPage": 9, "newRect": [125, 130, 475, 160], "note": "The rate table widened by a column." }
     ]
   },
   "libreoffice": {
@@ -43,7 +43,7 @@
     "after": "test/fixtures/agreement-after.pdf",
     "description": "LibreOffice-produced pair with justified text: word replaced, paragraph inserted, the fee sentence moved up one paragraph with a changed amount, paragraph deleted.",
     "truth": [
-      { "type": "replace", "old": "contractor", "new": "supplier" },
+      { "type": "replace", "old": "contractor", "new": "supplier", "oldPage": 1, "newPage": 1, "note": "contractor occurs on all four old pages; the edit is on page 1." },
       { "type": "insert", "new": "This clause was added" },
       { "type": "number", "old": "11,900", "new": "12,400" },
       { "type": "move" , "old": "Parties both deliver", "new": "Parties both deliver" },

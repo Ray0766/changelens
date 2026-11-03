@@ -1,7 +1,7 @@
 {
   "description": "合成样例。三页中文价目表：第1页一个单价修改；第2页删除一行停产产品（后续行上移，表头在每页重复）；第3页说明中折扣比例、交货仓库和生效日期修改。",
   "synthetic": true,
-  "holdout": true,
+  "set": "held-out-2",
   "author": "a",
   "truth": [
     {

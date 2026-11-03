@@ -1,5 +1,17 @@
 // Evaluation: ChangeLens vs. two baselines on the synthetic corpus in
-// eval/cases (plus the demo pairs). Run:  node eval/run.ts [--json out.json]
+// eval/cases (plus the pairs listed in eval/extra-cases.json). Run:
+//   node eval/run.ts [--json out.json] [--cases a,b*] [--exclude c*] [--blind] [--verbose]
+//                    [--dir <folder of cases>]   (default eval/cases)
+//
+// Case selection: every case is scored except those marked `"blind": true`
+// in truth.json (a held-out set waiting for its single recorded run; add
+// --blind to include them). --cases / --exclude take comma-separated ids;
+// `*` matches any characters (e.g. --cases 'holdout2-*').
+//
+// Sets (field `set` in truth.json; the extra-cases.json pairs are "extra"):
+//   tuning      cases the engine was tuned on
+//   held-out-1  first held-out round (engine author), since used for fixes
+//   held-out-2  second held-out round (independent authors), since used for fixes
 //
 // Baselines
 //  - text-lines: text extracted per line (headers/footers included, as
@@ -9,98 +21,39 @@
 //    the new file, differing pixels clustered into regions — the approach of
 //    diff-pdf (emulated here; diff-pdf itself is not used).
 //
-// Scoring (per truth item)
-//  - found:   some reported item covers it (ChangeLens: compatible change type
-//             and text; text-lines: hunk text; pixel-pages: any region on the
-//             expected page — a generous rule for that baseline)
-//  - located: found AND the reported page matches the expected page
-//  - extra:   reported items that match no truth item (noise the reviewer must read)
+// Scoring (per truth item; one reported item may cover several truth items)
+//  - found:    some reported item covers it. ChangeLens: the change type
+//              matches (insert/delete/replace/move exactly) and the change
+//              contains the truth text; a truth item without text must be on
+//              its page and overlap its region (oldRect/newRect: [x, y, w, h]
+//              in PDF points, top-left origin; a region given for a text item
+//              must be overlapped too). Text line diff: a hunk
+//              contains the text. Pixel page diff: any region on the expected
+//              page (a generous rule for that baseline).
+//  - located:  found by an item that is on the expected page in both files.
+//  - separate: truth items found as an item of their own (the largest
+//              one-to-one assignment) — the stricter, granularity-aware count.
+//  - extra:    reported items that no truth item explains. A truth item
+//              explains at most `maxItems` items (default 1), so a change
+//              reported in pieces, or twice, counts as noise.
+//  - items:    everything a reviewer has to read.
+// Expected pages are explicit (oldPage/newPage) or the single page whose body
+// text contains the snippet; a snippet on no page or on several is an error.
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseArgs } from 'node:util';
 import { openPdf } from '../src/node/pdf.ts';
 import { renderPage } from '../src/node/render.ts';
 import { extractText } from '../src/pdf/extract.ts';
-import { buildDocModel, joinTokens } from '../src/core/tokenize.ts';
+import { buildDocModel } from '../src/core/tokenize.ts';
 import { compareDocs } from '../src/core/compare.ts';
 import { addVisualChanges } from '../src/core/pipeline.ts';
 import { intern, matchSequences, opsFromMatches } from '../src/core/diff.ts';
-import type { Change, DocModel } from '../src/core/types.ts';
+import type { DocModel } from '../src/core/types.ts';
 import type { Raster } from '../src/core/visual.ts';
-
-interface Truth {
-  type: string;
-  old?: string;
-  new?: string;
-  oldPage?: number | number[];
-  newPage?: number | number[];
-  many?: boolean;
-}
-interface Item {
-  oldText: string;
-  newText: string;
-  oldPages: number[]; // 1-based
-  newPages: number[];
-  change?: Change;
-}
-interface Score {
-  found: number;
-  located: number;
-  total: number;
-  extra: number;
-  items: number;
-  ms: number;
-}
+import { changeItem, changeLensMatch, expectedPages, furnitureDisclosure, score, textMatch, validate, type CaseMeta, type Item, type Score, type Scored, type Truth } from './score.ts';
 
 const root = new URL('.', import.meta.url).pathname;
-const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
-const asList = (p?: number | number[]) => (p === undefined ? [] : Array.isArray(p) ? p : [p]);
-
-function pagesWith(doc: DocModel, snippet: string): number[] {
-  const out: number[] = [];
-  for (const pg of doc.pages) {
-    const text = norm(joinTokens(doc.tokens.filter((t) => t.page === pg.index && !t.furniture)));
-    if (text.includes(norm(snippet))) out.push(pg.index + 1);
-  }
-  return out;
-}
-
-function expectedPages(t: Truth, a: DocModel, b: DocModel) {
-  return {
-    old: t.oldPage !== undefined ? asList(t.oldPage) : t.old ? pagesWith(a, t.old) : [],
-    new: t.newPage !== undefined ? asList(t.newPage) : t.new ? pagesWith(b, t.new) : [],
-  };
-}
-
-// ------------------------------------------------------------- ChangeLens --
-
-function typeOk(t: Truth, c: Change): boolean {
-  switch (t.type) {
-    case 'number':
-      return !!c.numeric;
-    case 'move':
-      return c.kind === 'move';
-    case 'insert':
-    case 'delete':
-    case 'replace':
-      return c.category === 'text';
-    case 'format':
-      return c.kind === 'format' || (c.kind === 'graphic' && !!c.format);
-    case 'graphic':
-      return c.kind === 'graphic';
-    case 'position':
-      return c.kind === 'position';
-    case 'overflow':
-      return c.kind === 'overflow';
-    case 'furniture':
-      return false; // handled separately: disclosed as "ignored"
-  }
-  return false;
-}
-
-function changeItem(c: Change): Item {
-  const pages = (s: Change['old']) => (s.pages.length ? s.pages : s.caret ? [s.caret.page] : []).map((p) => p + 1);
-  return { oldText: c.old.text, newText: c.new.text, oldPages: pages(c.old), newPages: pages(c.new), change: c };
-}
 
 // -------------------------------------------------------------- baselines --
 
@@ -175,34 +128,8 @@ function pixelRegions(ra: Raster | null, rb: Raster | null): number {
   return regions;
 }
 
-// ---------------------------------------------------------------- scoring --
-
-function score(truth: Truth[], items: Item[], a: DocModel, b: DocModel, match: (t: Truth, it: Item) => boolean): Omit<Score, 'ms'> {
-  const used = new Set<number>();
-  let found = 0;
-  let located = 0;
-  for (const t of truth) {
-    const exp = expectedPages(t, a, b);
-    const hits = items.map((it, k) => ({ it, k })).filter(({ it, k }) => (t.many || !used.has(k)) && match(t, it));
-    if (!hits.length) continue;
-    found++;
-    // A side without pages (e.g. the old side of an added graphic) is not checked.
-    const pageOk = (it: Item) =>
-      (exp.new.length === 0 || it.newPages.length === 0 || it.newPages.some((p) => exp.new.includes(p))) &&
-      (exp.old.length === 0 || it.oldPages.length === 0 || it.oldPages.some((p) => exp.old.includes(p))) &&
-      (it.newPages.length > 0 || it.oldPages.length > 0);
-    const best = hits.find(({ it }) => pageOk(it)) ?? hits[0];
-    if (pageOk(best.it)) located++;
-    if (t.many) hits.forEach(({ k }) => used.add(k));
-    else used.add(best.k);
-  }
-  return { found, located, total: truth.length, extra: items.length - used.size, items: items.length };
-}
-
-const textMatch = (t: Truth, it: Item) =>
-  (t.old === undefined || norm(it.oldText).includes(norm(t.old))) && (t.new === undefined || norm(it.newText).includes(norm(t.new))) && (t.old !== undefined || t.new !== undefined);
-
-async function evalCase(before: string, after: string, truth: Truth[]) {
+async function evalCase(id: string, before: string, after: string, truth: Truth[]) {
+  validate(id, truth);
   const pa = await openPdf(before);
   const pb = await openPdf(after);
   const a = buildDocModel(await extractText(pa, 'a'));
@@ -213,31 +140,13 @@ async function evalCase(before: string, after: string, truth: Truth[]) {
   const r = compareDocs(a, b);
   await addVisualChanges(r, (p) => renderPage(pa, p, 1.5), (p) => renderPage(pb, p, 1.5));
   const clMs = performance.now() - t0;
-  // A header/footer truth counts as found (and located) for ChangeLens when it
-  // is reported as a change or disclosed as an ignored header/footer difference.
-  const furnitureTruth = truth.filter((t) => t.type === 'furniture');
-  const clTruth = truth.filter((t) => t.type !== 'furniture');
-  const clRaw = score(clTruth, r.changes.map(changeItem), a, b, (t, it) => {
-    if (!typeOk(t, it.change!)) return false;
-    // Graphic/format truths without text match on type and page only.
-    if (t.old === undefined && t.new === undefined) return true;
-    return textMatch(t, it);
-  });
-  const reportedAsChange = (t: Truth) => r.changes.some((c) => c.category === 'text' && textMatch(t, changeItem(c)));
-  const disclosed = furnitureTruth.filter((t) => reportedAsChange(t) || r.ignored.furniture > 0).length;
-  // A header change reported as a text change is not noise.
-  clRaw.extra -= r.changes.filter((c) => furnitureTruth.some((t) => c.category === 'text' && textMatch(t, changeItem(c)))).length;
-  const cl = { ...clRaw, found: clRaw.found + disclosed, located: clRaw.located + disclosed, total: truth.length };
+  const cl = score(id, truth, r.changes.map(changeItem), a, b, changeLensMatch, furnitureDisclosure(r, a, b));
 
   // Text baseline.
   t0 = performance.now();
   const lines = lineItems(a, b);
   const textMs = performance.now() - t0;
-  const tx = score(truth, lines, a, b, (t, it) => (t.type === 'graphic' || t.type === 'format' ? false : textMatch(t, it)));
-  if (furnitureTruth.length) {
-    // Pages for header truths: every page.
-    for (const t of furnitureTruth) t.newPage ??= b.pages.map((p) => p.index + 1);
-  }
+  const tx = score(id, truth, lines, a, b, (t, it) => (t.type === 'graphic' || t.type === 'format' ? false : textMatch(t, it)));
 
   // Pixel baseline: page N vs page N.
   t0 = performance.now();
@@ -250,51 +159,107 @@ async function evalCase(before: string, after: string, truth: Truth[]) {
     for (let k = 0; k < count; k++) regionItems.push({ oldText: '', newText: '', oldPages: ra ? [p + 1] : [], newPages: rb ? [p + 1] : [] });
   }
   const pxMs = performance.now() - t0;
-  const px = score(truth, regionItems, a, b, (t, it) => {
-    const exp = expectedPages(t, a, b);
+  const expOf = new Map(truth.map((t) => [t, expectedPages(id, t, a, b)]));
+  const px = score(id, truth, regionItems, a, b, (t, it) => {
+    const exp = expOf.get(t)!;
     return it.newPages.some((p) => exp.new.includes(p)) || it.oldPages.some((p) => exp.old.includes(p));
   });
 
+  const strip = ({ misses: _, ...s }: Scored) => s;
   return {
-    changelens: { ...cl, ms: clMs },
-    textLines: { ...tx, ms: textMs },
-    pixelPages: { ...px, ms: pxMs },
+    changelens: { ...strip(cl), ms: clMs },
+    textLines: { ...strip(tx), ms: textMs },
+    pixelPages: { ...strip(px), ms: pxMs },
+    /** ChangeLens truth items that are not found, not located or not separate. */
+    misses: cl.misses,
     pages: `${a.pages.length}→${b.pages.length}`,
     reported: r.changes.map((c) => ({ kind: c.kind, numeric: !!c.numeric, old: c.old.text.slice(0, 60), new: c.new.text.slice(0, 60) })),
   };
 }
 
-type Result = Awaited<ReturnType<typeof evalCase>> & { description: string; holdout?: boolean };
-const results: Record<string, Result> = {};
-for (const id of readdirSync(join(root, 'cases')).sort()) {
-  const dir = join(root, 'cases', id);
-  const meta = JSON.parse(readFileSync(join(dir, 'truth.json'), 'utf8'));
-  results[(meta.holdout ? '' : '') + id] = { description: meta.description, holdout: !!meta.holdout, ...(await evalCase(join(dir, 'before.pdf'), join(dir, 'after.pdf'), meta.truth)) };
+// ------------------------------------------------------------------- main --
+
+const { values: args } = parseArgs({
+  options: {
+    json: { type: 'string' },
+    dir: { type: 'string' },
+    cases: { type: 'string' },
+    exclude: { type: 'string' },
+    blind: { type: 'boolean' },
+    verbose: { type: 'boolean' },
+  },
+});
+const patterns = (s?: string) => (s ? s.split(',').map((p) => new RegExp('^' + p.trim().replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$')) : null);
+const only = patterns(args.cases);
+const skip = patterns(args.exclude);
+const selected = (id: string) => (!only || only.some((re) => re.test(id))) && !skip?.some((re) => re.test(id));
+
+const SETS: Record<string, string> = {
+  tuning: 'Tuning set',
+  'held-out-1': 'Held-out round 1 (since used for fixes)',
+  'held-out-2': 'Held-out round 2 (since used for fixes)',
+  extra: 'Extra pairs (demos, LibreOffice)',
+};
+const pairs: { id: string; before: string; after: string; meta: CaseMeta }[] = [];
+const casesDir = args.dir ?? join(root, 'cases');
+for (const id of readdirSync(casesDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort()) {
+  const dir = join(casesDir, id);
+  pairs.push({ id, before: join(dir, 'before.pdf'), after: join(dir, 'after.pdf'), meta: JSON.parse(readFileSync(join(dir, 'truth.json'), 'utf8')) });
 }
 // Further pairs (demo files, LibreOffice fixture) listed with their paths.
-const extra = JSON.parse(readFileSync(join(root, 'extra-cases.json'), 'utf8')) as Record<string, { before: string; after: string; description: string; truth: Truth[] }>;
-for (const [id, meta] of Object.entries(extra)) {
-  results[id] = { description: meta.description, ...(await evalCase(join(root, '..', meta.before), join(root, '..', meta.after), meta.truth)) };
+const extraCases = JSON.parse(readFileSync(join(root, 'extra-cases.json'), 'utf8')) as Record<string, CaseMeta & { before: string; after: string }>;
+for (const [id, meta] of Object.entries(extraCases)) pairs.push({ id, before: join(root, '..', meta.before), after: join(root, '..', meta.after), meta: { set: 'extra', ...meta } });
+
+type Result = Awaited<ReturnType<typeof evalCase>> & { description: string; set: string };
+const results: Record<string, Result> = {};
+let blindSkipped = 0;
+for (const { id, before, after, meta } of pairs) {
+  if (!selected(id)) continue;
+  if (meta.blind && !args.blind) {
+    blindSkipped++;
+    continue;
+  }
+  const set = meta.set ?? 'tuning';
+  if (!SETS[set]) throw new Error(`${id}: unknown set "${set}"`);
+  results[id] = { description: meta.description, set, ...(await evalCase(id, before, after, meta.truth)) };
 }
 
 const tools = ['changelens', 'textLines', 'pixelPages'] as const;
-const label = { changelens: 'ChangeLens', textLines: 'Text line diff', pixelPages: 'Pixel page diff' };
-let out = '| Case | Pages | Truth | ' + tools.map((t) => `${label[t]} found / located / extra`).join(' | ') + ' |\n';
-out += '|---|---|---|' + tools.map(() => '---').join('|') + '|\n';
-const totals = Object.fromEntries(tools.map((t) => [t, { found: 0, located: 0, total: 0, extra: 0, items: 0, ms: 0 }])) as Record<(typeof tools)[number], Score>;
+type Tool = (typeof tools)[number];
+const toolLabel = { changelens: 'ChangeLens', textLines: 'Text line diff', pixelPages: 'Pixel page diff' };
+const unit = { changelens: 'items', textLines: 'hunks', pixelPages: 'regions' };
+const zero = (): Score => ({ found: 0, located: 0, separate: 0, total: 0, extra: 0, items: 0, ms: 0 });
+const perTool = () => Object.fromEntries(tools.map((t) => [t, zero()])) as Record<Tool, Score>;
+const add = (into: Score, s: Score) => {
+  for (const k of Object.keys(into) as (keyof Score)[]) into[k] += s[k];
+};
+const cell = (s: Score) => `${s.found} / ${s.located} / ${s.extra} (${s.separate})`;
+const columns = tools.map((t) => `${toolLabel[t]} found / located / extra (separate)`).join(' | ');
+let out = `| Case | Set | Pages | Truth | ${columns} |\n|---|---|---|---|${tools.map(() => '---').join('|')}|\n`;
+const totals = perTool();
+const bySet: Record<string, Record<Tool, Score>> = {};
 for (const [id, r] of Object.entries(results)) {
-  out += `| ${id} | ${r.pages} | ${r.changelens.total} | ` + tools.map((t) => `${r[t].found} / ${r[t].located} / ${r[t].extra}`).join(' | ') + ' |\n';
-  for (const t of tools) for (const k of ['found', 'located', 'total', 'extra', 'items', 'ms'] as const) totals[t][k] += r[t][k];
+  out += `| ${id} | ${r.set} | ${r.pages} | ${r.changelens.total} | ${tools.map((t) => cell(r[t])).join(' | ')} |\n`;
+  bySet[r.set] ??= perTool();
+  for (const t of tools) {
+    add(totals[t], r[t]);
+    add(bySet[r.set][t], r[t]);
+  }
 }
-out += `| **Total** | | ${totals.changelens.total} | ` + tools.map((t) => `**${totals[t].found} / ${totals[t].located} / ${totals[t].extra}**`).join(' | ') + ' |\n';
-const hold = Object.values(results).filter((r) => r.holdout);
-if (hold.length) {
-  out += `| *Held-out subtotal* | | ${hold.reduce((n, r) => n + r.changelens.total, 0)} | ` + tools.map((t) => `*${hold.reduce((n, r) => n + r[t].found, 0)} / ${hold.reduce((n, r) => n + r[t].located, 0)} / ${hold.reduce((n, r) => n + r[t].extra, 0)}*`).join(' | ') + ' |\n';
-}
+out += `| **Total** | | | ${totals.changelens.total} | ${tools.map((t) => `**${cell(totals[t])}**`).join(' | ')} |\n`;
 console.log(out);
-console.log('Items a reviewer has to read (all cases): ' + tools.map((t) => `${label[t]} ${totals[t].items}`).join(', '));
-console.log('Time (all cases, ms): ' + tools.map((t) => `${label[t]} ${totals[t].ms.toFixed(0)}`).join(', '));
-const jsonArg = process.argv.indexOf('--json');
-if (jsonArg > 0) writeFileSync(process.argv[jsonArg + 1], JSON.stringify({ results, totals }, null, 2));
-if (process.argv.includes('--verbose'))
-  for (const [id, r] of Object.entries(results)) console.log(id, JSON.stringify(r.reported));
+let summary = `| Set | Cases | Truth | ${columns} |\n|---|---|---|${tools.map(() => '---').join('|')}|\n`;
+for (const set of Object.keys(SETS).filter((s) => bySet[s])) {
+  const count = Object.values(results).filter((r) => r.set === set).length;
+  summary += `| ${SETS[set]} | ${count} | ${bySet[set].changelens.total} | ${tools.map((t) => cell(bySet[set][t])).join(' | ')} |\n`;
+}
+summary += `| **All selected** | ${Object.keys(results).length} | ${totals.changelens.total} | ${tools.map((t) => `**${cell(totals[t])}**`).join(' | ')} |\n`;
+console.log(summary);
+console.log('(separate) = truth items found as an item of their own (one-to-one).');
+console.log('To read: ' + tools.map((t) => `${toolLabel[t]} ${totals[t].extra} extra ${unit[t]} (${totals[t].items} in total)`).join('; '));
+console.log('Time (ms): ' + tools.map((t) => `${toolLabel[t]} ${totals[t].ms.toFixed(0)}`).join(', '));
+if (blindSkipped) console.log(`${blindSkipped} blind case(s) not scored; add --blind for their single recorded run.`);
+const misses = Object.entries(results).flatMap(([id, r]) => r.misses.map((m) => `${id} #${m.truth} ${m.text}: ${m.why}`));
+if (misses.length) console.log('ChangeLens misses:\n  ' + misses.join('\n  '));
+if (args.json) writeFileSync(args.json, JSON.stringify({ results, totals, sets: bySet, blindSkipped }, null, 2));
+if (args.verbose) for (const [id, r] of Object.entries(results)) console.log(id, JSON.stringify(r.reported));

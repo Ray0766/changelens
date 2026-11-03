@@ -1,7 +1,7 @@
 {
   "description": "A new page is inserted after page 2; every later page moves down by one.",
   "synthetic": true,
-  "holdout": false,
+  "set": "tuning",
   "truth": [
     {
       "type": "insert",

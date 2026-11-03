@@ -1,7 +1,7 @@
 {
   "description": "Amounts, a minus sign added and one removed, a percentage, a date, a unit, a currency and a single digit in 6.5 pt text.",
   "synthetic": true,
-  "holdout": false,
+  "set": "tuning",
   "truth": [
     {
       "type": "number",

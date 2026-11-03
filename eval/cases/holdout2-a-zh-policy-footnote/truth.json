@@ -1,7 +1,7 @@
 {
   "description": "合成样例。两页中文差旅报销办法：第1页长段落中间删除一句、住宿限额表中一个数字修改、7 pt 脚注中一位数字修改；第2页报销系统名称和施行日期修改。",
   "synthetic": true,
-  "holdout": true,
+  "set": "held-out-2",
   "author": "a",
   "truth": [
     {

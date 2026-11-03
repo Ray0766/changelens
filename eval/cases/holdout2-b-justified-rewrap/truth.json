@@ -1,7 +1,7 @@
 {
   "description": "Synthetic. Two-page letter in justified serif text. One word inserted at the start of a long justified paragraph re-wraps all its lines; one sentence changes only its text colour to red; on page 2 a word is replaced and a sentence deleted in a justified paragraph.",
   "synthetic": true,
-  "holdout": true,
+  "set": "held-out-2",
   "author": "b",
   "truth": [
     {
@@ -12,7 +12,10 @@
     {
       "type": "graphic",
       "oldPage": 1,
-      "newPage": 1
+      "newPage": 1,
+      "oldRect": [98, 426, 244, 20],
+      "newRect": [98, 426, 244, 20],
+      "note": "The sentence \"Claims received after 15 May 2027 …\" turned red (found by the graphics comparison)."
     },
     {
       "type": "replace",

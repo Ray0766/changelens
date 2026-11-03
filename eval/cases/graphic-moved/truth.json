@@ -1,7 +1,7 @@
 {
   "description": "An approval stamp (frame plus the word APPROVED) moves from the left to the right; nothing else changes.",
   "synthetic": true,
-  "holdout": false,
+  "set": "tuning",
   "truth": [
     {
       "type": "position",

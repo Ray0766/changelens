@@ -3,18 +3,31 @@
 // and truth.json (the edits that were made on purpose). All documents are
 // synthetic. Requires Playwright's Chromium:  npx playwright install chromium
 //
-// truth.json items:
-//   { type: 'number'|'replace'|'insert'|'delete'|'move'|'format'|'graphic'|'overflow',
-//     old?: string, new?: string,          // text that must appear in the reported change
+//   node eval/make-cases.mjs                      all cases
+//   node eval/make-cases.mjs --only a,b           only these cases (other PDFs stay as they are;
+//                                                 Chromium stamps a creation date, so a rewrite
+//                                                 changes the bytes even when the content does not)
+//   node eval/make-cases.mjs --out <dir>          write into <dir> instead of eval/cases
+//   node eval/make-cases.mjs --perf-pair <dir>    the 24-page pair for eval/perf.ts
+//
+// truth.json items (checked by eval/run.ts):
+//   { type: 'number'|'replace'|'insert'|'delete'|'move'|'format'|'graphic'|'position'|'overflow'|'furniture',
+//     old?: string, new?: string,          // text that must appear in the reported change (never '')
 //     oldPage?: number|number[], newPage?: number|number[],   // 1-based; derived from the text if omitted
-//     many?: true }                         // one truth item that may be reported as several changes
+//                                          // (only when the text is on exactly one page)
+//     oldRect?: [x, y, w, h], newRect?: [x, y, w, h],         // region in PDF points (top-left origin);
+//                                          // required for items without text
+//     maxItems?: number,                   // reported items this truth may explain (default 1)
+//     note?: string }
 import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 
+const { values: args } = parseArgs({ options: { only: { type: 'string' }, out: { type: 'string' }, 'perf-pair': { type: 'string' } } });
 const { chromium } = await import('playwright').catch(() => createRequire(import.meta.url)('playwright'));
-const root = join(dirname(fileURLToPath(import.meta.url)), 'cases');
+const root = args.out ?? join(dirname(fileURLToPath(import.meta.url)), 'cases');
 
 const EN = [
   'This agreement covers the maintenance of heating, ventilation and air-conditioning equipment in the three buildings listed in Schedule A. The contractor will keep a written log of every visit and share it with the facilities manager within two working days.',
@@ -120,30 +133,37 @@ const add = (id, description, before, after, truth, pdfOpts = {}) => cases.push(
 }
 
 // 6. A paragraph moved across pages, plus small edits elsewhere.
-{
-  const before = [...EN];
-  // Edit by original position first, then move paragraph 2 near the end.
+const movedAfter = (at) => {
+  // Edit by original position first, then move paragraph 2 to position `at`.
   const after = [...EN];
   after[4] = after[4].replace('on the same day', 'within one hour');
   after[10] = after[10].replace(' Certificates are renewed every year and a copy is sent to the facilities manager without being asked.', '');
   const moved = after.splice(1, 1)[0];
-  after.splice(9, 0, moved);
-  const big = { size: '13.5pt' };
-  add('move-and-edits', 'Paragraph 2 moved from page 1 to page 2, one phrase changed, one sentence deleted.',
-    html(`<h1>Maintenance Agreement</h1>${before.map(P).join('')}`, big), html(`<h1>Maintenance Agreement</h1>${after.map(P).join('')}`, big),
-    [
-      { type: 'move', old: 'Routine inspections', new: 'Routine inspections' },
-      { type: 'replace', old: 'on the same day', new: 'within one hour' },
-      { type: 'delete', old: 'Certificates are renewed every year' },
-    ]);
+  after.splice(at, 0, moved);
+  return html(`<h1>Maintenance Agreement</h1>${after.map(P).join('')}`, { size: '13.5pt' });
+};
+const moveTruth = [
+  { type: 'move', old: 'Routine inspections', new: 'Routine inspections', oldPage: 1, newPage: 2 },
+  { type: 'replace', old: 'on the same day', new: 'within one hour' },
+  { type: 'delete', old: 'Certificates are renewed every year' },
+];
+{
+  // To the end of the document: wholly on page 2, while page 1 still pairs with page 1.
+  add('move-and-edits', 'Paragraph 2 moved from page 1 to the end of page 2 (wholly onto the other page), one phrase changed, one sentence deleted.',
+    html(`<h1>Maintenance Agreement</h1>${EN.map(P).join('')}`, { size: '13.5pt' }), movedAfter(11), moveTruth);
+  // Right after the paragraph that lost its last sentence: the deletion and the
+  // moved paragraph are adjacent.
+  add('move-beside-deletion', 'As move-and-edits, but the paragraph lands directly after the sentence that was deleted (top of page 2).',
+    html(`<h1>Maintenance Agreement</h1>${EN.map(P).join('')}`, { size: '13.5pt' }), movedAfter(10), moveTruth);
 }
 
 // 7. Font substitution: same text, different typeface (re-flows everything).
 {
   const body = `<h1>Maintenance Agreement</h1>${EN.slice(0, 8).map(P).join('')}`;
+  const bodyArea = [56, 55, 490, 520];
   add('font-swap', 'Same text, body font changed from a serif to a sans-serif face (causing re-flow).',
     html(body), html(body, { font: "'Liberation Sans', sans-serif" }),
-    [{ type: 'format', many: true, oldPage: 1, newPage: 1 }]);
+    [{ type: 'format', oldPage: 1, newPage: 1, oldRect: bodyArea, newRect: bodyArea, maxItems: 1, note: 'The same font change on every line: expected as one aggregated item.' }]);
 }
 
 // 8. A graphic moved on the page; text unchanged.
@@ -156,11 +176,22 @@ const add = (id, description, before, after, truth, pdfOpts = {}) => cases.push(
 
 // 8b. Small graphics: a checkbox gets ticked and a thin rule is added — the
 // noise tolerance must not hide changes this small.
+const box = (ticked) => `<svg width="14" height="14" style="vertical-align:-2px"><rect x="1" y="1" width="12" height="12" fill="none" stroke="#333" stroke-width="1"/>${ticked ? '<path d="M3 7 l3 3 l5 -6" fill="none" stroke="#333" stroke-width="1.5"/>' : ''}</svg>`;
+const checklist = (v) => html(`<h1>Inspection checklist</h1>${P(EN[1])}<p>${box(v.filters)} Filters replaced</p><p>${box(v.belts)} Belts adjusted</p>${v.rule ? '<div style="border-top:0.75pt solid #333;margin:6pt 0 10pt"></div>' : '<div style="margin:6pt 0 10pt;height:0.75pt"></div>'}${P(EN[4])}`);
 {
-  const box = (ticked) => `<svg width="14" height="14" style="vertical-align:-2px"><rect x="1" y="1" width="12" height="12" fill="none" stroke="#333" stroke-width="1"/>${ticked ? '<path d="M3 7 l3 3 l5 -6" fill="none" stroke="#333" stroke-width="1.5"/>' : ''}</svg>`;
-  const doc = (v) => html(`<h1>Inspection checklist</h1>${P(EN[1])}<p>${box(v)} Filters replaced</p><p>${box(false)} Belts adjusted</p>${v ? '<div style="border-top:0.75pt solid #333;margin:6pt 0 10pt"></div>' : '<div style="margin:6pt 0 10pt;height:0.75pt"></div>'}${P(EN[4])}`);
-  add('small-graphics', 'A 9 pt checkbox gets a tick, and a thin 0.75 pt rule is added — both must be found despite the noise tolerance.', doc(false), doc(true),
-    [{ type: 'graphic', new: undefined, newPage: 1, oldPage: 1 }, { type: 'graphic', newPage: 1, oldPage: 1 }]);
+  add('small-graphics', 'A 9 pt checkbox gets a tick, and a thin 0.75 pt rule is added — both must be found despite the noise tolerance.',
+    checklist({}), checklist({ filters: true, rule: true }),
+    [
+      { type: 'graphic', oldPage: 1, newPage: 1, newRect: [54, 160, 16, 16], note: 'Tick in the "Filters replaced" checkbox.' },
+      { type: 'graphic', oldPage: 1, newPage: 1, newRect: [56, 205, 484, 8], note: 'The added 0.75 pt rule.' },
+    ]);
+}
+
+// 8c. Only the second checkbox gets a tick (one line below the first).
+{
+  add('small-graphics-second-box', 'Only the second of two 9 pt checkboxes ("Belts adjusted") gets a tick; nothing else changes.',
+    checklist({}), checklist({ belts: true }),
+    [{ type: 'graphic', oldPage: 1, newPage: 1, newRect: [54, 184, 16, 18], note: 'Tick in the "Belts adjusted" checkbox.' }]);
 }
 
 // 9. Chinese with English terms and numbers.
@@ -179,7 +210,8 @@ const add = (id, description, before, after, truth, pdfOpts = {}) => cases.push(
 
 // ---------------------------------------------------------------- held-out
 // Written after the engine was tuned on the cases above and evaluated once
-// without further tuning (see docs/EVALUATION.md). Marked "holdout" in truth.json.
+// without further tuning (see docs/EVALUATION.md); used for fixes since.
+// Marked "set": "held-out-1" in truth.json.
 const holdout = new Set();
 
 // H1. A long table across pages: a row inserted near the top pushes rows onto
@@ -217,10 +249,10 @@ const holdout = new Set();
     doc({ date: '2026年11月3日', freq: '每两个月一次', tel: '010-6655-1234', extra: false }),
     doc({ date: '2026年11月30日', freq: '每月一次', tel: '010-6655-4321', extra: true }),
     [
-      { type: 'replace', old: '3', new: '30' },
-      { type: 'replace', old: '两个', new: '' },
-      { type: 'replace', old: '1234', new: '4321' },
-      { type: 'insert', new: '如需加急服务' },
+      { type: 'replace', old: '3', new: '30', oldPage: 1, newPage: 1 },
+      { type: 'delete', old: '两个', oldPage: 1, note: '每两个月一次 → 每月一次 removes 两个 (labelled replace with an empty new side before).' },
+      { type: 'replace', old: '6655-1234', new: '6655-4321', oldPage: 1, newPage: 1 },
+      { type: 'insert', new: '如需加急服务', newPage: 1 },
     ]);
   holdout.add('holdout-zh-letter');
 }
@@ -236,9 +268,44 @@ const holdout = new Set();
   holdout.add('holdout-header-change');
 }
 
+// --------------------------------------------------- performance pair (24 pages)
+// For eval/perf.ts: 24 A4 pages of running text with a table on every fourth
+// page; the new version changes the fee on every second page, adds a sentence
+// in sections 5 and 17 and deletes one in section 11.
+function perfPair() {
+  const page = (p, v) => {
+    const paras = Array.from({ length: 5 }, (_, k) => EN[(p * 5 + k) % EN.length]);
+    if (v === 'after' && (p === 4 || p === 16)) paras[2] += ' This sentence was added in the revised version and moves the following lines down.';
+    if (v === 'after' && p === 10) paras[1] = paras[1].replace(/^[^.]*\. /, '');
+    const amount = (1200 + p * 35).toLocaleString('en-US');
+    const changed = v === 'after' ? (1250 + p * 35).toLocaleString('en-US') : amount;
+    const table = p % 4 === 0 ? `<table><tr><th>Item</th><th>Amount (USD)</th></tr>${['Inspections', 'Parts', 'Call-outs', 'Reports'].map((x, i) => `<tr><td>${x} ${p + 1}.${i + 1}</td><td class="n">${(800 + p * 10 + i).toLocaleString('en-US')}</td></tr>`).join('')}</table>` : '';
+    return `<div class="${p ? 'page' : ''}"><h2>Section ${p + 1}</h2>${paras.slice(0, 3).map(P).join('')}<p>The fee for this section is USD ${p % 2 ? changed : amount} per year.</p>${table}${paras.slice(3).map(P).join('')}</div>`;
+  };
+  const doc = (v) => html(Array.from({ length: 24 }, (_, p) => page(p, v)).join(''));
+  return { before: doc('before'), after: doc('after') };
+}
+
 const browser = await chromium.launch();
 const page = await browser.newPage();
+if (args['perf-pair']) {
+  mkdirSync(args['perf-pair'], { recursive: true });
+  const pair = perfPair();
+  for (const v of ['before', 'after']) {
+    await page.setContent(pair[v], { waitUntil: 'load' });
+    writeFileSync(join(args['perf-pair'], `${v}.pdf`), await page.pdf({ format: 'A4', printBackground: true, margin: { top: '20mm', bottom: '20mm', left: '0', right: '0' } }));
+  }
+  console.log('wrote', join(args['perf-pair'], 'before.pdf'), 'and after.pdf');
+  await browser.close();
+  process.exit(0);
+}
+const only = args.only?.split(',').map((s) => s.trim());
+const unknown = only?.filter((id) => !cases.some((c) => c.id === id)) ?? [];
+if (unknown.length) throw new Error(`unknown case(s): ${unknown.join(', ')}`);
+// Short numeric arrays (pages, regions) on one line.
+const compact = (s) => s.replace(/\[\s*(-?[\d.]+(?:,\s*-?[\d.]+)*)\s*\]/g, (_, body) => `[${body.split(/,\s*/).join(', ')}]`);
 for (const c of cases) {
+  if (only && !only.includes(c.id)) continue;
   const dir = join(root, c.id);
   mkdirSync(dir, { recursive: true });
   for (const v of ['before', 'after']) {
@@ -256,7 +323,7 @@ for (const c of cases) {
     });
     writeFileSync(join(dir, `${v}.pdf`), pdf);
   }
-  writeFileSync(join(dir, 'truth.json'), JSON.stringify({ description: c.description, synthetic: true, holdout: holdout.has(c.id), truth: c.truth }, null, 2) + '\n');
+  writeFileSync(join(dir, 'truth.json'), compact(JSON.stringify({ description: c.description, synthetic: true, set: holdout.has(c.id) ? 'held-out-1' : 'tuning', truth: c.truth }, null, 2)) + '\n');
   console.log('wrote', c.id);
 }
 await browser.close();

@@ -1,12 +1,14 @@
 {
-  "description": "Paragraph 2 moved from page 1 to page 2, one phrase changed, one sentence deleted.",
+  "description": "Paragraph 2 moved from page 1 to the end of page 2 (wholly onto the other page), one phrase changed, one sentence deleted.",
   "synthetic": true,
-  "holdout": false,
+  "set": "tuning",
   "truth": [
     {
       "type": "move",
       "old": "Routine inspections",
-      "new": "Routine inspections"
+      "new": "Routine inspections",
+      "oldPage": 1,
+      "newPage": 2
     },
     {
       "type": "replace",

@@ -1,7 +1,7 @@
 {
   "description": "Held-out. Asset register spanning pages: row inserted near the top, one amount changed further down, accounting negative \"(1,200)\" becomes positive.",
   "synthetic": true,
-  "holdout": true,
+  "set": "held-out-1",
   "truth": [
     {
       "type": "insert",

@@ -1,6 +1,6 @@
 {
   "description": "Identical documents (no change).",
   "synthetic": true,
-  "holdout": false,
+  "set": "tuning",
   "truth": []
 }
