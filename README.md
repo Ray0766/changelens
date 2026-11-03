@@ -166,6 +166,7 @@ This first version focuses on **text-based PDFs**. It has been tested with PDFs 
 - **Word boxes** are estimated from the width of each text run, so highlights may be off by a few points with unusual fonts.
 - **Fonts without a bold face.** When a font has no bold variant, PDF generators fake bold by stroking the glyphs. The visual check catches this only if the weight change is strong enough.
 - **Small shifts.** Lines or graphics that move by 4 pt or less are listed only after **Show**.
+- **Sub- and superscript.** A change only of script form ("CO2" → "CO₂", a raised "rd") is not reported.
 - **Pages without text** (a chart, a scanned page) are paired automatically only from the pages around them. When that is not possible, ChangeLens says so, and you can pair the pages by hand: **Pair pages** in the page map, or `--pair OLD:NEW` in the CLI.
 - **Speed.** On a 4-core Xeon VM (2.1 GHz), 8 → 9 pages take about 0.6 s for text and 5.5 s with the visual check; 24 pages take 0.8 s and about 12 s (see [EVALUATION.md](docs/EVALUATION.md#performance)). The visual stage can be switched off with `--no-visual` or in Settings.
 - **Very large pages.** Pages are rendered within a pixel budget. Pages larger than about 2A0 are not compared visually, and a notice names them.
