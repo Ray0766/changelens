@@ -2,6 +2,14 @@
 
 Short running notes for whoever continues (people or agents). Newest first.
 
+## 2026-11-03 (round 3)
+
+- **Blind held-out round 2**: twelve cases by two independent authors (`eval/make-holdout2-{a,b}.mjs`). The first run with the unchanged engine scored 49 / 53 found and 9 extra, and is kept verbatim in `eval/results-holdout2-blind.*`. Four causes were found and fixed: signs before currency symbols, units on numbers, list renumbering (now hidden but counted), and repeated replacements (now merged).
+- **Manual page pairing**: page map and form in the web app, `--pair` in the CLI, listed in the report. See DECISIONS D6.
+- **Page map**: squares are now clickable over their whole area.
+- **Multi-agent code review**: findings verified by reproduction and fixed; see the commit log and the PR description.
+- **Next**: a third set of held-out cases; pairing text-less pages automatically by image similarity; a full WCAG 2.2 audit; testing other PDF producers; PDF.js 6.5.x.
+
 ## 2026-11-03
 
 **State**: v0.1 complete: web app, CLI, report, evaluation. Work is on branch `feat/changelens-v0.1`, in PR #1 (draft).
@@ -26,7 +34,6 @@ Short running notes for whoever continues (people or agents). Newest first.
 
 **Open / next**:
 - New held-out cases. The current ones were used for fixes and are no longer blind.
-- Manual re-pairing of pages when pairing is uncertain (the brief's acceptance item). Today these pages are only flagged.
 - Producers not yet tested: Word, InDesign, LaTeX. Damaged, password-protected and image-only files give a plain message (checked with the CLI); rotated pages and very large files (> 100 pages) are untested.
 - A full WCAG 2.2 audit (keyboard and reduced motion are done; screen reader and contrast are not measured).
 - Upgrade PDF.js to 6.5.x after testing (canvas drawing moved to a worker).

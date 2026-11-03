@@ -51,7 +51,8 @@ ChangeLens is built for the person who has to **review** the changes: a lawyer c
 | Formatting and position | Bold, italic, size and font changes of unchanged text (one entry when a font is replaced everywhere); unchanged lines that moved sideways |
 | Graphics and colour | Pixel comparison of charts, images, lines and text colour, with text masked out and each region aligned to where its text moved |
 | Overflow | Text cut off at the page edge, or sticking out into the margin |
-| Nothing hidden silently | Counts of ignored header/footer differences and minor shifts (with **Show**), pages without a text layer, unreadable glyphs, pages that are mostly new |
+| Nothing hidden silently | Counts of ignored header/footer differences, minor shifts and renumbered list items (with **Show**), pages without a text layer, unreadable glyphs, pages that are mostly new |
+| Manual page pairing | Pair an old page with a new page by hand (page map or keyboard form) when automatic pairing is not possible, e.g. a chart page after an inserted page |
 | Review | Mark each change as OK or needing attention and add notes; progress is saved locally |
 | Export | HTML report (crops, review notes, file SHA-256, method and settings) and JSON |
 | Languages | English and 简体中文 UI and reports; CJK text is compared character by character |
@@ -102,6 +103,7 @@ contract-v1.pdf (8) → contract-v2.pdf (9)
 | `--no-format` | Don't report bold/size/font changes |
 | `--include-furniture` | Also compare headers, footers and page numbers |
 | `--ignore-case`, `--ignore-punctuation` | Looser text comparison |
+| `--pair OLD:NEW` | Treat old page OLD and new page NEW as the same page (repeatable), e.g. for pages without text |
 | `--fail-on-change` | Exit with code 1 if anything changed (useful in CI) |
 
 The CLI needs Node.js 22.13 or newer. Page images for the report are rendered with [`@napi-rs/canvas`](https://github.com/Brooooooklyn/canvas), which is installed automatically as an optional dependency. Without it the CLI still compares text, but skips the graphics comparison and the report images.
@@ -145,7 +147,7 @@ This first version focuses on **text-based PDFs**. It has been tested with PDFs 
 - **Word boxes** are estimated from the width of each text run, so highlights may be off by a few points with unusual fonts.
 - **Fonts without a bold face.** When a font has no bold variant, PDF generators fake bold by stroking the glyphs. The visual check catches this only if the weight change is strong enough.
 - **Small shifts.** Lines or graphics that move by 4 pt or less are listed only after **Show**.
-- **Page pairing cannot be corrected by hand yet.** Pages whose text is mostly new are flagged ("check in full") instead.
+- **Pages without text** (a chart, a scanned page) are paired automatically only from the pages around them. When that is not possible, ChangeLens says so, and you can pair the pages by hand: **Pair pages** in the page map, or `--pair OLD:NEW` in the CLI.
 - **Speed.** On a 4-core Xeon VM (2.1 GHz), 8 → 9 pages take 0.5 s for text and about 3 s with the visual check; 24 pages take 1.4 s and about 10 s (see [EVALUATION.md](docs/EVALUATION.md#performance)). The visual stage can be switched off with `--no-visual` or in Settings.
 
 ## Roadmap
@@ -154,7 +156,7 @@ This first version focuses on **text-based PDFs**. It has been tested with PDFs 
 - [ ] OCR for scanned PDFs
 - [ ] Word-level diff inside moved paragraphs
 - [ ] Multi-column reading-order reconstruction
-- [ ] Manual re-pairing of pages when the automatic pairing is uncertain
+- [ ] Automatic pairing of pages without text by image similarity
 - [ ] Shareable report as a single PDF
 - [ ] Published npm package (`npx changelens`)
 

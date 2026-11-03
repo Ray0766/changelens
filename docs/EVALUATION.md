@@ -28,7 +28,8 @@ All documents are **synthetic**, written for this test. The PDFs were produced b
 | mixed-zh-en | Chinese with English terms: WCAG 2.2 → 2.1, React → Vue, 10 → 12 weeks, one paragraph deleted |
 | demo-en / demo-zh | the bundled demos (8 → 9 pages): 13 / 12 edits across text, numbers, chart, colour, bold, move, overflow |
 | libreoffice | justified text from LibreOffice: a word replaced, a paragraph inserted, a sentence moved up with a changed amount, a paragraph deleted |
-| holdout-* (4) | **held-out**: written after tuning, run once before any further change (see below) |
+| holdout-* (4) | **held-out round 1**: written by the engine's author after tuning, run once before any further change (see below) |
+| holdout2-a-* (6), holdout2-b-* (6) | **held-out round 2**: written by two *independent* authors who did not read the engine, the tests or earlier results (`eval/make-holdout2-{a,b}.mjs`); run once (see below) |
 
 ## Methods compared
 
@@ -58,7 +59,38 @@ Where the baselines lose:
 - **Text line diff**: it finds no graphics, colours or bold. A changed number becomes "this line differs", with no type. Page numbers and re-wrapped lines create extra items: 11 in each demo, and 3 for an inserted page.
 - **Pixel page diff**: it finds that *something* changed on a page, but after an insertion every later page is different. That gives 27 regions in the long-table case and 12–16 in the demos, and in the demos the changes land on the wrong page (7 of 13 located).
 
-### Held-out cases: first run, unchanged
+### Held-out round 2: independent authors, first run
+
+Two separate agents wrote twelve new cases (53 truth items). They worked from the acceptance list in the quality brief and were not allowed to read `src/`, `test/`, the scorer or any results. Author A covered business documents: invoices with bank details, a lease with an added clause, a supplier renamed six times, Chinese price lists, a Chinese policy footnote, and a zh/en schedule. Author B covered layout stressors: repeated table header rows, list renumbering, justified re-wrap, a landscape page with a replaced logo, a footnote with duplicated content, and Chinese text with changed margins. Each author also recorded the judgement calls they made, for example that auto-renumbered list items are consequences rather than edits.
+
+The cases were committed together with the result of a single run of the unchanged engine (commit `3a15a7f`, files `eval/results-holdout2-blind.{json,txt}`). That run counts as **found / extra**:
+
+| Case | Pages | Truth | ChangeLens | Text line diff | Pixel page diff |
+|---|---|---|---|---|---|
+| a-invoice-bank-details | 1→1 | 6 | 5 / 1 | 5 / 0 | 5 / 0 |
+| a-lease-clause-added | 3→4 | 4 | 4 / 0 | 4 / 4 | 4 / 4 |
+| a-services-supplier-renamed | 3→3 | 5 | 4 / 1 | 2 / 6 | 1 / 0 |
+| a-zh-en-project-schedule | 2→2 | 5 | 4 / 1 | 3 / 0 | 5 / 0 |
+| a-zh-policy-footnote | 2→2 | 5 | 5 / 0 | 4 / 1 | 4 / 0 |
+| a-zh-price-list | 3→3 | 5 | 4 / 1 | 3 / 2 | 5 / 31 |
+| b-footnote-duplicate | 3→3 | 4 | 4 / 0 | 4 / 0 | 4 / 0 |
+| b-justified-rewrap | 2→2 | 4 | 4 / 0 | 2 / 0 | 3 / 0 |
+| b-landscape-logo | 3→3 | 4 | 4 / 0 | 3 / 0 | 4 / 0 |
+| b-list-renumber | 2→2 | 4 | 4 / 5 | 3 / 0 | 3 / 0 |
+| b-thead-pricelist | 3→3 | 4 | 4 / 0 | 4 / 2 | 4 / 7 |
+| b-zh-margins | 3→3 | 3 | 3 / 0 | 3 / 2 | 3 / 2 |
+| **Total** | | **53** | **49 / 9** | **40 / 17** | **45 / 44** |
+
+Every ChangeLens item that was found was also located on the right page (49 / 49). The four misses and nine extra items have four causes:
+
+1. **`−€62.40 → €62.40`**: a sign in front of a currency symbol was not attached to the number, so the change was reported as "Deleted «−»".
+2. **`4% → 8%`, `60% → 75%`, `5% → 3%`**: the percent sign was left out of the reported number. The description lost the "%", and the truth snippet did not match.
+3. **List renumbering**: inserting a step renumbered items 4–8 to 5–9, which produced five number changes. These are consequences, not edits.
+4. **The same rename in six places**: this was reported as six items. It was not counted as wrong (the truth item covers all six), but it was noisy.
+
+All four were fixed: signs before currency symbols, units kept with numbers, renumbering hidden but counted, and repeated replacements merged ("in N places"). After the fixes the round-2 cases score 53 / 53 with 0 extra, **but they are no longer held out**.
+
+### Held-out round 1: first run, unchanged
 
 These four cases were written after the engine had been tuned on the others, and run once before any further change:
 
@@ -99,7 +131,7 @@ The visual stage costs about 0.4 s per page pair at 1.5× scale and dominates th
 
 ## What this does not show
 
-- The corpus is small, synthetic, and **written by the same author as the engine**. Most cases were used for tuning; only the four held-out cases were run blind, once.
+- The corpus is small and synthetic. Most cases were written by the same author as the engine and used for tuning. Two blind runs exist: four cases by the engine's author (7 / 9 found, 5 extra), and twelve cases by independent authors (49 / 53 found, 9 extra). Both sets have since been used for fixes, so the next claim needs new held-out cases.
 - Only Chromium and LibreOffice PDFs were tested. Word, InDesign, LaTeX, scanned, encrypted, rotated, multi-column-flow and very large (> 100 pages) documents are untested.
 - The pixel baseline emulates diff-pdf's idea; it is not diff-pdf. Neither Acrobat nor Draftable was compared.
 - Passing this corpus proves this corpus. It does not prove correct behaviour on arbitrary PDFs.
