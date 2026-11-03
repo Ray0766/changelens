@@ -127,8 +127,9 @@ The numbers that were **not tuned** are the first runs of held-out sets written 
 |---|---|---|---|
 | Round 2: 12 pairs, 53 edits, Chromium | 49 · 9 | 40 · 17 | 45 · 44 |
 | Round 3: 12 pairs, 73 edits, Chromium, LibreOffice, reportlab | 55 · 38 | 57 · 57 | 73 · 38 |
+| Round 4: 18 pairs, 119 edits, Office files via LibreOffice, 40–85-page and Japanese/Traditional Chinese documents, PDFs assembled with pypdf | 104 · 175 | 89 · 263 | 117 · 404 |
 
-Round 2 was scored with the rules of that time.
+Round 2 was scored with the rules of that time. Round 4 uses the rules registered before its run. Its pixel diff "finds" 117 of 119 edits, but places only 97 of them on the right page.
 
 In round 3, ChangeLens found fewer edits than the text line diff. Most of those misses were correct changes, reported narrower than the truth snippet ("7 → 6" for "For 7 → For 6"). The rest, and most of the extra items, were real problems:
 - repeated table header rows reported as text;
