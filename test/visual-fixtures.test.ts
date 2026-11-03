@@ -99,6 +99,8 @@ test('an inserted page without text is reported, and the chart page after it is 
   assert.deepEqual(c.new.pages, [1]);
   assert.equal(describeChange('en', c), 'Page without text added (images or drawings only)');
   assert.equal(countChanges(r.changes).visual, 1);
+  // In the old version it goes before the chart page it pushed back.
+  assert.equal(c.old.caret?.page, 1);
   // Old p. 2 and new p. 3 hold the same chart: compared, nothing to report.
   assert.ok(!r.changes.some((x) => x.old.pages.includes(1)));
 });

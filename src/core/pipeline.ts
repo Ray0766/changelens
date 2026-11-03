@@ -54,11 +54,21 @@ export async function addVisualChanges(
           )
         : [];
     for (const [i, j] of matched) pairs.push({ old: gap.old[i], new: gap.new[j], whole: true });
+    // The other side's caret goes before the next paired page (one matched
+    // within the gap, or the one after it), or after the last one.
+    const next = (side: 0 | 1, k: number): [number, number] | null => {
+      const m = matched.find((pair) => pair[side] > k);
+      return m ? [gap.old[m[0]], gap.new[m[1]]] : gap.after;
+    };
     gap.old.forEach((p, i) => {
-      if (!matched.some(([k]) => k === i)) pageChanges.push(wholePage('removed', result, p, sigOld[i]?.ink, gap.after ?? gap.before, !gap.after));
+      if (matched.some(([k]) => k === i)) return;
+      const at = next(0, i);
+      pageChanges.push(wholePage('removed', result, p, sigOld[i]?.ink, at ?? gap.before, !at));
     });
     gap.new.forEach((p, j) => {
-      if (!matched.some(([, k]) => k === j)) pageChanges.push(wholePage('added', result, p, sigNew[j]?.ink, gap.after ?? gap.before, !gap.after));
+      if (matched.some(([, k]) => k === j)) return;
+      const at = next(1, j);
+      pageChanges.push(wholePage('added', result, p, sigNew[j]?.ink, at ?? gap.before, !at));
     });
   }
   pairs.sort((a, b) => a.new - b.new || a.old - b.old);
