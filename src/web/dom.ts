@@ -27,6 +27,27 @@ export function clear(el: Element): void {
   while (el.firstChild) el.firstChild.remove();
 }
 
+/**
+ * Controls that survive a re-render carry a stable `data-fk` key. Read the
+ * key of the focused control inside `root` before rebuilding it, and focus
+ * the control with the same key afterwards, so keyboard and screen-reader
+ * users keep their place.
+ */
+export function focusKeyOf(root: Element): string | null {
+  const a = document.activeElement;
+  return a && root.contains(a) ? (a.closest('[data-fk]')?.getAttribute('data-fk') ?? null) : null;
+}
+
+export function restoreFocus(root: Element, key: string | null): boolean {
+  if (!key) return false;
+  const el = root.querySelector<HTMLElement | SVGElement>(`[data-fk="${CSS.escape(key)}"]`);
+  el?.focus({ preventScroll: true });
+  return !!el;
+}
+
+/** The single-pane layout (styles.css, max-width: 900px). */
+export const narrowQuery = '(max-width: 900px)';
+
 const paths: Record<string, string> = {
   upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>',
   file: '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/>',

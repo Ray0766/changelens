@@ -166,6 +166,15 @@ const en = {
   pairCancel: 'Cancel',
   removePair: 'Remove this pair',
   pair: 'Pair pages',
+  changeList: 'Change list',
+  mapPage: '{side}, page {n}',
+  mapPageChanged: '{side}, page {n}, has changes',
+  cancel: 'Cancel',
+  cancelling: 'Cancelling…',
+  exportFailed: 'Could not create the report: {error}',
+  exportPageFailed: 'Could not render page {page} of {name} for the report: {error}',
+  retry: 'Try again',
+  dismiss: 'Dismiss',
 };
 
 export type MessageKey = keyof typeof en;
@@ -335,6 +344,15 @@ const zh: Record<MessageKey, string> = {
   pairCancel: '取消',
   removePair: '删除这组配对',
   pair: '配对页面',
+  changeList: '修改清单',
+  mapPage: '{side}第 {n} 页',
+  mapPageChanged: '{side}第 {n} 页，有修改',
+  cancel: '取消',
+  cancelling: '正在取消…',
+  exportFailed: '无法生成报告：{error}',
+  exportPageFailed: '无法为报告渲染 {name} 的第 {page} 页：{error}',
+  retry: '重试',
+  dismiss: '关闭',
 };
 
 const dicts: Record<Lang, Record<MessageKey, string>> = { en, zh };

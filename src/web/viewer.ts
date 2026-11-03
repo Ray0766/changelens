@@ -11,6 +11,35 @@ const GAP = 16;
 const behavior = (): ScrollBehavior => (window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth');
 const PAD = 16;
 
+/**
+ * Upper bound for one page bitmap, the defaults of the PDF.js viewer's
+ * maxCanvasPixels (pdfjs-dist 6.4: 2^25, and 5,242,880 on iOS/Android; here
+ * touch-first devices). Without a cap a large page at high zoom needs
+ * canvases of hundreds of MB, and past the browser's area limit (Chromium:
+ * blank from about 2^28 pixels) the canvas silently stays empty. Above the
+ * cap the page is rendered at the capped scale and CSS scales it up.
+ */
+const MAX_CANVAS_PIXELS = window.matchMedia('(pointer: coarse)').matches ? 5_242_880 : 2 ** 25;
+const MAX_CANVAS_SIDE = 16384;
+
+/** Device pixels per PDF point for a page of width x height pt, within the caps. */
+function renderScale(width: number, height: number, wanted: number): number {
+  // Keep a small margin: the canvas size is rounded up to whole pixels.
+  const area = (width * wanted + 1) * (height * wanted + 1);
+  const s = area > MAX_CANVAS_PIXELS ? wanted * Math.sqrt(MAX_CANVAS_PIXELS / area) : wanted;
+  return Math.min(s, (MAX_CANVAS_SIDE - 1) / width, (MAX_CANVAS_SIDE - 1) / height);
+}
+
+/** What a rebuilt viewer takes over from the previous one (same documents). */
+export interface ViewState {
+  zoom: number;
+  fitMode: boolean;
+  show: Side;
+  sync: boolean;
+  top: Record<Side, number>;
+  left: Record<Side, number>;
+}
+
 interface PageView {
   el: HTMLDivElement;
   canvas: HTMLCanvasElement;
@@ -92,9 +121,14 @@ class Pane {
     return (this.tops[page] ?? 0) + y * this.zoom;
   }
 
+  /** Horizontal pixel position of a point on a page (inside the scroller). */
   docX(page: number, x: number): number {
     const el = this.pages[page]?.el;
-    return (el ? el.offsetLeft : PAD) + x * this.zoom;
+    if (!el) return PAD + x * this.zoom;
+    // .pane-pages is the offset parent (position: relative); if styles put
+    // the page's offset parent further out, measure from .pane-pages.
+    const left = el.offsetParent === this.inner ? el.offsetLeft : el.offsetLeft - this.inner.offsetLeft;
+    return left + x * this.zoom;
   }
 
   private onIntersect(entries: IntersectionObserverEntry[]): void {
@@ -132,19 +166,22 @@ class Pane {
         if (!pv.near || pv.rendered === this.zoom) continue;
         const zoom = this.zoom;
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        // Render off-screen first so the old bitmap stays visible meanwhile.
-        const tmp = document.createElement('canvas');
+        const pg = this.doc.pages[i];
+        // Render into a fresh canvas so the old bitmap stays visible
+        // meanwhile, then swap it in (no full-size copy).
+        const next = h('canvas', { class: 'page-canvas' });
         try {
-          await renderInto(this.pdf, i, zoom * dpr, tmp, (task) => (pv.task = task));
+          await renderInto(this.pdf, i, renderScale(pg.width, pg.height, zoom * dpr), next, (task) => (pv.task = task));
           if (zoom !== this.zoom || !pv.near) continue;
-          pv.canvas.width = tmp.width;
-          pv.canvas.height = tmp.height;
-          pv.canvas.getContext('2d')!.drawImage(tmp, 0, 0);
+          const old = pv.canvas;
+          old.replaceWith(next);
+          old.width = old.height = 0;
+          pv.canvas = next;
           pv.rendered = zoom;
         } catch {
           /* cancelled */
         } finally {
-          tmp.width = tmp.height = 0;
+          if (pv.canvas !== next) next.width = next.height = 0;
         }
       }
     } finally {
@@ -231,6 +268,8 @@ class Pane {
 export interface ViewerOptions {
   lang: Lang;
   onSelect: (id: string) => void;
+  /** Zoom, side and scroll positions to take over (language switch, re-run). */
+  restore?: ViewState;
 }
 
 /** Two synchronised page panes with change highlights. */
@@ -247,6 +286,7 @@ export class Viewer {
   private changes: Change[] = [];
   private tip: HTMLDivElement;
   private resizeObs: ResizeObserver;
+  private restore?: ViewState;
   show: Side = 'new';
   onZoom?: (zoom: number) => void;
   private result: CompareResult;
@@ -260,6 +300,11 @@ export class Viewer {
   ) {
     this.result = result;
     this.opts = opts;
+    this.restore = opts.restore;
+    if (opts.restore) {
+      this.show = opts.restore.show;
+      this.sync = opts.restore.sync;
+    }
     const lang = opts.lang;
     const pages = (n: number) => (lang === 'zh' ? `${n} 页` : `${n} pages`);
     this.panes = {
@@ -298,13 +343,44 @@ export class Viewer {
       sc.addEventListener('mouseleave', () => this.hideTip());
     }
     this.resizeObs = new ResizeObserver(() => {
-      if (this.fitMode) this.fit();
+      if (this.restore) this.applyRestore();
+      else if (this.fitMode) this.fit();
     });
     this.resizeObs.observe(this.root);
   }
 
   private hideTip(): void {
     this.tip.classList.remove('show');
+  }
+
+  viewState(): ViewState {
+    const { old: o, new: n } = this.panes;
+    return {
+      zoom: this.zoom,
+      fitMode: this.fitMode,
+      show: this.show,
+      sync: this.sync,
+      top: { old: o.scroller.scrollTop, new: n.scroller.scrollTop },
+      left: { old: o.scroller.scrollLeft, new: n.scroller.scrollLeft },
+    };
+  }
+
+  /** First layout of a rebuilt viewer: same zoom and reading position as before. */
+  private applyRestore(): void {
+    const r = this.restore!;
+    if (!this.panes[this.show].scroller.clientWidth) return; // not laid out yet
+    this.restore = undefined;
+    if (r.fitMode) this.fit();
+    else {
+      this.fitMode = false;
+      this.setZoom(r.zoom);
+    }
+    const f = r.zoom > 0 ? this.zoom / r.zoom : 1;
+    for (const side of ['old', 'new'] as const) {
+      const sc = this.panes[side].scroller;
+      sc.scrollTop = r.top[side] * f;
+      sc.scrollLeft = r.left[side] * f;
+    }
   }
 
   get zoom(): number {
@@ -331,9 +407,22 @@ export class Viewer {
 
   fit(): void {
     this.fitMode = true;
-    const visible = this.panes[this.show].scroller.clientWidth || this.panes.new.scroller.clientWidth;
     const w = Math.max(this.panes.old.maxWidth, this.panes.new.maxWidth);
-    if (visible > 0) this.setZoom((visible - 2 * PAD - 4) / w);
+    // A second pass if the first zoom made a classic (space-taking) vertical
+    // scrollbar appear and so narrowed the view; styles.css also reserves
+    // the scrollbar gutter where the browser supports it.
+    for (let pass = 0; pass < 2; pass++) {
+      const visible = this.panes[this.show].scroller.clientWidth || this.panes.new.scroller.clientWidth;
+      if (visible <= 0) return;
+      const zoom = (visible - 2 * PAD - 4) / w;
+      if (pass > 0 && Math.abs(zoom - this.zoom) < 1e-4) return;
+      this.setZoom(zoom);
+    }
+  }
+
+  /** Fit again after a layout change, unless the user has zoomed. */
+  refit(): void {
+    if (this.fitMode) this.fit();
   }
 
   zoomBy(f: number): void {
@@ -341,12 +430,21 @@ export class Viewer {
     this.setZoom(this.zoom * f);
   }
 
+  /** Narrow layout: show one version, at the position matching the other. */
   setShow(side: Side): void {
-    const from = this.show;
+    if (side === this.show) return;
+    // Read the position before switching: a hidden pane reports scrollTop 0.
+    const a = this.panes[this.show].scroller;
+    const y = a.clientHeight ? this.mapY(this.show, a.scrollTop + a.clientHeight / 3) : null;
+    const left = a.scrollLeft;
+    const ah = a.clientHeight;
     this.show = side;
     this.root.dataset.show = side;
-    // Bring the newly shown pane to the matching position.
-    this.follow(from);
+    const b = this.panes[side].scroller;
+    if (y !== null) {
+      b.scrollTop = y - (b.clientHeight || ah) / 3;
+      b.scrollLeft = left;
+    }
     this.panes[side].schedule();
   }
 
@@ -436,6 +534,7 @@ export class Viewer {
     }
   }
 
+  /** Scroll to a page; on narrow screens the caller shows that side first. */
   scrollToPage(side: Side, page: number): void {
     this.active = null;
     const pane = this.panes[side];
@@ -443,7 +542,6 @@ export class Viewer {
     pane.scroller.scrollTo({ top, behavior: behavior() });
     const other: Side = side === 'old' ? 'new' : 'old';
     this.panes[other].scroller.scrollTo({ top: this.mapY(side, top + pane.scroller.clientHeight / 3) - pane.scroller.clientHeight / 3, behavior: behavior() });
-    if (window.matchMedia('(max-width: 900px)').matches && this.show !== side) this.setShow(side);
   }
 
   destroy(): void {
