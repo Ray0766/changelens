@@ -1060,6 +1060,9 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   changes.push(...findOverflow(oldDoc, newDoc, A, B, pairs));
 
   sortAndNumber(changes);
+  // Consequences kept apart (shown on request), numbered like the visual stage numbers them.
+  const minor = [...renumbered, ...repeatedLines].sort((x, y) => x.order - y.order);
+  minor.forEach((c, k) => (c.id = 'm' + (k + 1)));
 
   return {
     oldDoc,
@@ -1082,7 +1085,7 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
       renumbered: renumbered.length,
       repeatedLines: repeatedLines.length,
     },
-    minor: [...renumbered, ...repeatedLines].sort((x, y) => x.order - y.order),
+    minor,
     stats: {
       oldTokens: A.length,
       newTokens: B.length,

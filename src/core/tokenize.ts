@@ -548,10 +548,11 @@ export function buildDocModel(doc: DocText): DocModel {
 /**
  * A line that ends in the middle of a sentence followed by one that carries
  * it on: Chinese or Japanese text after a character, a figure or a comma
- * ("…双方可另行签" / "订补充协议…"), or Latin text continuing in lower case
- * after a word, a figure, a comma or a hyphen. A line ending with a full stop, colon
- * or closing mark, a heading followed by a capital, a list item followed by
- * its bullet or number, all start a new paragraph as before.
+ * ("…双方可另行签" / "订补充协议…"), or Latin text continuing in lower
+ * case after a word, a figure, a comma or a hyphen. A line ending with a
+ * full stop, colon or closing mark, a heading followed by a capital, a list
+ * item followed by its bullet or number, all start a new paragraph as
+ * before.
  */
 function carriesOnLine(last: Tok, first: Tok): boolean {
   const open = /^[,;，、；（(“‘《「\-\u2010\u00ad]$/.test(last.text);

@@ -87,6 +87,7 @@ test('a table header row repeated at the top of a continuation page is a consequ
   assert.ok(r.ignored.repeatedLines! >= 1);
   assert.ok(r.minor.every((c) => c.minor && c.consequence === 'repeatedLine' && c.old.text + c.new.text === H), r.minor.map((c) => c.old.text + c.new.text).join());
   assert.ok(describeChange('en', r.minor[0]).includes(`“${H}”`));
+  assert.deepEqual(r.minor.map((c) => c.id), r.minor.map((_, k) => `m${k + 1}`));
   const note = notices('en', r).find((n) => n.text.includes('repeated at the top of a page'));
   assert.equal(note?.action, 'minor');
   assert.ok(notices('zh', r).some((n) => n.text.includes('页首重复行')));

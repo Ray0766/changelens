@@ -81,8 +81,11 @@ export function decimalMark(text: string): ',' | '.' | null {
   return seps.length === 1 ? (last[0] as ',' | '.') : null;
 }
 
-/** A magnitude or unit written onto a figure ("2.7m", "5bn", "10k", "7.42p"). */
-export const SUFFIX = /^(?:k|m|mn|bn|b|tn|p|万|亿)$/i;
+/**
+ * A magnitude or unit written onto a figure ("2.7m", "5bn", "10k", "7.42p").
+ * A lone "b" is left out: "2b" is more often a clause or item label.
+ */
+export const SUFFIX = /^(?:k|m|mn|bn|tn|p|万|亿)$/i;
 
 const NUMERIC_PUNCT = /^[$€£¥₹₩%‰+\-−.,;:/()]$/;
 const CURRENCY_WORDS = /^(usd|eur|gbp|cny|rmb|jpy|元|万|亿|円|k|m|mn|bn)$/i;
@@ -92,7 +95,7 @@ export function isNumericPhrase(texts: string[]): boolean {
   let digits = 0;
   for (const raw of texts) {
     const t = raw.normalize('NFKC');
-    if (/\d/.test(t) && /^[\d.,:/\-+%\u2212\u2013\u2012()$€£¥₹₩¢₽₺ '’]+$/.test(t.replace(/(?<=\d)(?:k|m|mn|bn|b|tn|p)$/i, ''))) {
+    if (/\d/.test(t) && /^[\d.,:/\-+%\u2212\u2013\u2012()$€£¥₹₩¢₽₺ '’]+$/.test(t.replace(/(?<=\d)(?:k|m|mn|bn|tn|p)$/i, ''))) {
       digits++;
       continue;
     }
