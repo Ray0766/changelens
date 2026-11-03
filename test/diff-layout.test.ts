@@ -129,8 +129,10 @@ test('time grows about linearly with document size when a font is replaced throu
     return best;
   };
   time(50); // warm-up
-  const small = time(100);
-  const large = time(800);
-  // Before: about 19× for 8× the pages (per-page scans of all tokens).
-  assert.ok(large < 14 * small, `100 pages: ${small.toFixed(0)} ms, 800 pages: ${large.toFixed(0)} ms`);
+  // Compared at sizes where a per-page scan of all tokens dominates:
+  // 400 → 1600 pages took 15× before the fix and about 5.5× after it
+  // (linear would be 4×). The margin keeps the check stable on shared CI.
+  const small = time(400);
+  const large = time(1600);
+  assert.ok(large < 9 * small, `400 pages: ${small.toFixed(0)} ms, 1600 pages: ${large.toFixed(0)} ms`);
 });
