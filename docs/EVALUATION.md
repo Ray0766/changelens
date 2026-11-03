@@ -97,6 +97,18 @@ Where the baselines lose:
   - Page numbers and re-wrapped lines create extra hunks: 11 in each demo, 3 for an inserted page.
 - **Pixel page diff**: it finds that *something* changed on a page, but after an insertion every later page differs. That gives 31 extra regions in the Chinese price list and 12–16 in the demos, and in the demos many changes land on the wrong page (9 of 13 located in demo-en).
 
+### Held-out round 4: registered before the run
+
+- **Authors and focus**: three independent authors write twelve to eighteen new cases from [`eval/holdout4-brief.md`](../eval/holdout4-brief.md):
+  - author E: Office files (python-docx, openpyxl, python-pptx) rendered to PDF by LibreOffice;
+  - author F: long (40–120 pages) and multilingual documents (Japanese, Traditional Chinese, mixed scripts);
+  - author G: PDFs assembled or post-processed with pypdf (merged parts, rotated or cropped pages, watermarks, annotations, form fields, image-only pages).
+- **Engine**: frozen at commit `6cd041b` until the run.
+- **Rules, fixed before seeing any result**:
+  - The headline number uses the default rules of `eval/score.ts` at `6cd041b`: the context rule for snippets, and carets at a page boundary counting for both pages.
+  - The strict rules (`--strict-snippets --strict-carets`) are reported next to it.
+  - Truth files are not edited after the run, except to fix a structural error that stops the scorer from reading them. Any such fix is listed with the result.
+
 ### Held-out round 3: independent authors, other producers, first run
 
 Two new agents wrote twelve cases (73 truth items) from a brief that forbade reading `src/`, `test/`, the scorer, earlier results and these docs, and running ChangeLens (the brief: [`eval/holdout3-brief.md`](../eval/holdout3-brief.md)). The coordinator chose the two focus areas:
