@@ -1170,9 +1170,16 @@ function detectPositions(ctx: Ctx, pairs: Int32Array): Change[] {
     // The page's own displacement (e.g. new margins).
     const typical = list.map((m) => nearest(m, 0)).sort((u, v) => u - v)[list.length >> 1];
     const typicalDy = list.map((m) => m.dy).sort((u, v) => u - v)[list.length >> 1];
+    // The page's displacement of each edge on its own: with new margins on
+    // justified text the left edges all move by -14 pt and the right edges by
+    // +14 pt, so the last (ragged) line of a paragraph, which keeps only its
+    // left edge, moved with the page and not by itself.
+    const median = (k: 0 | 1 | 2) => list.map((m) => m.edges[k]).sort((u, v) => u - v)[list.length >> 1];
+    const typicalEdge = [median(0), median(1), median(2)];
     for (const m of list) {
       const rel = nearest(m, typical);
       if (Math.abs(rel) <= 12) continue;
+      if (m.edges.some((e, k) => Math.abs(e - typicalEdge[k]) <= 12)) continue;
       const lo = oldDoc.lines[m.oldLine];
       const ln = newDoc.lines[m.newLine];
       if (Math.abs(m.dy - typicalDy) > Math.max(36, 3 * lo.rect.h) && inColumn(m.newLine)) continue;
