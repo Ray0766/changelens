@@ -306,7 +306,7 @@ export class Viewer {
       this.sync = opts.restore.sync;
     }
     const lang = opts.lang;
-    const pages = (n: number) => (lang === 'zh' ? `${n} 页` : `${n} pages`);
+    const pages = (n: number) => t(lang, 'pagesCount', { n });
     this.panes = {
       old: new Pane('old', result.oldDoc, pdfs.old, t(lang, 'oldVersion'), `${names.old} · ${pages(result.oldDoc.pages.length)}`),
       new: new Pane('new', result.newDoc, pdfs.new, t(lang, 'newVersion'), `${names.new} · ${pages(result.newDoc.pages.length)}`),
