@@ -41,8 +41,21 @@ const HOMEPAGE = 'https://github.com/Ray0766/changelens';
  * (terminal, HTML report, JSON), so the three cannot drift apart.
  */
 export function reportNotices(lang: Lang, result: CompareResult, visualCompared = true): Notice[] {
-  const notes = notices(lang, result);
-  if (!visualCompared) notes.push({ level: 'info', text: t(lang, 'noticeNoVisual') });
+  let notes = notices(lang, result);
+  if (!visualCompared) {
+    // Pages paired by hand were not compared as images either.
+    const textOnly = new Map(
+      result.pageLinks
+        .filter((l) => l.manual)
+        .map((l) => {
+          const pair = pairLabel(lang, l.oldPage, l.newPage);
+          return [t(lang, 'noticePaired', { pair }), t(lang, 'noticePairedNoVisual', { pair })] as const;
+        }),
+    );
+    notes = notes.map((n) => (textOnly.has(n.text) ? { ...n, text: textOnly.get(n.text)! } : n));
+    notes.push({ level: 'info', text: t(lang, 'noticeNoVisual') });
+  }
+  if (!result.options.detectFormatting) notes.push({ level: 'info', text: t(lang, 'noticeNoFormat') });
   return notes;
 }
 
@@ -55,8 +68,32 @@ export function comparedEverything(notes: Notice[], visualCompared = true): bool
   return visualCompared && !notes.some((n) => n.level === 'warn');
 }
 
-export function excerptHtml(c: Change): string {
+/**
+ * The parts of the excerpt that the report and the web list show for a
+ * change ('' where nothing is shown). Context is shown around text edits
+ * only. A move shows its old wording only when the moved text was also
+ * edited: the two wordings can differ in ways the comparison ignores
+ * (quotes, ligatures, case with --ignore-case), and showing those as
+ * deleted text would contradict "Moved".
+ */
+export function shownExcerpt(c: Change): { before: string; old: string; new: string; after: string } {
   const e = excerpt(c);
+  switch (c.kind) {
+    case 'replace':
+      return e;
+    case 'insert':
+      return { ...e, old: '' };
+    case 'delete':
+      return { ...e, new: '' };
+    case 'move':
+      return { before: '', old: c.moveEdits && e.old !== e.new ? e.old : '', new: e.new, after: '' };
+    default:
+      return { before: '', old: e.new ? '' : e.old, new: e.new, after: '' };
+  }
+}
+
+export function excerptHtml(c: Change): string {
+  const e = shownExcerpt(c);
   const ctxB = e.before ? `<span class="ctx">${escapeHtml(e.before)}</span> ` : '';
   const ctxA = e.after ? ` <span class="ctx">${escapeHtml(e.after)}</span>` : '';
   switch (c.kind) {
@@ -68,7 +105,7 @@ export function excerptHtml(c: Change): string {
       return `${ctxB}<del>${escapeHtml(e.old)}</del>${ctxA}`;
     case 'move':
       // Moved and edited: show the old wording too, so the edit is visible.
-      return e.old && e.old !== e.new ? `<del>${escapeHtml(e.old)}</del> <mark class="mv">${escapeHtml(e.new)}</mark>` : `<mark class="mv">${escapeHtml(e.new)}</mark>`;
+      return e.old ? `<del>${escapeHtml(e.old)}</del> <mark class="mv">${escapeHtml(e.new)}</mark>` : `<mark class="mv">${escapeHtml(e.new)}</mark>`;
     default:
       return e.new || e.old ? `<span class="q">${escapeHtml(e.new || e.old)}</span>` : '';
   }
@@ -310,7 +347,8 @@ export function buildJson(input: ReportInput): unknown {
     tool: { name: 'ChangeLens', version: input.version ?? null },
     old: { name: input.oldName, pages: result.oldDoc.pages.length },
     new: { name: input.newName, pages: result.newDoc.pages.length },
-    options: result.options,
+    // Page numbers in the JSON are 1-based, the pairs given with --pair too.
+    options: { ...result.options, manualPairs: result.options.manualPairs?.map(([o, n]) => [o + 1, n + 1]) },
     stats: result.stats,
     visualCompared,
     /** False when pages, glyphs or graphics were not compared (see notices). */
