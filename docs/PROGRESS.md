@@ -2,6 +2,21 @@
 
 Short running notes for whoever continues (people or agents). Newest first.
 
+## 2026-11-03 (blind round 4)
+
+- **What was run**: 18 cases (119 edits) by three new independent authors (`eval/make-holdout4-{e,f,g}.mjs`, brief `eval/holdout4-brief.md`): Office files via LibreOffice, long and Japanese/Traditional Chinese documents, and PDFs assembled with pypdf. The rules were registered before the run (`b5cee6f`); the engine was frozen at `6cd041b`; the run was recorded once (`7c1a078`).
+- **Result**: ChangeLens 104 / 104 / 175 found / located / extra; text line diff 89 / 89 / 263; pixel diff 117 / 97 / 404.
+- **Causes**, each classified and re-checked (`eval/results-holdout4-analysis.md`):
+  - 11 of 15 misses are scorer issues;
+  - 3 are form field values, which are not read and not disclosed;
+  - 154 of 175 extras are noise: header bands and rules after re-pagination, automatic renumbering, and false colour/strike/underline on glyphs that moved.
+- **Next, proposed** (not started; it would end round 4's status as held out):
+  1. Read AcroForm field values as text, or at least disclose that a PDF has form fields.
+  2. Hide graphics that belong to a repeated header row hidden as a consequence.
+  3. Generalise renumbering: multi-level labels, numbered-list columns, redline brackets.
+  4. Make decoration and appearance checks compare a glyph with itself in the other version, so CJK strokes and moved glyphs stop reading as lines or colour changes.
+  5. Scorer: per-line furniture disclosure, one-sided graphic regions, and insert-for-replace when the old text lies inside the new.
+
 ## 2026-11-03 (round 4: review, fixes, blind round 3)
 
 - **First code review**: 72 findings (9 high), each reproduced by a second agent, fixed in five areas with a regression test for every fix. Scoring moved to `eval/score.ts`: coverage plus one-to-one, strict kinds, regions for items without text, `maxItems`. See DECISIONS D10.
