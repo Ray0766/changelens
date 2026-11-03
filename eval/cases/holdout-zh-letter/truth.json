@@ -1,26 +1,32 @@
 {
   "description": "Held-out. 中文通知：无空格的日期、电话号码修改，新增一句。",
   "synthetic": true,
-  "holdout": true,
+  "set": "held-out-1",
   "truth": [
     {
       "type": "replace",
       "old": "3",
-      "new": "30"
+      "new": "30",
+      "oldPage": 1,
+      "newPage": 1
     },
     {
-      "type": "replace",
+      "type": "delete",
       "old": "两个",
-      "new": ""
+      "oldPage": 1,
+      "note": "每两个月一次 → 每月一次 removes 两个 (labelled replace with an empty new side before)."
     },
     {
       "type": "replace",
-      "old": "1234",
-      "new": "4321"
+      "old": "6655-1234",
+      "new": "6655-4321",
+      "oldPage": 1,
+      "newPage": 1
     },
     {
       "type": "insert",
-      "new": "如需加急服务"
+      "new": "如需加急服务",
+      "newPage": 1
     }
   ]
 }

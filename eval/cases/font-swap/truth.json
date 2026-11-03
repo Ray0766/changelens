@@ -1,13 +1,16 @@
 {
   "description": "Same text, body font changed from a serif to a sans-serif face (causing re-flow).",
   "synthetic": true,
-  "holdout": false,
+  "set": "tuning",
   "truth": [
     {
       "type": "format",
-      "many": true,
       "oldPage": 1,
-      "newPage": 1
+      "newPage": 1,
+      "oldRect": [56, 55, 490, 520],
+      "newRect": [56, 55, 490, 520],
+      "maxItems": 1,
+      "note": "The same font change on every line: expected as one aggregated item."
     }
   ]
 }

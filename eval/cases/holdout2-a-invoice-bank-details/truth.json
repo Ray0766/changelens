@@ -1,7 +1,7 @@
 {
   "description": "Synthetic invoice (EN, 1 page). Digits of one line amount transposed (totals unchanged), the minus sign of a discount removed, bank name and last IBAN digit changed, and a new no-wrap notice line that is cut off at the right page edge.",
   "synthetic": true,
-  "holdout": true,
+  "set": "held-out-2",
   "author": "a",
   "truth": [
     {
@@ -39,7 +39,9 @@
     },
     {
       "type": "overflow",
-      "newPage": 1
+      "newPage": 1,
+      "newRect": [520, 574, 80, 18],
+      "note": "The notice line cut off at the right edge."
     }
   ]
 }

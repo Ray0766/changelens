@@ -1,7 +1,7 @@
 {
   "description": "Synthetic. Three-page price list whose table header row repeats on every page (<thead>). A row is inserted on page 1 (one row spills to page 2), a row is deleted on page 2, a unit price and one word in a description change on page 3. The repeated header rows and the shifted page-1/2 boundary are not edits.",
   "synthetic": true,
-  "holdout": true,
+  "set": "held-out-2",
   "author": "b",
   "truth": [
     {

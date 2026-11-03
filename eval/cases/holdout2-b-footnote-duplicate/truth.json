@@ -1,7 +1,7 @@
 {
   "description": "Synthetic. Three-page data sheet. A footnote is added (superscript marker in the body text and the note at the foot of page 2), the storage paragraph of page 1 is pasted again on page 3 (the original stays on page 1), and a lap width changes on page 3.",
   "synthetic": true,
-  "holdout": true,
+  "set": "held-out-2",
   "author": "b",
   "truth": [
     {
@@ -12,7 +12,9 @@
     {
       "type": "insert",
       "new": "1",
-      "newPage": 2
+      "newPage": 2,
+      "newRect": [297, 300, 12, 14],
+      "note": "The superscript footnote marker after \"temperatures\" in the body text (not the 1 that starts the note itself)."
     },
     {
       "type": "insert",

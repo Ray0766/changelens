@@ -1,7 +1,7 @@
 {
   "description": "合成样例 / synthetic. 中英混排项目进度计划（2页）：T3 完成比例、T4 结束日期（ISO 格式）和 T5 负责人修改；甘特图中 T4 的条形加长；里程碑列表新增一项（中英两种日期格式）。",
   "synthetic": true,
-  "holdout": true,
+  "set": "held-out-2",
   "author": "a",
   "truth": [
     {
@@ -28,7 +28,10 @@
     {
       "type": "graphic",
       "oldPage": 1,
-      "newPage": 1
+      "newPage": 1,
+      "oldRect": [350, 422, 60, 24],
+      "newRect": [350, 422, 60, 24],
+      "note": "The end of the T4 bar in the Gantt chart."
     },
     {
       "type": "insert",

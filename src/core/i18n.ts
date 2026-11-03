@@ -22,12 +22,12 @@ const en = {
   visual: 'Layout',
   noChanges: 'No differences found.',
   noChangesHint: 'The text and layout of both documents are identical with the current settings.',
-  changesCount: '{n} changes',
+  changesCount: '{n} {n:change|changes}',
   totalChanges: 'Changes',
   totalChange1: 'Change',
   reviewedLabel: 'Reviewed',
-  summaryLine: '{text} text · {num} numbers · {visual} layout',
-  pagesLine: '{old} pages → {new} pages',
+  summaryLine: '{text} text · {num} {num:number|numbers} · {visual} layout',
+  pagesLine: '{old} {old:page|pages} → {new} {new:page|pages}',
   exportReport: 'Export report',
   exportJson: 'Export JSON',
   newComparison: 'New comparison',
@@ -63,23 +63,23 @@ const en = {
   // Change descriptions
   addedParagraph: 'Added a paragraph',
   duplicateOf: 'Added content that repeats {page} word for word',
-  addedParagraphs: 'Added {n} paragraphs',
+  addedParagraphs: 'Added {n} {n:paragraph|paragraphs}',
   addedText: 'Added “{text}”',
-  addedWords: 'Added {n} words',
-  addedChars: 'Added {n} characters',
+  addedWords: 'Added {n} {n:word|words}',
+  addedChars: 'Added {n} {n:character|characters}',
   deletedParagraph: 'Deleted a paragraph',
-  deletedParagraphs: 'Deleted {n} paragraphs',
+  deletedParagraphs: 'Deleted {n} {n:paragraph|paragraphs}',
   deletedText: 'Deleted “{text}”',
-  deletedWords: 'Deleted {n} words',
-  deletedChars: 'Deleted {n} characters',
+  deletedWords: 'Deleted {n} {n:word|words}',
+  deletedChars: 'Deleted {n} {n:character|characters}',
   changedText: 'Changed “{from}” → “{to}”',
-  rewrote: 'Rewrote {n} words',
-  rewroteChars: 'Rewrote {n} characters',
+  rewrote: 'Rewrote {n} {n:word|words}',
+  rewroteChars: 'Rewrote {n} {n:character|characters}',
   numberChanged: 'Number changed: {from} → {to}',
   signChanged: 'sign changed',
-  inPlaces: 'in {n} places',
+  inPlaces: 'in {n} {n:place|places}',
   movedParagraph: 'Moved a paragraph',
-  movedParagraphs: 'Moved {n} paragraphs',
+  movedParagraphs: 'Moved {n} {n:paragraph|paragraphs}',
   movedText: 'Moved “{text}”',
   formatChanged: 'Formatting changed',
   nowBold: 'now bold',
@@ -120,19 +120,19 @@ const en = {
   help: 'Shortcuts: j / k next & previous change · + / − zoom · 0 fit width',
   footer: 'Open source · MIT licence',
   noticeTextless: '{side} {pages}: no text layer, so the text there could not be compared. If you know which page it corresponds to, pair them to compare their images.',
-  noticeUnreadable: '{side} {pages}: {n} characters could not be read as text; changes to them may be missed.',
+  noticeUnreadable: '{side} {pages}: {n} {n:character|characters} could not be read as text; changes to {n:it|them} may be missed.',
   noticeUncertain: 'New {pages}: mostly new content ({pct} matched) — check this page in full.',
-  noticeFurniture: '{n} differences in headers, footers or page numbers are ignored.',
-  noticeMinor: '{n} places where lines or graphics shifted slightly (≤ {pt} pt) are not listed.',
-  noticeRenumbered: '{n} list numbers changed only because items were added or removed above them; they are not listed.',
+  noticeFurniture: '{n} {n:difference|differences} in headers, footers or page numbers {n:is|are} ignored.',
+  noticeMinor: '{n} {n:place|places} where lines or graphics shifted slightly (≤ {pt} pt) {n:is|are} not listed.',
+  noticeRenumbered: '{n} list {n:number|numbers} changed only because items were added or removed above {n:it|them}; {n:it is|they are} not listed.',
   renumbered: 'List renumbered: {from} → {to}',
-  noticeCase: '{n} differences only in upper/lower case are ignored.',
+  noticeCase: '{n} {n:difference|differences} only in upper/lower case {n:is|are} ignored.',
   noticePunct: 'Differences in punctuation are ignored.',
   noticeNoVisual: 'Graphics, images and colours were not compared.',
   show: 'Show',
   hide: 'Hide',
   oneChange: '1 change',
-  pagesCount: '{n} pages',
+  pagesCount: '{n} {n:page|pages}',
   methodTitle: 'How this report was made',
   methodFiles: 'Files',
   methodTool: 'Compared with',
@@ -166,6 +166,7 @@ const en = {
   pairCancel: 'Cancel',
   removePair: 'Remove this pair',
   pair: 'Pair pages',
+  noChangesIncomplete: 'No differences found in what could be compared, but not everything was compared (see the notes).',
 };
 
 export type MessageKey = keyof typeof en;
@@ -335,13 +336,22 @@ const zh: Record<MessageKey, string> = {
   pairCancel: '取消',
   removePair: '删除这组配对',
   pair: '配对页面',
+  noChangesIncomplete: '已比较的部分没有发现差异，但有部分内容未能比较（见说明）。',
 };
 
 const dicts: Record<Lang, Record<MessageKey, string>> = { en, zh };
 
+/**
+ * Fill in a message. `{n}` inserts a parameter; `{n:one|other}` picks the
+ * singular or plural wording by the count n ("1 page", "2 pages").
+ */
 export function t(lang: Lang, key: MessageKey, params: Record<string, string | number> = {}): string {
   const s = dicts[lang][key] ?? en[key];
-  return s.replace(/\{(\w+)\}/g, (_, k) => (k in params ? String(params[k]) : `{${k}}`));
+  return s.replace(/\{(\w+)(?::([^{}|]*)\|([^{}]*))?\}/g, (m, k: string, one?: string, other?: string) => {
+    if (!(k in params)) return m;
+    if (one === undefined) return String(params[k]);
+    return Number(params[k]) === 1 ? one : other!;
+  });
 }
 
 export function detectLang(pref: readonly string[] | string | undefined): Lang {
