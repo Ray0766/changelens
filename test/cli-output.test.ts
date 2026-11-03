@@ -147,3 +147,58 @@ test('--lang accepts locale forms and rejects unknown values', () => {
     assert.match(r.err, /Unknown --lang value/);
   }
 });
+
+test('an empty output name is refused instead of silently writing nothing', () => {
+  const dir = tmp();
+  const pdf = evalCase('duplicate-page', 'before');
+  for (const args of [['-o', ''], ['--json', ''], ['-o', ' ']]) {
+    const r = run([pdf, pdf, '--no-visual', ...args]);
+    assert.equal(r.code, 2, `${JSON.stringify(args)}: ${r.out}${r.err}`);
+    assert.equal(r.out, '');
+    assert.match(r.err, /needs a file name/);
+  }
+  // A real name is still written.
+  const r = run([pdf, pdf, '--no-visual', '--json', join(dir, 'r.json')]);
+  assert.equal(r.code, 0, r.err);
+  assert.ok(existsSync(join(dir, 'r.json')));
+});
+
+test('--lang also accepts the locale form of $LANG (zh_CN.UTF-8)', () => {
+  const pdf = evalCase('duplicate-page', 'before');
+  for (const lang of ['zh_CN.UTF-8', 'zh_CN.utf8', 'zh_TW.Big5', 'zh_CN@pinyin']) {
+    const r = run([pdf, pdf, '-q', '--no-visual', '--lang', lang]);
+    assert.equal(r.code, 0, `${lang}: ${r.err}`);
+    assert.match(r.out, /已比较的部分没有发现差异/, lang);
+  }
+  assert.match(run([pdf, pdf, '-q', '--no-visual', '--lang', 'en_US.UTF-8'], { LANG: 'zh_CN.UTF-8' }).out, /No differences found/);
+  for (const lang of ['fr_FR.UTF-8', 'zh.', 'en@']) assert.equal(run([pdf, pdf, '-q', '--lang', lang]).code, 2, lang);
+});
+
+test('pages without text that were paired and compared as images do not make the result incomplete', { skip: !(await canRender()) && 'no canvas' }, () => {
+  // Same file twice: page 2 has no text layer; it is paired by position and compared as an image.
+  const textless = fixture('textless-before.pdf');
+  let r = run([textless, textless, '--fail-on-change']);
+  assert.equal(r.code, 0, r.out + r.err);
+  assert.match(r.out, /^No differences found\.$/m);
+  assert.doesNotMatch(r.out, /pair them to compare their images/);
+  // Paired by hand without the visual stage: not "compared as images".
+  r = run([textless, textless, '--pair', '2:2', '--no-visual', '--fail-on-change']);
+  assert.equal(r.code, 3, r.out + r.err);
+  assert.match(r.out, /Paired by hand: old p\. 2 ↔ new p\. 2 \(images not compared\)\./);
+  assert.doesNotMatch(r.out, /compared as images/);
+});
+
+test('--no-format says that formatting was not compared', () => {
+  const dir = tmp();
+  const [a, b] = [evalCase('font-swap', 'before'), evalCase('font-swap', 'after')];
+  const r = run([a, b, '--no-visual', '--no-format', '--json', join(dir, 'r.json')]);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /· Changes in bold, italic, font size and font were not compared\./);
+  const j = JSON.parse(readFileSync(join(dir, 'r.json'), 'utf8'));
+  assert.ok(j.notices.some((n: { level: string; text: string }) => n.level === 'info' && /bold, italic, font size and font were not compared/.test(n.text)));
+  assert.equal(j.options.detectFormatting, false);
+  // With formatting compared the change is listed and the note is absent.
+  const full = run([a, b, '--no-visual']);
+  assert.match(full.out, /font LiberationSerif/);
+  assert.doesNotMatch(full.out, /font size and font were not compared/);
+});
