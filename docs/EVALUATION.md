@@ -97,17 +97,46 @@ Where the baselines lose:
   - Page numbers and re-wrapped lines create extra hunks: 11 in each demo, 3 for an inserted page.
 - **Pixel page diff**: it finds that *something* changed on a page, but after an insertion every later page differs. That gives 31 extra regions in the Chinese price list and 12–16 in the demos, and in the demos many changes land on the wrong page (9 of 13 located in demo-en).
 
-### Held-out round 4: registered before the run
+### Held-out round 4: registered before the run, then run once
 
-- **Authors and focus**: three independent authors write twelve to eighteen new cases from [`eval/holdout4-brief.md`](../eval/holdout4-brief.md):
-  - author E: Office files (python-docx, openpyxl, python-pptx) rendered to PDF by LibreOffice;
-  - author F: long (40–120 pages) and multilingual documents (Japanese, Traditional Chinese, mixed scripts);
-  - author G: PDFs assembled or post-processed with pypdf (merged parts, rotated or cropped pages, watermarks, annotations, form fields, image-only pages).
-- **Engine**: frozen at commit `6cd041b` until the run.
-- **Rules, fixed before seeing any result**:
-  - The headline number uses the default rules of `eval/score.ts` at `6cd041b`: the context rule for snippets, and carets at a page boundary counting for both pages.
-  - The strict rules (`--strict-snippets --strict-carets`) are reported next to it.
-  - Truth files are not edited after the run, except to fix a structural error that stops the scorer from reading them. Any such fix is listed with the result.
+**Setup.** Three independent authors wrote 18 cases (119 truth items) from [`eval/holdout4-brief.md`](../eval/holdout4-brief.md):
+- author E: Office files (python-docx, openpyxl, python-pptx) rendered to PDF by LibreOffice. That is not Microsoft Office's own rendering.
+- author F: long (41–85 pages) and multilingual documents (Japanese, Traditional Chinese, mixed scripts).
+- author G: PDFs assembled or post-processed with pypdf (merged parts, rotated or cropped pages, watermarks, annotations, form fields, a scanned page).
+
+The engine was frozen at `6cd041b`, and the rules were registered in `b5cee6f` before the run. The cases were committed together with the output of one run (`7c1a078`, files `eval/results-holdout4-blind*`). Truth files were not edited.
+
+| Default rules (registered) | Found | Located | Extra | Separate |
+|---|---|---|---|---|
+| ChangeLens | 104 / 119 | 104 | 175 | 104 |
+| Text line diff | 89 / 119 | 89 | 263 | 81 |
+| Pixel page diff | 117 / 119 | 97 | 404 | 109 |
+
+With the strict rules, rescored from the same run's items, ChangeLens is 88 / 87 / 191.
+
+**Causes.** Every miss and extra item was classified by one agent per group of cases, and each classification was re-checked by a second agent. The second agent re-ran the CLI and looked at the renders; all counts reconcile with the table.
+
+- **15 misses**:
+  - **11 are scorer or truth issues.** ChangeLens reported the change, but the scorer did not credit it:
+    - a header/footer change split into two hunks;
+    - a one-sided graphic, such as an added stamp, signature or tick, whose truth gave a region on both sides;
+    - "每年 → 每半年" reported as "Added 半";
+    - the overflow of a cropped page.
+  - **1 is a wrong kind**: "V2.3 → V2.4" is reported as a text change, not as a number.
+  - **3 are not compared and not disclosed**: the values of PDF form fields. They are outside what the README claims, but nothing tells the reviewer that form fields were not compared. This breaks "nothing hidden silently".
+- **175 extra items**:
+  - **154 are noise**:
+    - **62** are table header bands and pale table rules that came or went with the page breaks. The repeated header text itself is already hidden as a consequence; its fill and rules are not.
+    - **39** are automatic numbering. This includes a Word numbered list in a table column (28 row numbers shifted by one), multi-level clause numbers (8.4 → 8.5), and LibreOffice's redline display of renumbered labels ("[4.3]").
+    - **45** are colour, weight, strikethrough or underline reported on unchanged glyphs that only moved. Examples are CJK characters whose horizontal stroke reads as a line (一, 主, 年), small Japanese katakana, and words that a removed DRAFT watermark had covered.
+    - **8** are other page-break artefacts, such as a repeated header row reported as a move that goes nowhere, or a group heading split across a page break.
+  - **13** are correct reports that the scorer did not credit (see above).
+  - **7** are misleading descriptions. Glyphs clipped by a new CropBox read as "Number changed: 4,800 → 4,8", and a rotated page gave two items.
+  - **1** is a form field change reported only as a pixel change.
+
+**What this shows.** ChangeLens reported 116 of the 119 edits, 115 of them with the right kind on the right pages. The only edits it missed are the three form field values, and it missed them silently. But on long, re-paginated and CJK-heavy documents it lists far more noise than on earlier rounds: 59 extra items in the 85-page plan, 33 in the 41-page trilingual manual, 32 in the Chinese/English annex. That noise is what a reviewer would have to read.
+
+**Status.** The per-item analysis, with examples, causes in the code and fix ideas, is in [`eval/results-holdout4-analysis.md`](../eval/results-holdout4-analysis.md). It is agent-written working material; the paths in it point to scratch folders that are not kept. No fix has been made yet. Once fixes are made, this set is no longer held out.
 
 ### Held-out round 3: independent authors, other producers, first run
 

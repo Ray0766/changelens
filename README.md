@@ -137,7 +137,11 @@ In round 3, ChangeLens found fewer edits than the text line diff. Most of those 
 - table rules on re-flowed pages reported as graphic changes;
 - a Chinese rewrite split in two.
 
-These were fixed afterwards. On all 31 pairs that are not blind (117 edits), ChangeLens now finds and places every edit with no extra item:
+These were fixed afterwards.
+
+In round 4, ChangeLens reported 116 of 119 edits, and the scorer credited 104 of them. It missed the three values of PDF form fields, which it does not read, and it did not say so. Its main weakness was noise: 154 extra items on long, re-paginated and CJK documents. These were table header bands and rules that came and went with page breaks, automatically renumbered lists and clauses, and colour, strike or underline wrongly reported on glyphs that only moved. Details: [EVALUATION.md](docs/EVALUATION.md). These are not fixed yet.
+
+On all 31 pairs that are not blind (117 edits), ChangeLens finds and places every edit with no extra item:
 
 | All 31 pairs, used for tuning and fixes | Found | On the right page | Extra items to read |
 |---|---|---|---|
