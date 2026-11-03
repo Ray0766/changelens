@@ -5,6 +5,7 @@ import { describeChange } from '../core/describe.ts';
 import { t, type Lang } from '../core/i18n.ts';
 import { h, clear } from './dom.ts';
 import { renderInto, type PDFDocumentProxy } from './pdf.ts';
+import { anchorAt, anchorY, cappedScale, contains, detailArea, scrollToShow, visiblePart, type Box } from './geometry.ts';
 
 type Side = 'old' | 'new';
 const GAP = 16;
@@ -17,17 +18,31 @@ const PAD = 16;
  * touch-first devices). Without a cap a large page at high zoom needs
  * canvases of hundreds of MB, and past the browser's area limit (Chromium:
  * blank from about 2^28 pixels) the canvas silently stays empty. Above the
- * cap the page is rendered at the capped scale and CSS scales it up.
+ * cap the whole page is rendered at the capped scale (CSS scales it up),
+ * and the part in view is rendered again at full detail on top of it, as
+ * the PDF.js viewer's detail view does (see Pane.updateDetail).
  */
 const MAX_CANVAS_PIXELS = window.matchMedia('(pointer: coarse)').matches ? 5_242_880 : 2 ** 25;
-const MAX_CANVAS_SIDE = 16384;
+/** Device pixels for the detail bitmaps of one page (at most two pages are in view at capped zooms). */
+const MAX_DETAIL_PIXELS = MAX_CANVAS_PIXELS / 2;
+/** Wait for scrolling to pause before rendering a new detail area. */
+const DETAIL_DELAY_MS = 120;
+/** Keep the start of a selected change this far from the view's edge (CSS px). */
+const SELECT_MARGIN = 24;
+
+const devicePixels = () => Math.min(window.devicePixelRatio || 1, 2);
 
 /** Device pixels per PDF point for a page of width x height pt, within the caps. */
 function renderScale(width: number, height: number, wanted: number): number {
-  // Keep a small margin: the canvas size is rounded up to whole pixels.
-  const area = (width * wanted + 1) * (height * wanted + 1);
-  const s = area > MAX_CANVAS_PIXELS ? wanted * Math.sqrt(MAX_CANVAS_PIXELS / area) : wanted;
-  return Math.min(s, (MAX_CANVAS_SIDE - 1) / width, (MAX_CANVAS_SIDE - 1) / height);
+  return cappedScale(width, height, wanted, MAX_CANVAS_PIXELS);
+}
+
+/** Part of a page rendered at full detail over its capped bitmap. */
+interface Detail {
+  canvas: HTMLCanvasElement;
+  /** CSS pixels relative to the page, at `zoom`. */
+  area: Box;
+  zoom: number;
 }
 
 /** What a rebuilt viewer takes over from the previous one (same documents). */
@@ -48,6 +63,7 @@ interface PageView {
   near: boolean;
   task?: RenderTask;
   busy?: Promise<void>;
+  detail?: Detail;
 }
 
 function hlClass(c: Change, side: Side): string {
@@ -66,6 +82,10 @@ class Pane {
   private observer: IntersectionObserver;
   private queue: number[] = [];
   private working = false;
+  private detailTimer = 0;
+  /** Bumped by every detail update; a render started for an older one is dropped. */
+  private detailGen = 0;
+  private detailTask?: RenderTask;
   readonly side: Side;
   readonly doc: DocModel;
   readonly pdf: PDFDocumentProxy;
@@ -121,6 +141,11 @@ class Pane {
     return (this.tops[page] ?? 0) + y * this.zoom;
   }
 
+  /** Left edge of a page in pixels (inside the scroller). */
+  pageLeft(page: number): number {
+    return this.docX(page, 0);
+  }
+
   /** Horizontal pixel position of a point on a page (inside the scroller). */
   docX(page: number, x: number): number {
     const el = this.pages[page]?.el;
@@ -142,6 +167,7 @@ class Pane {
         pv.canvas.width = pv.canvas.height = 0;
         pv.rendered = 0;
       }
+      if (!pv.near) this.dropDetail(pv);
     }
     this.schedule();
   }
@@ -154,6 +180,7 @@ class Pane {
       .sort((a, b) => Math.abs(this.tops[a.i] - view) - Math.abs(this.tops[b.i] - view))
       .map(({ i }) => i);
     void this.work();
+    this.scheduleDetail();
   }
 
   private async work(): Promise<void> {
@@ -165,13 +192,18 @@ class Pane {
         const pv = this.pages[i];
         if (!pv.near || pv.rendered === this.zoom) continue;
         const zoom = this.zoom;
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
         const pg = this.doc.pages[i];
+        const scale = renderScale(pg.width, pg.height, zoom * devicePixels());
+        // Above the cap the bitmap does not change with the zoom: keep it.
+        if (pv.rendered && pv.canvas.width === Math.ceil(pg.width * scale) && pv.canvas.height === Math.ceil(pg.height * scale)) {
+          pv.rendered = zoom;
+          continue;
+        }
         // Render into a fresh canvas so the old bitmap stays visible
         // meanwhile, then swap it in (no full-size copy).
         const next = h('canvas', { class: 'page-canvas' });
         try {
-          await renderInto(this.pdf, i, renderScale(pg.width, pg.height, zoom * dpr), next, (task) => (pv.task = task));
+          await renderInto(this.pdf, i, scale, next, (task) => (pv.task = task));
           if (zoom !== this.zoom || !pv.near) continue;
           const old = pv.canvas;
           old.replaceWith(next);
@@ -187,6 +219,89 @@ class Pane {
     } finally {
       this.working = false;
     }
+  }
+
+  /** Render the visible part of capped pages in full detail once scrolling pauses. */
+  private scheduleDetail(): void {
+    clearTimeout(this.detailTimer);
+    this.detailTimer = window.setTimeout(() => void this.updateDetail(), DETAIL_DELAY_MS);
+  }
+
+  /**
+   * Pages whose bitmap was capped below zoom × device pixel ratio would look
+   * soft when zoomed in. For those in view, render the visible part (plus a
+   * margin) at full resolution into a second canvas over the page, and drop
+   * it again when the page leaves the view or is no longer capped.
+   */
+  private async updateDetail(): Promise<void> {
+    const gen = ++this.detailGen;
+    this.detailTask?.cancel();
+    const sc = this.scroller;
+    const dpr = devicePixels();
+    const view = { w: sc.clientWidth, h: sc.clientHeight };
+    for (let i = 0; i < this.pages.length; i++) {
+      const pv = this.pages[i];
+      const pg = this.doc.pages[i];
+      const wanted = this.zoom * dpr;
+      const capped = renderScale(pg.width, pg.height, wanted) < wanted * 0.999;
+      const size = { w: pg.width * this.zoom, h: pg.height * this.zoom };
+      const visible = { x: sc.scrollLeft - this.pageLeft(i), y: sc.scrollTop - (this.tops[i] ?? 0), ...view };
+      const shown = pv.near && capped && view.w > 0 ? visiblePart(size, visible) : null;
+      if (!shown) {
+        this.dropDetail(pv);
+        continue;
+      }
+      if (pv.detail && pv.detail.zoom === this.zoom && contains(pv.detail.area, shown)) continue;
+      const area = detailArea(size, visible, dpr, MAX_DETAIL_PIXELS);
+      if (!area) {
+        this.dropDetail(pv);
+        continue;
+      }
+      await this.renderDetail(i, area, gen);
+      if (gen !== this.detailGen) return;
+    }
+  }
+
+  private async renderDetail(i: number, area: Box, gen: number): Promise<void> {
+    const pv = this.pages[i];
+    const zoom = this.zoom;
+    const dpr = devicePixels();
+    const size = { w: this.doc.pages[i].width * zoom, h: this.doc.pages[i].height * zoom };
+    const canvas = h('canvas', { class: 'page-detail', 'aria-hidden': 'true' });
+    canvas.width = Math.ceil(area.w * dpr);
+    canvas.height = Math.ceil(area.h * dpr);
+    // In percent of the page, so that it scales with the page until replaced.
+    Object.assign(canvas.style, {
+      left: `${(area.x / size.w) * 100}%`,
+      top: `${(area.y / size.h) * 100}%`,
+      width: `${(area.w / size.w) * 100}%`,
+      height: `${(area.h / size.h) * 100}%`,
+    });
+    try {
+      const page = await this.pdf.getPage(i + 1);
+      if (gen !== this.detailGen) throw new Error('stale');
+      const ctx = canvas.getContext('2d', { alpha: false })!;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // The page at CSS scale, shifted so the area's corner is the origin.
+      const task = page.render({ canvasContext: ctx, canvas, viewport: page.getViewport({ scale: zoom }), transform: [dpr, 0, 0, dpr, -area.x * dpr, -area.y * dpr] });
+      this.detailTask = task;
+      await task.promise;
+      if (gen !== this.detailGen || zoom !== this.zoom || !pv.near) throw new Error('stale');
+      this.dropDetail(pv);
+      pv.canvas.after(canvas);
+      pv.detail = { canvas, area, zoom };
+    } catch {
+      /* cancelled or superseded */
+      canvas.width = canvas.height = 0;
+    }
+  }
+
+  private dropDetail(pv: PageView): void {
+    if (!pv.detail) return;
+    pv.detail.canvas.remove();
+    pv.detail.canvas.width = pv.detail.canvas.height = 0;
+    pv.detail = undefined;
   }
 
   setHighlights(changes: Change[], lang: Lang): void {
@@ -258,9 +373,13 @@ class Pane {
 
   destroy(): void {
     this.observer.disconnect();
+    clearTimeout(this.detailTimer);
+    this.detailGen++;
+    this.detailTask?.cancel();
     for (const pv of this.pages) {
       pv.task?.cancel();
       pv.canvas.width = pv.canvas.height = 0;
+      this.dropDetail(pv);
     }
   }
 }
@@ -389,19 +508,29 @@ export class Viewer {
 
   private setZoom(z: number): void {
     const zoom = Math.max(0.25, Math.min(5, z));
-    const pane = this.panes[this.show];
     const first = !this.zoomed;
-    // Keep the point at the top third of the view in place while zooming.
-    const focus = pane.scroller.clientHeight / 3;
-    const before = (pane.scroller.scrollTop + focus) / (pane.zoom || 1);
+    // Keep the point at the top third (and the middle) of each view in
+    // place while zooming: as a position on its page, because the padding
+    // and the gaps between pages do not scale.
+    const keep = (['old', 'new'] as const).map((side) => {
+      const pane = this.panes[side];
+      const sc = pane.scroller;
+      if (first || !sc.clientHeight) return null;
+      const fy = sc.clientHeight / 3;
+      const fx = sc.clientWidth / 2;
+      const at = anchorAt(pane.tops, pane.zoom, sc.scrollTop + fy);
+      return { pane, fy, fx, at, x: (sc.scrollLeft + fx - pane.pageLeft(at.page)) / (pane.zoom || 1) };
+    });
     this.panes.old.setZoom(zoom);
     this.panes.new.setZoom(zoom);
     this.zoomed = true;
     this.rebuildAnchors();
-    if (!first) {
-      pane.scroller.scrollTop = before * zoom - focus;
-      this.follow(this.show);
+    for (const k of keep) {
+      if (!k) continue;
+      k.pane.scroller.scrollTop = anchorY(k.pane.tops, zoom, k.at) - k.fy;
+      k.pane.scroller.scrollLeft = k.pane.pageLeft(k.at.page) + k.x * zoom - k.fx;
     }
+    if (!first && this.sync) this.follow(this.show);
     this.onZoom?.(zoom);
   }
 
@@ -513,22 +642,27 @@ export class Viewer {
     const c = this.changes.find((x) => x.id === id) ?? this.result.changes.find((x) => x.id === id);
     if (!c || !scroll) return;
     this.active = null;
-    const targets: Partial<Record<Side, { y: number; x: number }>> = {};
+    // Pixel box of the change in each pane; a side without one (text only
+    // added or removed) gets the matching position and the other's columns.
+    const targets: Partial<Record<Side, Box>> = {};
     for (const side of ['old', 'new'] as const) {
       const f = focusRect(c, side);
       if (!f) continue;
       const pane = this.panes[side];
-      targets[side] = { y: pane.docY(f.page, f.rect.y + f.rect.h / 2), x: pane.docX(f.page, f.rect.x + f.rect.w / 2) };
+      targets[side] = { x: pane.docX(f.page, f.rect.x), y: pane.docY(f.page, f.rect.y), w: f.rect.w * pane.zoom, h: f.rect.h * pane.zoom };
     }
-    if (!targets.old && targets.new) targets.old = { y: this.mapY('new', targets.new.y), x: targets.new.x };
-    if (!targets.new && targets.old) targets.new = { y: this.mapY('old', targets.old.y), x: targets.old.x };
+    const mapped = (from: Side, b: Box): Box => ({ x: b.x, w: b.w, y: this.mapY(from, b.y + b.h / 2), h: 0 });
+    if (!targets.old && targets.new) targets.old = mapped('new', targets.new);
+    if (!targets.new && targets.old) targets.new = mapped('old', targets.old);
     for (const side of ['old', 'new'] as const) {
       const tg = targets[side];
       if (!tg) continue;
       const sc = this.panes[side].scroller;
+      // Centred (a third down) when it fits; a change wider or taller than
+      // the view is shown from its start, where reading begins.
       sc.scrollTo({
-        top: Math.max(0, tg.y - sc.clientHeight * 0.35),
-        left: Math.max(0, tg.x - sc.clientWidth / 2),
+        top: scrollToShow(tg.y, tg.h, sc.clientHeight, SELECT_MARGIN, 0.35),
+        left: scrollToShow(tg.x, tg.w, sc.clientWidth, SELECT_MARGIN),
         behavior: behavior(),
       });
     }

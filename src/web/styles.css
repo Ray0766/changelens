@@ -124,7 +124,8 @@ a { color: var(--accent); }
 .drop-tag { position: absolute; top: 12px; left: 14px; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; color: #fff; }
 .drop-tag.old { background: var(--del-fill); }
 .drop-tag.new { background: var(--ins-fill); }
-.drop-name { font-weight: 600; word-break: break-all; max-width: 100%; }
+/* long file names break anywhere; the hint text only between words */
+.drop-name { font-weight: 600; overflow-wrap: anywhere; max-width: 100%; }
 .drop-meta { font-size: 13px; color: var(--muted); }
 .cta { margin: 28px 0 12px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .demo { display: flex; gap: 6px; align-items: center; color: var(--muted); flex-wrap: wrap; justify-content: center; }
@@ -164,7 +165,8 @@ a { color: var(--accent); }
 
 .sidebar { display: flex; flex-direction: column; min-height: 0; background: var(--surface); border-right: 1px solid var(--border); }
 .summary { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
-.summary-head { display: flex; align-items: center; gap: 12px; }
+.summary-head { display: flex; align-items: center; gap: 12px; border-radius: 8px; }
+.summary-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .summary-count { font-size: 34px; font-weight: 700; line-height: 1; letter-spacing: -.02em; min-width: 1.2em; }
 .summary-title { font-weight: 600; }
 .summary-sub { color: var(--muted); font-size: 13px; }
@@ -173,12 +175,15 @@ a { color: var(--accent); }
 .minimap { overflow-x: auto; padding: 8px 0 2px; color: var(--muted); }
 .minimap svg { display: block; height: auto; max-width: none; }
 .minimap rect { cursor: pointer; }
+/* The tiles are buttons: outline >= 3:1 against the panel (the shared SVG draws it at 55%). */
+.minimap rect[data-side] { stroke-opacity: .8; }
 .minimap rect:hover { stroke: var(--accent); stroke-opacity: 1; }
 .minimap rect:focus { outline: none; }
 .minimap rect:focus-visible { stroke: var(--accent); stroke-opacity: 1; stroke-width: 3; }
 
-.tabs { display: flex; gap: 4px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
-.tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 6px; border-radius: 8px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-weight: 500; font-size: 14px; }
+/* Tabs wrap to a second row rather than overflow a narrow list (310 px list, 320 px screens). */
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+.tab { flex: 1; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 6px; border-radius: 8px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-weight: 500; font-size: 14px; }
 .tab:hover { background: var(--surface-2); color: var(--text); }
 .tab.on { background: var(--accent-soft); color: var(--accent); }
 .tab-n { font-size: 12px; font-variant-numeric: tabular-nums; background: var(--surface-2); color: var(--muted); border-radius: 999px; padding: 0 7px; line-height: 18px; }
@@ -241,12 +246,14 @@ a { color: var(--accent); }
 .pane-pages { position: relative; display: flex; flex-direction: column; align-items: center; width: max-content; min-width: 100%; }
 .page { position: relative; flex: none; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 18%), 0 6px 18px rgb(0 0 0 / 8%); }
 .page-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* the visible part of a capped page at full resolution (position set inline) */
+.page-detail { position: absolute; }
 .page-overlay { position: absolute; inset: 0; }
 .page-num { position: absolute; right: 8px; bottom: -1px; transform: translateY(100%); font-size: 11px; color: var(--muted); padding-top: 1px; }
 
 .hl { position: absolute; border-radius: 3px; cursor: pointer; mix-blend-mode: multiply; transition: box-shadow .15s; }
 .hl.del { background: rgb(229 72 77 / 22%); box-shadow: inset 0 0 0 1.5px rgb(229 72 77 / 85%); }
-.hl.ins { background: rgb(47 158 91 / 22%); box-shadow: inset 0 0 0 1.5px rgb(47 158 91 / 85%); }
+.hl.ins { background: rgb(47 158 91 / 22%); box-shadow: inset 0 0 0 1.5px rgb(31 122 68 / 80%); }
 .hl.mv { background: rgb(62 99 221 / 16%); box-shadow: inset 0 0 0 1.5px rgb(62 99 221 / 75%); }
 .hl.vis { background: rgb(142 78 198 / 12%); box-shadow: inset 0 0 0 2px rgb(142 78 198 / 80%); border-radius: 4px; }
 .hl.num { box-shadow: inset 0 0 0 2px var(--num); background: rgb(199 120 0 / 18%); }
@@ -258,7 +265,8 @@ a { color: var(--accent); }
 .caret { position: absolute; width: 3px; margin-left: -1.5px; border-radius: 2px; cursor: pointer; }
 .caret::before { content: ''; position: absolute; left: 50%; top: -7px; transform: translateX(-50%); border: 5px solid transparent; border-top-color: inherit; border-top-width: 6px; }
 .caret.del { background: var(--del); border-color: var(--del); }
-.caret.ins { background: var(--ins); border-color: var(--ins); }
+/* on the white page in both schemes: the darker green keeps >= 3:1 */
+.caret.ins { background: #1f7a44; border-color: #1f7a44; }
 .caret.vis { background: var(--vis); border-color: var(--vis); }
 .caret.active { box-shadow: 0 0 0 3px rgb(39 84 197 / 30%); }
 .tip { position: absolute; z-index: 5; max-width: 280px; padding: 6px 10px; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 12.5px; pointer-events: none; opacity: 0; transform: translateY(-2px); transition: opacity .12s, transform .12s; box-shadow: var(--shadow); }
@@ -284,8 +292,9 @@ a { color: var(--accent); }
   .only-sm { display: inline-flex !important; }
   .hide-sm { display: none !important; }
   .workspace { grid-template-columns: 1fr; position: relative; }
-  .sidebar { position: absolute; inset: 0 auto 0 0; width: min(380px, 92vw); z-index: 10; transform: translateX(-102%); transition: transform .2s; box-shadow: var(--shadow); }
-  .list-open .sidebar { transform: none; }
+  /* closed: off-canvas and hidden (after sliding out), so nothing of it shows at the edge */
+  .sidebar { position: absolute; inset: 0 auto 0 0; width: min(380px, 92vw); z-index: 10; transform: translateX(-102%); visibility: hidden; transition: transform .2s, visibility 0s .2s; box-shadow: var(--shadow); }
+  .list-open .sidebar { transform: none; visibility: visible; transition: transform .2s; }
   .panes { grid-template-columns: 1fr; }
   .panes[data-show='old'] .pane-new, .panes[data-show='new'] .pane-old { display: none; }
   .pane + .pane { border-left: 0; }
@@ -297,6 +306,14 @@ a { color: var(--accent); }
   .btn { padding: 0 8px; }
 }
 
+/* Below 360 px (small phones, or 400% zoom of 1280 px): the top bar must fit without panning.
+   The export button shows its icon; its label stays its accessible name. */
+@media (max-width: 359px) {
+  .topbar .btn .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .topbar .btn.primary { padding: 0 10px; }
+}
+.btn .pct:empty { display: none; }
+
 /* notices about filtered / uncovered content */
 .notices { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
 .notice { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--muted); line-height: 1.4; }
@@ -307,7 +324,7 @@ a { color: var(--accent); }
 
 /* change bars in the page margin */
 .cbar { position: absolute; left: -9px; width: 4px; border-radius: 2px; cursor: pointer; min-height: 6px; }
-.cbar.del { background: var(--del); } .cbar.ins { background: var(--ins); } .cbar.mv { background: var(--mv); } .cbar.vis { background: var(--vis); }
+.cbar.del { background: var(--del); } .cbar.ins { background: var(--ins-ink); } .cbar.mv { background: var(--mv); } .cbar.vis { background: var(--vis); }
 .cbar.active { box-shadow: 0 0 0 2px var(--accent); }
 
 /* legend */
@@ -320,10 +337,14 @@ a { color: var(--accent); }
 .sw.vis { background: rgb(142 78 198 / 20%); box-shadow: inset 0 0 0 1.5px var(--vis); }
 .sw.num { background: rgb(199 120 0 / 25%); box-shadow: inset 0 0 0 1.5px var(--num); }
 
-/* document-first mode: change list hidden */
-/* one column: with the sidebar out of the flow, the viewer would otherwise land in a 0-wide first column */
-.list-hidden .workspace { grid-template-columns: 1fr; }
-.list-hidden .sidebar { display: none; }
+/* document-first mode: change list hidden. Only in the wide layout, where
+   its toggle is: on narrow screens the list is off-canvas and its menu
+   button must still open it (exact complement of the max-width: 900px rules). */
+@media not all and (max-width: 900px) {
+  /* one column: with the sidebar out of the flow, the viewer would otherwise land in a 0-wide first column */
+  .list-hidden .workspace { grid-template-columns: 1fr; }
+  .list-hidden .sidebar { display: none; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
