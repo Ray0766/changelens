@@ -32,9 +32,35 @@ function bodyExtents(doc: DocModel, toks: Token[]): Map<number, { left: number; 
 }
 
 /**
+ * Typical left and right edge of the body text on one page: the most common
+ * line start and line end (to about 2 pt), if enough lines share it.
+ * Justified paragraphs share their line end, ragged ones only their start.
+ */
+function blockEdges(doc: DocModel, page?: number): { left?: number; right?: number } {
+  const lines = doc.lines.filter((l) => (page === undefined || l.page === page) && !l.furniture && l.end > l.start);
+  const mode = (vals: number[]): number | undefined => {
+    const bins = new Map<number, number[]>();
+    for (const v of vals) {
+      const k = Math.round(v / 2);
+      for (const b of [k - 1, k, k + 1]) {
+        let arr = bins.get(b);
+        if (!arr) bins.set(b, (arr = []));
+        arr.push(v);
+      }
+    }
+    let best: number[] = [];
+    for (const arr of bins.values()) if (arr.length > best.length) best = arr;
+    if (best.length < Math.max(3, 0.25 * lines.length)) return undefined;
+    return best.reduce((a, b) => a + b, 0) / best.length;
+  };
+  return { left: mode(lines.map((l) => l.rect.x)), right: mode(lines.map((l) => l.rect.x + l.rect.w)) };
+}
+
+/**
  * Find text in the new document that is cut off by the page edge, or that
- * sticks out into the margin further than anything in the old document —
- * typically a table or a long line that no longer fits.
+ * sticks out into the margin — further than anything in the old document
+ * and out of the page's own text block. Typically a table or a long line
+ * that no longer fits; a new template with narrower margins is not.
  */
 export function findOverflow(oldDoc: DocModel, newDoc: DocModel, A: Token[], B: Token[], pairs: Int32Array): Change[] {
   const matchedOld = new Map<number, Token>();
@@ -48,14 +74,34 @@ export function findOverflow(oldDoc: DocModel, newDoc: DocModel, A: Token[], B: 
     return o.rects.some((r) => edgeOf(r, pg.width, pg.height) !== null);
   };
 
+  const oldLeft = blockEdges(oldDoc).left;
+  const blocks = new Map<number, { left?: number; right?: number }>();
+  const block = (page: number) => {
+    let b = blocks.get(page);
+    if (!b) blocks.set(page, (b = blockEdges(newDoc, page)));
+    return b;
+  };
+
   const perPage = new Map<number, { edge: Edge; toks: Token[]; idx: number[] }>();
   B.forEach((t, k) => {
     const pg = newDoc.pages[t.page];
     let edge: Edge | null = null;
     for (const r of t.rects) edge = edge ?? edgeOf(r, pg.width, pg.height);
-    if (!edge) {
-      const ext = extents.get(Math.round(pg.width));
-      if (ext && t.rects.some((r) => r.x + r.w > ext.right + MARGIN_TOL || r.x < ext.left - MARGIN_TOL)) edge = 'margin';
+    const ext = edge ? undefined : extents.get(Math.round(pg.width));
+    if (ext) {
+      // When the page's text block starts elsewhere than the old document's
+      // (a new template with other margins), the page's own block counts as
+      // body: its typical line start and end, or the old width widened by as
+      // much as the left margin shrank.
+      const own = block(t.page);
+      let left = ext.left;
+      let right = ext.right;
+      if (own.left !== undefined && oldLeft !== undefined && Math.abs(own.left - oldLeft) > MARGIN_TOL) {
+        left = Math.min(left, own.left);
+        if (own.right !== undefined) right = Math.max(right, own.right);
+        else right += Math.max(0, oldLeft - own.left);
+      }
+      if (t.rects.some((r) => r.x + r.w > right + MARGIN_TOL || r.x < left - MARGIN_TOL)) edge = 'margin';
     }
     if (!edge || wasOverflowing(k)) return;
     const cur = perPage.get(t.page);

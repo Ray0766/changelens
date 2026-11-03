@@ -166,6 +166,14 @@ const en = {
   pairCancel: 'Cancel',
   removePair: 'Remove this pair',
   pair: 'Pair pages',
+  strikeAdded: 'Struck through: “{text}”',
+  strikeRemoved: 'Strikethrough removed: “{text}”',
+  underlineAdded: 'Underlined: “{text}”',
+  underlineRemoved: 'Underline removed: “{text}”',
+  pageAddedNoText: 'Page without text added (images or drawings only)',
+  pageRemovedNoText: 'Page without text removed (images or drawings only)',
+  pageResized: 'Page size changed: {from} → {to}',
+  noticeVisualSkipped: '{side} {pages}: graphics and images were not compared (the page is too large to render, or could not be rendered).',
 };
 
 export type MessageKey = keyof typeof en;
@@ -335,6 +343,14 @@ const zh: Record<MessageKey, string> = {
   pairCancel: '取消',
   removePair: '删除这组配对',
   pair: '配对页面',
+  strikeAdded: '加了删除线：「{text}」',
+  strikeRemoved: '去掉了删除线：「{text}」',
+  underlineAdded: '加了下划线：「{text}」',
+  underlineRemoved: '去掉了下划线：「{text}」',
+  pageAddedNoText: '新增了一页没有文字的页面（只有图片或图形）',
+  pageRemovedNoText: '删除了一页没有文字的页面（只有图片或图形）',
+  pageResized: '页面尺寸变化：{from} → {to}',
+  noticeVisualSkipped: '{side}{pages}未比较图形和图片（页面太大无法渲染，或渲染失败）。',
 };
 
 const dicts: Record<Lang, Record<MessageKey, string>> = { en, zh };
