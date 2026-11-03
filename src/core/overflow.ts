@@ -57,6 +57,42 @@ function blockEdges(doc: DocModel, page?: number): { left?: number; right?: numb
 }
 
 /**
+ * Where the lines of ragged text end at most: lines that are not the last of
+ * their paragraph end near the measure; the longer of them (80th
+ * percentile) give it.
+ */
+function measureEnd(doc: DocModel, page?: number): number | undefined {
+  const lines = doc.lines.filter((l) => (page === undefined || l.page === page) && !l.furniture && l.end > l.start);
+  const last = new Map<number, number>();
+  for (const l of lines) last.set(l.block, l.id);
+  const ends = lines
+    .filter((l) => last.get(l.block) !== l.id)
+    .map((l) => l.rect.x + l.rect.w)
+    .sort((a, b) => a - b);
+  if (ends.length < 3) return undefined;
+  return ends[Math.floor(0.8 * (ends.length - 1))];
+}
+
+/**
+ * The edge that more than half of the pages (of those where it can be told)
+ * share, to 3 pt, when it lies more than MARGIN_TOL from the old document's.
+ * A new template moves the text block of most pages the same way; a table
+ * widened into the margins moves only the block of its own page (where its
+ * rows are most of the lines).
+ */
+function sharedEdge(edges: (number | undefined)[], old: number | undefined): number | undefined {
+  if (old === undefined) return undefined;
+  const known = edges.filter((v): v is number => v !== undefined);
+  let best: number | undefined;
+  let count = 0;
+  for (const v of known) {
+    const n = known.filter((u) => Math.abs(u - v) <= 3).length;
+    if (n > count) [best, count] = [v, n];
+  }
+  return best !== undefined && 2 * count > known.length && Math.abs(best - old) > MARGIN_TOL ? best : undefined;
+}
+
+/**
  * Find text in the new document that is cut off by the page edge, or that
  * sticks out into the margin — further than anything in the old document
  * and out of the page's own text block. Typically a table or a long line
@@ -81,6 +117,16 @@ export function findOverflow(oldDoc: DocModel, newDoc: DocModel, A: Token[], B: 
     if (!b) blocks.set(page, (b = blockEdges(newDoc, page)));
     return b;
   };
+  // The edges of a new template, on the left and on the right (where
+  // justified lines end, or ragged lines at most).
+  const pages = newDoc.pages.map((_, p) => p);
+  const templateLeft = sharedEdge(
+    pages.map((p) => block(p).left),
+    oldLeft,
+  );
+  const oldEnd = blockEdges(oldDoc).right ?? measureEnd(oldDoc);
+  const ends = new Map(pages.map((p) => [p, block(p).right ?? measureEnd(newDoc, p)]));
+  const templateRight = sharedEdge([...ends.values()], oldEnd);
 
   const perPage = new Map<number, { edge: Edge; toks: Token[]; idx: number[] }>();
   B.forEach((t, k) => {
@@ -89,18 +135,21 @@ export function findOverflow(oldDoc: DocModel, newDoc: DocModel, A: Token[], B: 
     for (const r of t.rects) edge = edge ?? edgeOf(r, pg.width, pg.height);
     const ext = edge ? undefined : extents.get(Math.round(pg.width));
     if (ext) {
-      // When the page's text block starts elsewhere than the old document's
-      // (a new template with other margins), the page's own block counts as
+      // When the page's text block starts where the new template puts it,
+      // elsewhere than the old document's, the page's own block counts as
       // body: its typical line start and end, or the old width widened by as
       // much as the left margin shrank.
       const own = block(t.page);
       let left = ext.left;
       let right = ext.right;
-      if (own.left !== undefined && oldLeft !== undefined && Math.abs(own.left - oldLeft) > MARGIN_TOL) {
+      if (own.left !== undefined && oldLeft !== undefined && templateLeft !== undefined && Math.abs(own.left - templateLeft) <= 3) {
         left = Math.min(left, own.left);
         if (own.right !== undefined) right = Math.max(right, own.right);
         else right += Math.max(0, oldLeft - own.left);
       }
+      // Only the right margin changed.
+      const end = ends.get(t.page);
+      if (end !== undefined && templateRight !== undefined && Math.abs(end - templateRight) <= 3) right = Math.max(right, end);
       if (t.rects.some((r) => r.x + r.w > right + MARGIN_TOL || r.x < left - MARGIN_TOL)) edge = 'margin';
     }
     if (!edge || wasOverflowing(k)) return;
