@@ -92,6 +92,13 @@ test('a table header row repeated at the top of a continuation page is a consequ
   assert.ok(notices('zh', r).some((n) => n.text.includes('页首重复行')));
 });
 
+test('Chinese text deleted across a page break has no space at the break', () => {
+  const a = model(makeDoc('a', [[['第一条 总则'], ['本合同未尽事宜，双方可另行签']], [['订补充协议，补充协议与本合同具有同等法律效力。'], ['第二条 其他']]]));
+  const b = model(makeDoc('b', [[['第一条 总则']], [['第二条 其他']]]));
+  const del = compareDocs(a, b).changes.filter((c) => c.kind === 'delete');
+  assert.deepEqual(del.map((c) => c.old.text), ['本合同未尽事宜，双方可另行签订补充协议，补充协议与本合同具有同等法律效力。']);
+});
+
 test('a line added at a page top where the page break did not move is still an edit', () => {
   const a = makeDoc('a', [[intro, table([H, ...rows.slice(0, 4)])], [table(rows.slice(4)), ['End of the parameter list.']]]);
   const b = makeDoc('b', [[intro, table([H, ...rows.slice(0, 4)])], [table([H, ...rows.slice(4)]), ['End of the parameter list.']]]);

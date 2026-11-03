@@ -213,8 +213,10 @@ export function joinTokens(tokens: Token[]): string {
     const t = tokens[k];
     if (k > 0 && t.spaceBefore) {
       const prev = tokens[k - 1];
-      // A line break between two CJK characters is not a space.
-      const cjkBreak = prev.line !== t.line && prev.block === t.block && (isWideToken(prev) || isWideToken(t));
+      // A line break between two CJK characters is not a space, also where
+      // the paragraph goes on over a page break.
+      const wide = isWideToken(prev) || isWideToken(t);
+      const cjkBreak = prev.line !== t.line && ((prev.block === t.block && wide) || (prev.page !== t.page && isWideToken(prev) && isWideToken(t)));
       if (!cjkBreak) s += ' ';
     }
     s += t.text;

@@ -1331,12 +1331,17 @@ function repeatedAtPageTop(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): Set<Hunk
   }
   const lineStart = (T: Token[], k: number) => k === 0 || T[k - 1].line !== T[k].line;
   const lineEnd = (T: Token[], k: number) => k === T.length || T[k].line !== T[k - 1].line;
+  /** Body text comes before token k on its page (running headers, when compared, do not count). */
+  const below = (T: Token[], k: number) => {
+    for (let j = k - 1; j >= 0 && T[j].page === T[k].page; j--) if (!T[j].furniture) return true;
+    return false;
+  };
   for (const h of pure) {
     const del = h.a1 > h.a0;
     const [T, U, s, e, match] = del ? [A, B, h.a0, h.a1, toB] : [B, A, h.b0, h.b1, toA];
     const page = T[s].page;
     // Whole lines (at most a few: a header row), first on their page.
-    if (e - s > 60 || (s > 0 && T[s - 1].page === page) || T[e - 1].page !== page || !lineEnd(T, e)) continue;
+    if (e - s > 60 || below(T, s) || !lineStart(T, s) || T[e - 1].page !== page || !lineEnd(T, e)) continue;
     let earlier = false;
     for (let q = 0; q + (e - s) <= s && T[q].page < page && !earlier; q++) {
       if (T[q].key !== T[s].key || !lineStart(T, q) || T[q + e - s - 1].page >= page || !lineEnd(T, q + e - s)) continue;
@@ -1347,8 +1352,7 @@ function repeatedAtPageTop(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): Set<Hunk
     let k = e;
     while (k < T.length && T[k].page === page && match[k] < 0) k++;
     if (k >= T.length || T[k].page !== page) continue;
-    const m = match[k];
-    if (m > 0 && U[m - 1].page === U[m].page) out.add(h);
+    if (below(U, match[k])) out.add(h);
   }
   return out;
 }
