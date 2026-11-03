@@ -216,10 +216,11 @@ function splitAtBlocks(ctx: Ctx, h: Hunk): Hunk[] {
 
 /**
  * Whether the paragraph around hunk `h` on side `whole` (which stays in one
- * block) continues with matched words right before and right after the
- * hunk, while the other side's matched words lie in the block before and
- * the block after its own boundary, and that side's changed tokens all lie
- * in those two blocks (no whole paragraph in between).
+ * block) continues with matched words (two or more, not one coincidental
+ * word) right before and right after the hunk, while the other side's
+ * matched words lie in the block before and the block after its own
+ * boundary, and that side's changed tokens all lie in those two blocks (no
+ * whole paragraph in between).
  */
 function carriesOn(ctx: Ctx, h: Hunk, whole: 'a' | 'b'): boolean {
   const [W, O] = whole === 'a' ? [ctx.A, ctx.B] : [ctx.B, ctx.A];
@@ -229,9 +230,10 @@ function carriesOn(ctx: Ctx, h: Hunk, whole: 'a' | 'b'): boolean {
   const after = O[o1].block;
   for (let k = o0; k < o1; k++) if (O[k].block !== before && O[k].block !== after) return false;
   const words = (dir: 1 | -1) => {
+    let n = 0;
     for (let i = dir < 0 ? w0 - 1 : w1, j = dir < 0 ? o0 - 1 : o1; W[i] && O[j] && W[i].key === O[j].key; i += dir, j += dir) {
       if (W[i].block !== block || O[j].block !== (dir < 0 ? before : after)) return false;
-      if (W[i].kind !== 'punct') return true;
+      if (W[i].kind !== 'punct' && ++n === 2) return true;
     }
     return false;
   };
@@ -646,6 +648,7 @@ function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, aft
   const MIN = 6;
   const SIM = 0.8;
   const SHORT_SIM = 0.7;
+  const MAX_SWAP = 300;
   const { ka, kb } = ctx;
   const wholeLines = (T: Token[], s: number, e: number) =>
     e > s && (s === 0 || T[s - 1].line !== T[s].line) && (e === T.length || T[e].line !== T[e - 1].line);
@@ -659,13 +662,34 @@ function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, aft
     }
     return { m, n };
   };
-  // Short passages: pure deletions and insertions of whole lines only.
+  // A side of a rewrite only when both its sides are (nearly) whole lines
+  // (whole paragraphs, or sentences set one to a line): a rewrite of part of
+  // a line is an edit in place. Short passages: pure deletions and
+  // insertions of whole lines only.
+  const most = (T: Token[], s: number, e: number) => {
+    const words = (from: number, to: number) => T.slice(from, to).filter((t) => t.kind !== 'punct').length;
+    let from = s;
+    while (from > 0 && T[from - 1].line === T[s].line) from--;
+    let to = e;
+    while (to < T.length && T[to].line === T[e - 1].line) to++;
+    return words(s, e) >= 0.8 * words(from, to);
+  };
+  // (Up to MAX_SWAP tokens a side, which bounds the work on long rewrites.)
+  const paragraphs = (h: Hunk) => h.a1 - h.a0 <= MAX_SWAP && h.b1 - h.b0 <= MAX_SWAP && most(ctx.A, h.a0, h.a1) && most(ctx.B, h.b0, h.b1);
   const dels = hunks
     .map((h, idx) => ({ h, idx, short: false, ...content(ka, ctx.A, h.a0, h.a1) }))
-    .filter((d) => d.h.a1 > d.h.a0 && (d.n >= MIN || (d.h.b0 === d.h.b1 && d.n >= 2 && (d.short = wholeLines(ctx.A, d.h.a0, d.h.a1)))));
+    .filter(
+      (d) =>
+        d.h.a1 > d.h.a0 &&
+        (d.h.b0 === d.h.b1 ? d.n >= MIN || (d.n >= 2 && (d.short = wholeLines(ctx.A, d.h.a0, d.h.a1))) : d.n >= MIN && paragraphs(d.h)),
+    );
   const inss = hunks
     .map((h, idx) => ({ h, idx, short: false, ...content(kb, ctx.B, h.b0, h.b1) }))
-    .filter((d) => d.h.b1 > d.h.b0 && (d.n >= MIN || (d.h.a0 === d.h.a1 && d.n >= 2 && (d.short = wholeLines(ctx.B, d.h.b0, d.h.b1)))));
+    .filter(
+      (d) =>
+        d.h.b1 > d.h.b0 &&
+        (d.h.a0 === d.h.a1 ? d.n >= MIN || (d.n >= 2 && (d.short = wholeLines(ctx.B, d.h.b0, d.h.b1))) : d.n >= MIN && paragraphs(d.h)),
+    );
   const candidates: { d: number; i: number; sim: number; matches: Int32Array }[] = [];
   dels.forEach((d, di) =>
     inss.forEach((ins, ii) => {

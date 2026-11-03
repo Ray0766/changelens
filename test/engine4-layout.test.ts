@@ -80,6 +80,9 @@ test('two paragraphs swapped around a third are two moves, and a table row moved
   const E = ['Disputes are settled by the courts of the city where the provider has its seat.'];
   const r = compareDocs(model(makeDoc('a', [[P0, X, Y, Z, E]])), model(makeDoc('b', [[P0, Z, Y, X, E]])));
   assert.deepEqual(r.changes.map((c) => c.kind), ['move', 'move']);
+  // The same with the sentences set one to a line in a single paragraph.
+  const lines = compareDocs(model(makeDoc('a', [[[...P0, ...X, ...Y, ...Z, ...E]]])), model(makeDoc('b', [[[...P0, ...Z, ...Y, ...X, ...E]]])));
+  assert.deepEqual(lines.changes.filter((c) => c.category === 'text').map((c) => c.kind), ['move', 'move']);
   const rows = ['Widgets 12 2.50 30.00', 'Bolts 40 0.10 4.00', 'Brackets 7 3.20 22.40', 'Hinges 16 1.75 28.00', 'Screws 300 0.02 6.00'];
   const t = (r: string[]) => model(makeDoc('t', [[['Item Qty Price Total', ...r]]]));
   const rr = compareDocs(t(rows), t([rows[0], rows[2], rows[3], 'Bolts 40 0.10 -4.00', rows[4]]));
