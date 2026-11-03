@@ -1,12 +1,15 @@
 import type { DocModel, DocText, Line, Rect, TextRun, Token, TokenKind } from './types.ts';
 import { charWeight, isWide } from './fontwidths.ts';
-import { detectFurniture } from './furniture.ts';
+import { detectFurniture, marginZone } from './furniture.ts';
 import { union } from './geometry.ts';
 
 interface Char {
   ch: string;
+  /** The character as classified: half-/full-width forms folded ("，" → ","). */
+  n: string;
   x0: number;
   x1: number;
+  /** The run, in the upright frame of its text direction (see upright()). */
   run: TextRun;
   /** Virtual separator inserted between runs. */
   virtual?: boolean;
@@ -17,8 +20,14 @@ interface RawLine {
   runs: TextRun[];
 }
 
-const WS = /\s| |　|​/;
+const WS = /\s|\u00a0|\u3000|\u200b/;
+const SHY = '\u00ad';
 
+/**
+ * Scripts compared character by character: Han and Japanese kana. Hangul is
+ * not included: Korean separates words with spaces, so it is compared word
+ * by word like Latin text.
+ */
 export function isCJK(cp: number): boolean {
   return (
     (cp >= 0x3040 && cp <= 0x30ff) || // Hiragana, Katakana
@@ -40,6 +49,50 @@ function classify(ch: string): 'space' | 'cjk' | 'alnum' | 'other' {
   return 'other';
 }
 
+/** Half-width and full-width forms ("１２，０００", "（", "ｱ") are tokenised like their ordinary counterparts. */
+function fold(ch: string): string {
+  const cp = ch.codePointAt(0)!;
+  return cp >= 0xff01 && cp <= 0xffee ? ch.normalize('NFKC') : ch;
+}
+
+// --------------------------------------------------------------- rotation ---
+
+/**
+ * Rotated text (angle ≠ 0, e.g. every run on a page with /Rotate 90) is laid
+ * out in the upright frame of its direction: the run is turned back by its
+ * angle so that it reads left to right, lines and characters are worked out
+ * there, and the resulting boxes are turned forward into page space.
+ */
+function upright(r: TextRun): TextRun {
+  if (r.angle === 0 || !r.rot) return r;
+  const a = (r.angle * Math.PI) / 180;
+  const u = r.rot.x * Math.cos(a) + r.baseline * Math.sin(a);
+  const v = -r.rot.x * Math.sin(a) + r.baseline * Math.cos(a);
+  return { ...r, x: u, y: v - r.rot.ascent, w: r.rot.len, h: r.rot.ascent + r.rot.descent, baseline: v };
+}
+
+/** Turn a rect from the upright frame of `run` into page space (dir 1) or back (dir -1); returns the bounding box. */
+function turn(rect: Rect, run: TextRun, dir: 1 | -1): Rect {
+  if (run.angle === 0 || !run.rot) return rect;
+  const a = (dir * run.angle * Math.PI) / 180;
+  const cos = Math.cos(a);
+  const sin = Math.sin(a);
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const [x, y] of [
+    [rect.x, rect.y],
+    [rect.x + rect.w, rect.y],
+    [rect.x + rect.w, rect.y + rect.h],
+    [rect.x, rect.y + rect.h],
+  ]) {
+    xs.push(x * cos - y * sin);
+    ys.push(x * sin + y * cos);
+  }
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
+
 /** Split runs into visual lines, using PDF.js EOL hints plus geometry. */
 function groupLines(page: number, runs: TextRun[]): RawLine[] {
   const lines: RawLine[] = [];
@@ -54,7 +107,7 @@ function groupLines(page: number, runs: TextRun[]): RawLine[] {
       // Whitespace runs never start a line; they only separate words.
       // (Their width often spans to the next table cell, so they do not
       // advance lastEnd.)
-      if (Math.abs(r.baseline - lastBaseline) < 0.5 * Math.max(lastSize, r.fontSize, 1)) cur.runs.push(r);
+      if (r.angle === cur.runs[0].angle && Math.abs(r.baseline - lastBaseline) < 0.5 * Math.max(lastSize, r.fontSize, 1)) cur.runs.push(r);
       if (r.eol) forceBreak = true;
       continue;
     }
@@ -63,11 +116,14 @@ function groupLines(page: number, runs: TextRun[]): RawLine[] {
       continue;
     }
     const size = Math.max(lastSize, r.fontSize, 1);
+    // Runs share a line only in the same direction; rotated runs are in the
+    // upright frame of their direction (rotated runs without that geometry
+    // stay on their own).
     const sameLine =
       cur !== null &&
       !forceBreak &&
-      r.angle === 0 &&
-      cur.runs[0].angle === 0 &&
+      r.angle === cur.runs[0].angle &&
+      (r.angle === 0 || r.rot !== undefined) &&
       Math.abs(r.baseline - lastBaseline) < 0.5 * size &&
       r.x > lastEnd - 0.6 * size;
     if (!sameLine) {
@@ -97,7 +153,7 @@ function lineChars(line: RawLine): Char[] {
       const gap = run.x - prevEnd;
       const lastCh = chars.length ? chars[chars.length - 1].ch : ' ';
       if (gap > 0.18 * Math.max(run.fontSize, prevRun.fontSize) && !WS.test(lastCh) && !WS.test(cps[0])) {
-        chars.push({ ch: ' ', x0: prevEnd, x1: run.x, run, virtual: true });
+        chars.push({ ch: ' ', n: ' ', x0: prevEnd, x1: run.x, run, virtual: true });
       }
     }
     const weights = cps.map((c) => charWeight(c, run.family));
@@ -107,7 +163,7 @@ function lineChars(line: RawLine): Char[] {
       const x0 = run.x + (run.w * acc) / total;
       acc += weights[k];
       const x1 = run.x + (run.w * acc) / total;
-      chars.push({ ch: cps[k], x0, x1, run });
+      chars.push({ ch: cps[k], n: fold(cps[k]), x0, x1, run });
     }
     prevEnd = run.x + run.w;
     prevRun = run;
@@ -116,12 +172,19 @@ function lineChars(line: RawLine): Char[] {
 }
 
 const JOIN_DIGITS = new Set(['.', ',', ':', '/']);
-const JOIN_ALNUM = new Set(["'", '’', '-', '‐', '‑']);
-const HYPHENS = new Set(['-', '‐', '­']);
+/**
+ * Joined between two letters or digits: apostrophes, hyphens, and the figure
+ * dash, en dash and minus of ranges ("10–20" is one token, like "10-20";
+ * baseKey compares the dashes alike).
+ */
+const JOIN_ALNUM = new Set(["'", '’', '-', '\u2010', '\u2011', '\u2012', '\u2013', '\u2212']);
+const HYPHENS = new Set(['-', '\u2010', SHY]);
 /** Minus/plus signs: hyphen-minus, U+2212 minus, en dash (often used as minus), plus. */
 const SIGNS = new Set(['-', '\u2212', '\u2013', '+']);
-const OPENERS = new Set(['(', '[', '{', '=', ':', '$', '€', '£', '¥', '\uff08']);
+const OPENERS = new Set(['(', '[', '{', '=', ':', '$', '€', '£', '¥']);
 const CURRENCY = new Set(['$', '€', '£', '¥', '₹', '₩', '¢', '₽', '₺']);
+/** Spaces that group thousands ("1 234 567"); PDF.js often reports NBSP and NNBSP as plain spaces. */
+const GROUP_SPACE = new Set([' ', '\u00a0', '\u2009', '\u202f']);
 
 function tokenKind(text: string, cls: string): TokenKind {
   if (cls === 'cjk') return 'cjk';
@@ -129,14 +192,18 @@ function tokenKind(text: string, cls: string): TokenKind {
   return DIGIT.test(text) && !LETTER.test(text) ? 'number' : 'word';
 }
 
-/** Normalisation shared by every comparison: ligatures, quotes, widths. */
+/**
+ * Normalisation shared by every comparison: ligatures, quotes, widths, dash
+ * styles and the length of dot leaders ("Introduction ........ 9"), which
+ * follows the layout. Hyphens inside words are kept ("re-sign" ≠ "resign").
+ */
 export function baseKey(text: string): string {
   return text
     .normalize('NFKC')
     .replace(/[‘’‚‛′]/g, "'")
     .replace(/[“”„‟″]/g, '"')
     .replace(/[‐-―−]/g, '-')
-    .replace(/(?<=\p{L})-(?=\p{L})/gu, '');
+    .replace(/([.·‧・])\1{2,}/g, '$1$1$1');
 }
 
 /** Reconstruct readable text from tokens, honouring original spacing. */
@@ -166,14 +233,92 @@ interface Tok {
   spaceBefore: boolean;
 }
 
+/** Currency codes and units that mark an amount ("100 000 EUR", "CHF 100 000"). */
+const AMOUNT_WORD = /^(?:eur|usd|chf|gbp|cny|rmb|jpy|cad|aud|sek|nok|dkk|pln|czk|huf|fr|kr|zł|euros?|dollars?|francs?)$/i;
+
+/** The character or word next to position `i` (skipping one space) in direction `dir`. */
+function neighbour(chars: Char[], i: number, dir: 1 | -1): string {
+  if (chars[i] && GROUP_SPACE.has(chars[i].ch)) i += dir;
+  if (!chars[i]) return '';
+  if (!LETTER.test(chars[i].n)) return chars[i].n;
+  let w = '';
+  while (chars[i] && LETTER.test(chars[i].n)) {
+    w = dir === 1 ? w + chars[i].n : chars[i].n + w;
+    i += dir;
+  }
+  return w;
+}
+
+/**
+ * If chars[j] is a space that groups thousands ("1 234 567", "12 500 €"),
+ * return the index after the last group it starts, else -1. The digits from
+ * `start` to j must be a 1–3 digit number ("2025 100" is not grouped), every
+ * group exactly three digits that no letter follows, and all spaces inside
+ * one text run (a gap between runs, such as a table column, never joins).
+ * PDF.js often reports no-break and thin spaces as plain spaces, so a plain
+ * space only joins in an amount-like context: a 1–2 digit lead, three or
+ * more groups, or a currency sign, code or % next to the number. "100 200"
+ * alone stays two numbers.
+ */
+function groupEnd(chars: Char[], start: number, j: number): number {
+  if (j <= start || !GROUP_SPACE.has(chars[j].ch)) return -1;
+  const lead = chars
+    .slice(start, j)
+    .map((c) => c.n)
+    .join('');
+  if (!/^[0-9]{1,3}$/.test(lead)) return -1;
+  const run = chars[j - 1].run;
+  let e = j;
+  let groups = 0;
+  let special = false;
+  for (;;) {
+    const sp = chars[e];
+    if (!sp || sp.virtual || !GROUP_SPACE.has(sp.ch) || sp.run !== run) break;
+    let ok = true;
+    for (let i = e + 1; i <= e + 3; i++) if (!/[0-9]/.test(chars[i]?.n ?? '') || chars[i].run !== run) ok = false;
+    const after = chars[e + 4]?.n;
+    if (!ok || (after !== undefined && (DIGIT.test(after) || LETTER.test(after)))) break;
+    special ||= sp.ch !== ' ';
+    groups++;
+    e += 4;
+  }
+  if (groups === 0) return -1;
+  const amount = (w: string) => CURRENCY.has(w) || w === '%' || w === '\u2030' || AMOUNT_WORD.test(w);
+  const context = special || j - start <= 2 || groups >= 2 || amount(neighbour(chars, start - 1, -1)) || amount(neighbour(chars, e, 1));
+  return context ? e : -1;
+}
+
+/** End of a number whose digits start at `start`, scanning on from j. */
+function numberEnd(chars: Char[], start: number, j: number): number {
+  while (j < chars.length) {
+    const cj = chars[j].n;
+    if (DIGIT.test(cj)) j++;
+    else if (JOIN_DIGITS.has(cj) && DIGIT.test(chars[j + 1]?.n ?? '')) j += 2;
+    else {
+      const g = groupEnd(chars, start, j);
+      if (g < 0) break;
+      j = g;
+    }
+  }
+  return j;
+}
+
+const textOf = (chars: Char[]) => chars.map((c) => c.ch).join('');
+
 function tokenizeChars(chars: Char[]): Tok[] {
   const out: Tok[] = [];
   let space = true;
   let k = 0;
   while (k < chars.length) {
     const c = chars[k];
-    const cls = classify(c.ch);
-    if (c.ch === '­') {
+    const cls = classify(c.n);
+    if (c.ch === SHY) {
+      // A soft hyphen at the end of a line marks a word broken across lines
+      // (re-joined by joinHyphenation); anywhere else it is invisible.
+      const last = out[out.length - 1];
+      if (!space && last?.kind === 'word' && chars.slice(k + 1).every((x) => WS.test(x.ch))) {
+        out.push({ text: SHY, kind: 'punct', chars: [c], spaceBefore: false });
+      }
       k++;
       continue;
     }
@@ -185,45 +330,55 @@ function tokenizeChars(chars: Char[]): Tok[] {
     if (cls === 'alnum') {
       let j = k + 1;
       while (j < chars.length) {
-        const cj = chars[j].ch;
+        const cj = chars[j].n;
         if (classify(cj) === 'alnum') {
           j++;
           continue;
         }
-        const next = chars[j + 1]?.ch;
-        const prev = chars[j - 1].ch;
+        const next = chars[j + 1]?.n;
+        const prev = chars[j - 1].n;
         if (next !== undefined && JOIN_DIGITS.has(cj) && DIGIT.test(prev) && DIGIT.test(next)) {
           j += 2;
           continue;
         }
-        if (next !== undefined && JOIN_ALNUM.has(cj) && classify(next) === 'alnum') {
+        // "re-sign", "10–20", and a soft hyphen inside a word ("infor\u00admation").
+        if (next !== undefined && (JOIN_ALNUM.has(cj) || cj === SHY) && classify(next) === 'alnum') {
           j += 2;
+          continue;
+        }
+        const g = groupEnd(chars, k, j);
+        if (g > 0) {
+          j = g;
           continue;
         }
         break;
       }
-      const slice = chars.slice(k, j);
-      const text = slice.map((s) => s.ch).join('');
+      const slice = chars.slice(k, j).filter((x) => x.ch !== SHY);
+      const text = textOf(slice);
       out.push({ text, kind: tokenKind(text, cls), chars: slice, spaceBefore: space });
       space = false;
       k = j;
       continue;
     }
+    // A rule or leader ("_____", "........", "———") is one token.
+    if (cls === 'other' && chars[k + 1]?.ch === c.ch && chars[k + 2]?.ch === c.ch) {
+      let j = k + 3;
+      while (chars[j]?.ch === c.ch) j++;
+      const slice = chars.slice(k, j);
+      out.push({ text: textOf(slice), kind: 'punct', chars: slice, spaceBefore: space });
+      space = false;
+      k = j;
+      continue;
+    }
     // Accounting negative: "(1,200)" is one number.
-    if (c.ch === '(' && DIGIT.test(chars[k + 1]?.ch ?? '')) {
-      const prev = chars[k - 1]?.ch;
+    if (c.n === '(' && DIGIT.test(chars[k + 1]?.n ?? '')) {
+      const prev = chars[k - 1]?.n;
       if (!prev || space || OPENERS.has(prev)) {
-        let j = k + 1;
-        while (j < chars.length) {
-          const cj = chars[j].ch;
-          if (DIGIT.test(cj)) j++;
-          else if (JOIN_DIGITS.has(cj) && DIGIT.test(chars[j + 1]?.ch ?? '')) j += 2;
-          else break;
-        }
-        const after = chars[j + 1]?.ch;
-        if (chars[j]?.ch === ')' && (after === undefined || classify(after) !== 'alnum')) {
+        const j = numberEnd(chars, k + 1, k + 1);
+        const after = chars[j + 1]?.n;
+        if (chars[j]?.n === ')' && (after === undefined || classify(after) !== 'alnum')) {
           const slice = chars.slice(k, j + 1);
-          out.push({ text: slice.map((x) => x.ch).join(''), kind: 'number', chars: slice, spaceBefore: space });
+          out.push({ text: textOf(slice), kind: 'number', chars: slice, spaceBefore: space });
           space = false;
           k = j + 1;
           continue;
@@ -233,25 +388,20 @@ function tokenizeChars(chars: Char[]): Tok[] {
     // A sign directly in front of a digit belongs to the number ("−500"),
     // unless it joins two words or numbers ("2026-11", "A-3").
     // "−€62.40": a sign in front of a currency symbol belongs to the amount too.
-    const viaCurrency = SIGNS.has(c.ch) && CURRENCY.has(chars[k + 1]?.ch ?? '') && DIGIT.test(chars[k + 2]?.ch ?? '');
-    if (SIGNS.has(c.ch) && (viaCurrency || DIGIT.test(chars[k + 1]?.ch ?? ''))) {
-      const prev = chars[k - 1]?.ch;
+    const viaCurrency = SIGNS.has(c.n) && CURRENCY.has(chars[k + 1]?.n ?? '') && DIGIT.test(chars[k + 2]?.n ?? '');
+    if (SIGNS.has(c.n) && (viaCurrency || DIGIT.test(chars[k + 1]?.n ?? ''))) {
+      const prev = chars[k - 1]?.n;
       if (!prev || space || OPENERS.has(prev)) {
-        let j = k + (viaCurrency ? 3 : 2);
-        while (j < chars.length) {
-          const cj = chars[j].ch;
-          if (DIGIT.test(cj)) j++;
-          else if (JOIN_DIGITS.has(cj) && DIGIT.test(chars[j + 1]?.ch ?? '')) j += 2;
-          else break;
-        }
+        const d = k + (viaCurrency ? 2 : 1);
+        const j = numberEnd(chars, d, d + 1);
         const slice = chars.slice(k, j);
-        out.push({ text: slice.map((x) => x.ch).join(''), kind: 'number', chars: slice, spaceBefore: space });
+        out.push({ text: textOf(slice), kind: 'number', chars: slice, spaceBefore: space });
         space = false;
         k = j;
         continue;
       }
     }
-    out.push({ text: c.ch, kind: tokenKind(c.ch, cls), chars: [c], spaceBefore: space });
+    out.push({ text: c.ch, kind: tokenKind(c.n, cls), chars: [c], spaceBefore: space });
     space = false;
     k++;
   }
@@ -297,18 +447,22 @@ export function buildDocModel(doc: DocText): DocModel {
   let blockId = -1;
 
   for (const page of doc.pages) {
-    const raw = groupLines(page.index, page.runs);
-    let prev: { rect: Rect; size: number; x: number } | null = null;
+    const raw = groupLines(page.index, page.runs.map(upright));
+    let prev: { rect: Rect; size: number; angle: number } | null = null;
     for (const rl of raw) {
       const chars = lineChars(rl);
       const toks = tokenizeChars(chars);
       if (toks.length === 0) continue;
+      // Geometry is worked out in the upright frame of the line's direction
+      // (page space for ordinary text) and turned into page space for output.
+      const frame = rl.runs[0];
       const rect = union(toks.map((t) => charsRect(t.chars)));
       const size = mostCommon(rl.runs.filter((r) => r.str.trim()).map((r) => Math.round(r.fontSize * 10) / 10));
       // New paragraph when the vertical gap is large or the font size jumps.
       const gap = prev ? rect.y - (prev.rect.y + prev.rect.h) : Infinity;
       const newBlock =
         !prev ||
+        prev.angle !== frame.angle ||
         gap > 0.75 * size ||
         gap < -2 * size ||
         Math.abs(size - prev.size) > 0.15 * Math.max(size, prev.size);
@@ -316,7 +470,7 @@ export function buildDocModel(doc: DocText): DocModel {
       const id = lines.length;
       const start = tokens.length;
       for (const t of toks) {
-        const r = charsRect(t.chars);
+        const r = turn(charsRect(t.chars), frame, 1);
         const runs = t.chars.filter((c) => !c.virtual).map((c) => c.run);
         const main = runs[0] ?? t.chars[0].run;
         tokens.push({
@@ -334,17 +488,20 @@ export function buildDocModel(doc: DocText): DocModel {
           furniture: false,
         });
       }
-      lines.push({
+      const line: Line = {
         id,
         page: page.index,
         block: blockId,
-        rect,
-        text: chars.map((c) => c.ch).join('').replace(/\s+/g, ' ').trim(),
+        rect: turn(rect, frame, 1),
+        text: textOf(chars).replace(/\u00ad/g, '').replace(/\s+/g, ' ').trim(),
         start,
         end: tokens.length,
         furniture: false,
-      });
-      prev = { rect, size, x: rect.x };
+      };
+      const zone = marginZone(rect, turn({ x: 0, y: 0, w: page.width, h: page.height }, frame, -1));
+      if (zone) line.zone = zone;
+      lines.push(line);
+      prev = { rect, size, angle: frame.angle };
     }
   }
 
@@ -353,11 +510,42 @@ export function buildDocModel(doc: DocText): DocModel {
 
   return {
     name: doc.name,
-    pages: doc.pages.map((p) => ({ index: p.index, width: p.width, height: p.height, unmapped: p.unmapped ?? 0 })),
+    pages: doc.pages.map((p) => {
+      const angle = textAngle(p.runs);
+      return { index: p.index, width: p.width, height: p.height, unmapped: p.unmapped ?? 0, ...(angle ? { textAngle: angle } : {}) };
+    }),
     tokens: joined.tokens,
     lines: joined.lines,
     runs: doc.pages.map((p) => p.runs),
   };
+}
+
+/** The direction most characters on a page run in (0 for ordinary text). */
+function textAngle(runs: TextRun[]): number {
+  const count = new Map<number, number>();
+  for (const r of runs) count.set(r.angle, (count.get(r.angle) ?? 0) + r.str.trim().length);
+  let best = 0;
+  for (const [angle, n] of count) if (n > (count.get(best) ?? 0)) best = angle;
+  return best;
+}
+
+/** German conjunctions after a suspended compound ("Ein- und Ausgaben", "Vor- bzw. Nachteile"). */
+const SUSPENDED_DE = new Set(['und', 'oder', 'bis', 'sowie', 'bzw']);
+/** English ones: "pre- and post-war", "short- to long-term". */
+const SUSPENDED_EN = new Set(['and', 'or', 'nor', 'to']);
+
+/**
+ * A hyphen at a line end followed by a conjunction marks a suspended
+ * compound, not a word broken across lines. For English the next word must
+ * also look like the second half of such a pair (hyphenated or capitalised),
+ * so that "pho-" + "to" still joins into "photo".
+ */
+function suspendedCompound(tokens: Token[], cont: Token, next: Line): boolean {
+  const w = cont.text.toLowerCase();
+  if (SUSPENDED_DE.has(w)) return true;
+  if (!SUSPENDED_EN.has(w)) return false;
+  const after = cont.i + 1 < next.end ? tokens[cont.i + 1] : undefined;
+  return after?.kind === 'word' && (/^\p{Lu}/u.test(after.text) || /\p{L}[-\u2010\u2011]\p{L}/u.test(after.text));
 }
 
 /**
@@ -379,13 +567,20 @@ function joinHyphenation(tokens: Token[], lines: Line[]): { tokens: Token[]; lin
     const word = tokens[line.end - 2];
     const cont = tokens[next.start];
     if (!hy || !word || !cont || drop.has(word.i)) continue;
-    if (!HYPHENS.has(hy.text) || hy.spaceBefore || word.kind !== 'word') continue;
-    if (cont.kind !== 'word' || !/^\p{Ll}/u.test(cont.text)) continue;
+    if (!HYPHENS.has(hy.text) || hy.spaceBefore || word.kind !== 'word' || cont.kind !== 'word') continue;
+    // A soft hyphen always marks a broken word; a visible one only before a
+    // lower-case continuation that is not the conjunction of a suspended compound.
+    if (hy.text !== SHY && (!/^\p{Ll}/u.test(cont.text) || suspendedCompound(tokens, cont, next))) continue;
+    // A hyphen-minus may also belong to the word ("well-" + "known"):
+    // syncHyphenation decides once both versions are known.
+    if (hy.text === '-') word.hyphenParts = [word.text, cont.text];
     word.text += cont.text;
     word.rects = [...word.rects, ...cont.rects];
     drop.add(hy.i);
     drop.add(cont.i);
   }
+  // Soft hyphens left over are invisible.
+  for (const t of tokens) if (t.text === SHY) drop.add(t.i);
   if (drop.size === 0) return { tokens, lines };
   const remap = new Int32Array(tokens.length + 1);
   const out: Token[] = [];
@@ -407,4 +602,32 @@ function joinHyphenation(tokens: Token[], lines: Line[]): { tokens: Token[]; lin
     return { ...l, start: s, end: e };
   });
   return { tokens: out, lines: outLines };
+}
+
+/**
+ * A hyphen-minus at a line end is either a line-break hyphen ("infor-" +
+ * "mation") or part of a compound ("well-" + "known"). Decide for each such
+ * word from how it is written where it is not broken — in the same version
+ * first, then in the other one — so that re-flowed text compares equal while
+ * an edit such as "re-sign" → "resign" is still reported. Without evidence
+ * the hyphen is dropped. Safe to call again (e.g. for another comparison).
+ */
+export function syncHyphenation(a: DocModel, b: DocModel): void {
+  if (!a.tokens.some((t) => t.hyphenParts) && !b.tokens.some((t) => t.hyphenParts)) return;
+  const norm = (s: string) => baseKey(s).toLowerCase();
+  const vocab = (d: DocModel) => new Set(d.tokens.filter((t) => !t.hyphenParts && t.kind === 'word').map((t) => norm(t.text)));
+  const va = vocab(a);
+  const vb = vocab(b);
+  for (const [d, own, other] of [
+    [a, va, vb],
+    [b, vb, va],
+  ] as const) {
+    for (const t of d.tokens) {
+      if (!t.hyphenParts) continue;
+      const [left, right] = t.hyphenParts;
+      const hyphenated = norm(left + '-' + right);
+      const keep = own.has(hyphenated) || (!own.has(norm(left + right)) && other.has(hyphenated));
+      t.text = keep ? left + '-' + right : left + right;
+    }
+  }
 }

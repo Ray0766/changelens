@@ -14,6 +14,16 @@ function multiply(m1: number[], m2: number[]): Matrix {
   ];
 }
 
+/**
+ * Control characters a crafted PDF can map glyphs to (terminal escape
+ * sequences, bidi overrides) are removed from extracted text and font names,
+ * so no output — terminal, JSON or report — carries them. Tabs and line
+ * breaks become spaces.
+ */
+export function cleanText(s: string): string {
+  return s.replace(/[\t\n\v\f\r\u0085]/g, ' ').replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '');
+}
+
 function familyOf(f: string | undefined): string {
   const s = (f ?? '').toLowerCase();
   if (s.includes('mono')) return 'monospace';
@@ -46,7 +56,7 @@ export async function extractPage(page: PDFPageProxy, index: number): Promise<Pa
         } catch {
           /* font not resolved */
         }
-        return [id, name.replace(/^[A-Z]{6}\+/, '')];
+        return [id, cleanText(name).replace(/^[A-Z]{6}\+/, '')];
       }),
     );
   } catch {
@@ -57,13 +67,14 @@ export async function extractPage(page: PDFPageProxy, index: number): Promise<Pa
   let unmapped = 0;
   for (const item of tc.items) {
     if (!('str' in item)) continue;
-    if (item.str === '' && item.width > 0 && !item.hasEOL) {
+    const str = cleanText(item.str);
+    if (str === '' && item.width > 0 && !item.hasEOL) {
       // A glyph drawn without a Unicode mapping: its text cannot be compared.
       const y = viewport.height - item.transform[5];
       if (y > viewport.height * 0.11 && y < viewport.height * 0.89) unmapped++;
       continue;
     }
-    if (item.str === '' && !item.hasEOL) continue;
+    if (str === '' && !item.hasEOL) continue;
     const style = tc.styles[item.fontName] ?? { fontFamily: 'sans-serif', ascent: 0.8, descent: -0.2 };
     const tx = multiply(viewport.transform, item.transform);
     const fontSize = Math.hypot(tx[2], tx[3]);
@@ -78,6 +89,7 @@ export async function extractPage(page: PDFPageProxy, index: number): Promise<Pa
     const bx = tx[4];
     const by = tx[5];
     let x: number, y: number, w: number, h: number;
+    let rot: TextRun['rot'];
     if (angle === 0) {
       x = bx;
       y = by - fontSize * ascent;
@@ -99,9 +111,10 @@ export async function extractPage(page: PDFPageProxy, index: number): Promise<Pa
       y = Math.min(...ys);
       w = Math.max(...xs) - x;
       h = Math.max(...ys) - y;
+      rot = { x: bx, len, ascent: ascent * fontSize, descent: -descent * fontSize };
     }
     runs.push({
-      str: item.str,
+      str,
       x,
       y,
       w,
@@ -112,6 +125,7 @@ export async function extractPage(page: PDFPageProxy, index: number): Promise<Pa
       family: familyOf(style.fontFamily),
       eol: item.hasEOL,
       angle,
+      ...(rot ? { rot } : {}),
     });
   }
   return { index, width: viewport.width, height: viewport.height, runs, unmapped };

@@ -12,7 +12,7 @@ import type {
   Token,
 } from './types.ts';
 import { defaultOptions } from './types.ts';
-import { baseKey, joinTokens } from './tokenize.ts';
+import { baseKey, joinTokens, syncHyphenation } from './tokenize.ts';
 import { cleanupSemantic, intern, matchSequences, opsFromMatches, type DiffOp, type Span } from './diff.ts';
 import { mergeLineRects } from './geometry.ts';
 import { isNumericPhrase, parseNumber } from './numbers.ts';
@@ -563,6 +563,7 @@ function buildAnchors(A: Token[], B: Token[], pairs: Int32Array): Anchor[] {
 export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<DiffOptions> = {}): CompareResult {
   const options: DiffOptions = { ...defaultOptions, ...opts };
   syncFurniture(oldDoc, newDoc);
+  syncHyphenation(oldDoc, newDoc);
   const include = (t: Token) =>
     !(options.ignoreFurniture && t.furniture) && !(options.ignorePunctuation && t.kind === 'punct');
   const keyOf = (t: Token) => {
@@ -699,6 +700,8 @@ function detectPositions(ctx: Ctx, pairs: Int32Array): Change[] {
     if (ps.length !== countOldLine.get(ol) || ps.length !== countNewLine.get(nl)) continue;
     const lo = oldDoc.lines[ol];
     const ln = newDoc.lines[nl];
+    // Positions are not comparable when the page's text runs in another direction (e.g. /Rotate changed).
+    if ((oldDoc.pages[lo.page].textAngle ?? 0) !== (newDoc.pages[ln.page].textAngle ?? 0)) continue;
     intact.push({ oldLine: ol, newLine: nl, dx: ln.rect.x - lo.rect.x, dy: ln.rect.y - lo.rect.y, page: [lo.page, ln.page] });
   }
   const out: Change[] = [];
@@ -916,7 +919,19 @@ function furnitureDifferences(a: DocModel, b: DocModel): number {
   const la = a.lines.filter((l) => l.furniture).map((l) => l.text);
   const lb = b.lines.filter((l) => l.furniture).map((l) => l.text);
   const [ka, kb] = intern(la, lb);
-  return opsFromMatches(matchSequences(ka, kb), la.length, lb.length).filter((o) => o.type !== 'equal').reduce((n, o) => n + Math.max(o.a1 - o.a0, o.b1 - o.b0), 0);
+  // A changed line is a deletion plus an insertion: count it once.
+  let n = 0;
+  let del = 0;
+  let ins = 0;
+  for (const o of [...opsFromMatches(matchSequences(ka, kb), la.length, lb.length), null]) {
+    if (o?.type === 'delete') del += o.a1 - o.a0;
+    else if (o?.type === 'insert') ins += o.b1 - o.b0;
+    else {
+      n += Math.max(del, ins);
+      del = ins = 0;
+    }
+  }
+  return n;
 }
 
 function caseOnlyDifferences(A: Token[], B: Token[], pairs: Int32Array): number {

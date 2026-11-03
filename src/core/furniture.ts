@@ -1,28 +1,54 @@
-import type { DocModel, DocText, Line, Token } from './types.ts';
+import type { DocModel, DocText, Line, Rect, Token } from './types.ts';
 
 const ZONE = 0.11;
 
-/** Words that, together with digits, make up a typical page-number line. */
-const PAGE_WORDS = new Set([
-  '', 'page', 'pageof', 'p', 'pg', 'of', 'seite', 'seitevon', 'pagina', 'paginade', 'páginade', 'página',
-  '第页', '第页共页', '共页第页', '页', '共页', 'ページ', '페이지',
-]);
-
-function zoneOf(doc: DocText, line: Line): 'top' | 'bottom' | null {
-  const p = doc.pages[line.page];
-  if (line.rect.y + line.rect.h < p.height * ZONE) return 'top';
-  if (line.rect.y > p.height * (1 - ZONE)) return 'bottom';
-  return null;
+/**
+ * The top or bottom margin zone a line lies in. Both rects are measured in
+ * the reading frame of the line (for rotated text, along its direction).
+ */
+export function marginZone(rect: Rect, page: Rect): 'top' | 'bottom' | undefined {
+  if (rect.y + rect.h < page.y + page.h * ZONE) return 'top';
+  if (rect.y > page.y + page.h * (1 - ZONE)) return 'bottom';
+  return undefined;
 }
 
+/** Roman numerals up to 89, as used for front-matter pages. */
+const ROMAN = /^(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})$/;
+const LABEL = String.raw`(?:page|p\.?|pg\.?|pag\.?|pág\.?|pagina|página|seite|s\.)`;
+const OF = String.raw`(?:/|of|von|de|di|sur)`;
+const PAGE_PATTERNS = [
+  // "3", "Page 3", "p. 3", "Page 3 of 10", "3 / 10", "Seite 3 von 10", "iv"
+  new RegExp(String.raw`^(?:${LABEL} ?)?(?<n>\d{1,3}|[ivxlc]+)(?: ?${OF} ?(?<m>\d{1,4}))?$`),
+  // "第 3 页", "第 3 页 / 共 10 页", "共 10 页 第 3 页", "3 页", "3 ページ", "3 페이지"
+  /^第 ?(?<n>\d{1,3}) ?页(?: ?[/,，、]? ?共 ?(?<m>\d{1,4}) ?页)?$/,
+  /^共 ?(?<m>\d{1,4}) ?页 ?[/,，、]? ?第 ?(?<n>\d{1,3}) ?页$/,
+  /^(?<n>\d{1,3}) ?(?:页|ページ|페이지)$/,
+];
+
+/**
+ * A page number: one small integer or roman numeral, optionally with page
+ * words and the page count ("Page 3 of 10"), and symmetric decoration
+ * ("- 3 -"). Amounts with separators, dates, times and lines holding other
+ * numbers are not page numbers.
+ */
 export function isPageNumberText(text: string): boolean {
-  if (!/\d/.test(text) && !/^[ivxlcdm]+$/i.test(text.trim())) return false;
-  const rest = text
-    .toLowerCase()
-    .replace(/\d+/g, '')
-    .replace(/^[ivxlcdm]+$/g, '')
-    .replace(/[\s\-–—|·•.,:/()[\]]/g, '');
-  return PAGE_WORDS.has(rest);
+  const orig = text.normalize('NFKC').replace(/\s+/g, ' ').trim();
+  let s = orig.toLowerCase();
+  const deco = /^([-–—|·•~*]+) ?(.+?) ?([-–—|·•~*]+)$/.exec(s) ?? /^[([](.+)[)\]]$/.exec(s);
+  if (deco) s = deco.length === 4 ? deco[2] : deco[1];
+  for (const re of PAGE_PATTERNS) {
+    const g = re.exec(s)?.groups;
+    if (!g) continue;
+    if (/^\d+$/.test(g.n)) return g.m === undefined || Number(g.n) <= Number(g.m);
+    // A roman numeral written in one case ("iv", "IV"; not "Li" or "mix").
+    return ROMAN.test(g.n) && g.m === undefined && (orig.includes(g.n) || orig.includes(g.n.toUpperCase()));
+  }
+  return false;
+}
+
+/** Zone plus digit-insensitive text: lines that repeat page after page share it. */
+function signature(line: Line): string | null {
+  return line.zone ? line.zone + ':' + line.text.toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, '') : null;
 }
 
 /**
@@ -31,17 +57,19 @@ export function isPageNumberText(text: string): boolean {
  * comparison.
  *
  * A line counts as furniture when it lies in the top or bottom margin zone and
- *  - looks like a page number ("3", "Page 3 of 10", "第 3 页 / 共 10 页"), or
  *  - its digit-insensitive text repeats in the same zone on at least half of
- *    the pages (minimum two).
+ *    the pages (minimum two), with identical text or numbers that follow the
+ *    page number, or
+ *  - it looks like a page number ("3", "Page 3 of 10", "第 3 页 / 共 10 页")
+ *    and is set apart from the body text: a paragraph of its own (or with
+ *    other furniture), not the last line of a paragraph or a table row.
  */
 export function detectFurniture(doc: DocText, lines: Line[], tokens: Token[]): void {
   const n = doc.pages.length;
   const groups = new Map<string, Line[]>();
   const sigs: (string | null)[] = lines.map((line) => {
-    const zone = zoneOf(doc, line);
-    if (!zone) return null;
-    const sig = zone + ':' + line.text.toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, '');
+    const sig = signature(line);
+    if (!sig) return null;
     let g = groups.get(sig);
     if (!g) groups.set(sig, (g = []));
     g.push(line);
@@ -55,10 +83,17 @@ export function detectFurniture(doc: DocText, lines: Line[], tokens: Token[]): v
     // Identical text on many pages: a running header/footer.
     if (group.every((l) => l.text === group[0].text) || tracksPageNumber(group)) furnitureSig.add(sig);
   }
+  const blocks = new Map<number, number[]>();
+  lines.forEach((l, k) => {
+    let b = blocks.get(l.block);
+    if (!b) blocks.set(l.block, (b = []));
+    b.push(k);
+  });
+  const repeated = (k: number) => sigs[k] !== null && furnitureSig.has(sigs[k]!);
+  const apart = (k: number) => blocks.get(lines[k].block)!.every((j) => j === k || repeated(j));
   lines.forEach((line, k) => {
-    const sig = sigs[k];
-    if (!sig) return;
-    if (furnitureSig.has(sig) || isPageNumberText(line.text)) {
+    if (!sigs[k]) return;
+    if (repeated(k) || (isPageNumberText(line.text) && apart(k))) {
       line.furniture = true;
       for (let t = line.start; t < line.end; t++) tokens[t].furniture = true;
     }
@@ -85,11 +120,6 @@ function tracksPageNumber(group: Line[]): boolean {
   return tracking;
 }
 
-function signature(height: number, line: Line): string | null {
-  const zone = line.rect.y + line.rect.h < height * ZONE ? 'top' : line.rect.y > height * (1 - ZONE) ? 'bottom' : null;
-  return zone ? zone + ':' + line.text.toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, '') : null;
-}
-
 /**
  * Make header/footer detection consistent across the two versions: a line
  * recognised as running header/footer in one document is also treated as
@@ -101,13 +131,13 @@ export function syncFurniture(a: DocModel, b: DocModel): void {
   for (const d of [a, b])
     for (const l of d.lines) {
       if (!l.furniture) continue;
-      const sig = signature(d.pages[l.page].height, l);
+      const sig = signature(l);
       if (sig) sigs.add(sig);
     }
   for (const d of [a, b])
     for (const l of d.lines) {
       if (l.furniture) continue;
-      const sig = signature(d.pages[l.page].height, l);
+      const sig = signature(l);
       if (sig && sigs.has(sig)) {
         l.furniture = true;
         for (let t = l.start; t < l.end; t++) d.tokens[t].furniture = true;

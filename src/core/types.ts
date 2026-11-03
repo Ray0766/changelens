@@ -32,6 +32,13 @@ export interface TextRun {
   eol: boolean;
   /** Rotation in degrees (0 for normal horizontal text). */
   angle: number;
+  /**
+   * Rotated runs only (angle ≠ 0, e.g. on a page with /Rotate): the text
+   * origin x (its y is `baseline`), the advance along the text direction and
+   * the ascent/descent in points, so that lines and per-word boxes can be
+   * worked out along the text direction.
+   */
+  rot?: { x: number; len: number; ascent: number; descent: number };
 }
 
 export interface PageText {
@@ -81,6 +88,12 @@ export interface Token {
   spaceBefore: boolean;
   /** Running header/footer or page number. */
   furniture: boolean;
+  /**
+   * A word re-joined across a line break at a hard hyphen ("well-" + "known"):
+   * its two parts. Whether the hyphen is part of the word is settled when two
+   * versions are compared (syncHyphenation in tokenize.ts).
+   */
+  hyphenParts?: [string, string];
 }
 
 export interface Line {
@@ -93,11 +106,19 @@ export interface Line {
   start: number;
   end: number;
   furniture: boolean;
+  /** The line lies in the top or bottom margin zone (measured along its text direction). */
+  zone?: 'top' | 'bottom';
 }
 
 export interface DocModel {
   name: string;
-  pages: { index: number; width: number; height: number; unmapped: number }[];
+  /**
+   * textAngle: the direction most of the page's text runs in, in degrees, when
+   * it is not horizontal (e.g. 90 or -90 on a page with /Rotate 90). Lines and
+   * word boxes follow that direction; positions are in page space, so they are
+   * not comparable with a page of the other version that has another angle.
+   */
+  pages: { index: number; width: number; height: number; unmapped: number; textAngle?: number }[];
   /** All tokens, including furniture, in reading order. */
   tokens: Token[];
   lines: Line[];
