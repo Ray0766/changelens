@@ -1,6 +1,6 @@
 import type { Change, CompareResult } from './types.ts';
 import { t, type Lang } from './i18n.ts';
-import { countLabel, describeChange, excerpt, kindLabel, locationLabel, notices, pageLabel, pairLabel, truncate } from './describe.ts';
+import { countLabel, describeChange, excerpt, kindLabel, locationLabel, notices, pageLabel, pairLabel, truncate, type Notice } from './describe.ts';
 import { countChanges } from './pipeline.ts';
 import { COLORS } from './crops.ts';
 
@@ -36,6 +36,25 @@ export function escapeHtml(s: string): string {
 
 const HOMEPAGE = 'https://github.com/Ray0766/changelens';
 
+/**
+ * Everything that was filtered out or not compared, for every output
+ * (terminal, HTML report, JSON), so the three cannot drift apart.
+ */
+export function reportNotices(lang: Lang, result: CompareResult, visualCompared = true): Notice[] {
+  const notes = notices(lang, result);
+  if (!visualCompared) notes.push({ level: 'info', text: t(lang, 'noticeNoVisual') });
+  return notes;
+}
+
+/**
+ * False when part of the documents was not compared: pages without text,
+ * unreadable glyphs, uncertain pairing (warnings) or graphics skipped. Then
+ * "no differences" is not an all-clear.
+ */
+export function comparedEverything(notes: Notice[], visualCompared = true): boolean {
+  return visualCompared && !notes.some((n) => n.level === 'warn');
+}
+
 export function excerptHtml(c: Change): string {
   const e = excerpt(c);
   const ctxB = e.before ? `<span class="ctx">${escapeHtml(e.before)}</span> ` : '';
@@ -48,7 +67,8 @@ export function excerptHtml(c: Change): string {
     case 'delete':
       return `${ctxB}<del>${escapeHtml(e.old)}</del>${ctxA}`;
     case 'move':
-      return `<mark class="mv">${escapeHtml(e.new)}</mark>`;
+      // Moved and edited: show the old wording too, so the edit is visible.
+      return e.old && e.old !== e.new ? `<del>${escapeHtml(e.old)}</del> <mark class="mv">${escapeHtml(e.new)}</mark>` : `<mark class="mv">${escapeHtml(e.new)}</mark>`;
     default:
       return e.new || e.old ? `<span class="q">${escapeHtml(e.new || e.old)}</span>` : '';
   }
@@ -138,7 +158,16 @@ mark.mv{background:color-mix(in srgb,var(--mv) 14%,transparent);color:inherit;pa
 footer{margin-top:40px;color:var(--muted);font-size:13px;text-align:center}
 footer a{color:inherit}
 @media (max-width:640px){.crops{grid-template-columns:1fr}}
-@media print{body{background:#fff;font-size:12px}main{padding:0}.change,.mapbox,.notices li{border-color:#ccc}a{color:inherit}}
+@media print{
+:root{color-scheme:light;--bg:#fff;--card:#fff;--ink:#1b1f24;--muted:#4a525b;--line:#ccc}
+body{background:#fff;font-size:12px}main{padding:0}.change,.mapbox,.notices li{border-color:#ccc}a{color:inherit}
+.notices li.warn{background:none;border-width:2px}
+.badge{background:none;color:var(--ink);border:1.5px solid currentColor}
+.b-text{color:var(--accent)}.b-del{color:var(--del)}.b-ins{color:var(--ins)}.b-mv{color:var(--mv)}.b-vis{color:var(--vis)}.b-num{color:#9a5d00}
+del{background:none;text-decoration-thickness:1.5px}
+ins{background:none;text-decoration:underline;text-decoration-color:var(--ins);text-decoration-thickness:1.5px}
+mark.mv{background:none;border-bottom:1.5px dotted var(--mv);border-radius:0}
+}
 `;
 
 function badgeClass(c: Change): string {
@@ -166,9 +195,8 @@ export function buildReport(input: ReportInput): string {
     lang === 'zh'
       ? `共 ${counts.total} 处修改：文字 ${counts.text} 处${counts.numbers ? `（其中数字 ${counts.numbers} 处）` : ''}，版式 ${counts.visual} 处。已审查 ${reviewed}/${changes.length}${questions ? `，其中 ${questions} 处需要关注` : ''}。`
       : `${countLabel(lang, counts.total)}: ${counts.text} in the text${counts.numbers ? ` (${counts.numbers} with numbers)` : ''} and ${counts.visual} in the layout. Reviewed ${reviewed} of ${changes.length}${questions ? `; ${questions} need attention` : ''}.`;
-  const notes = notices(lang, result);
   const visual = input.visualCompared ?? true;
-  if (!visual) notes.push({ level: 'info', text: t(lang, 'noticeNoVisual') });
+  const notes = reportNotices(lang, result, visual);
   const noticeHtml = notes.length
     ? `<ul class="notices">${notes.map((n) => `<li class="${n.level}">${n.level === 'warn' ? '⚠ ' : ''}${escapeHtml(n.text)}</li>`).join('')}</ul>`
     : '';
@@ -247,7 +275,7 @@ ${noticeHtml}
 </section>
 <section>
   <h2>${escapeHtml(t(lang, 'details'))}</h2>
-  ${changes.length ? items : `<p>${escapeHtml(t(lang, 'noChanges'))}</p>`}
+  ${changes.length ? items : `<p>${escapeHtml(t(lang, comparedEverything(notes, visual) ? 'noChanges' : 'noChangesIncomplete'))}</p>`}
 </section>
 ${method}
 <footer>ChangeLens · <a href="${escapeHtml(homepage)}">${escapeHtml(homepage.replace(/^https?:\/\//, ''))}</a></footer>
@@ -256,20 +284,36 @@ ${method}
 </html>`;
 }
 
-/** Machine-readable export of the comparison (no page images). */
+/**
+ * Machine-readable export of the comparison (no page images). `version` is
+ * the schema version; `tool.version` is the ChangeLens build. All page
+ * numbers are 1-based.
+ */
 export function buildJson(input: ReportInput): unknown {
   const { result, lang } = input;
   const reviews = input.reviews ?? {};
+  const visualCompared = input.visualCompared ?? true;
+  const notes = reportNotices(lang, result, visualCompared);
+  const page1 = <T extends { page: number }>(u: T): T => ({ ...u, page: u.page + 1 });
+  const coverage = (c: CompareResult['coverage']['old']) => ({
+    textless: c.textless.map((p) => p + 1),
+    unreadable: c.unreadable.map(page1),
+    ...(c.uncertain ? { uncertain: c.uncertain.map(page1) } : {}),
+  });
   return {
     generator: 'ChangeLens',
-    version: 1,
+    version: 2,
+    tool: { name: 'ChangeLens', version: input.version ?? null },
     old: { name: input.oldName, pages: result.oldDoc.pages.length },
     new: { name: input.newName, pages: result.newDoc.pages.length },
     options: result.options,
     stats: result.stats,
-    coverage: result.coverage,
+    visualCompared,
+    /** False when pages, glyphs or graphics were not compared (see notices). */
+    complete: comparedEverything(notes, visualCompared),
+    coverage: result.coverage && { old: coverage(result.coverage.old), new: coverage(result.coverage.new) },
     ignored: result.ignored,
-    notices: notices(lang, result),
+    notices: notes,
     files: input.files,
     manualPairs: result.pageLinks.filter((l) => l.manual).map((l) => ({ old: l.oldPage + 1, new: l.newPage + 1 })),
     minor: result.minor.map((c) => ({ id: c.id, description: describeChange(lang, c), location: locationLabel(lang, c) })),

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { readFile, writeFile } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { access, constants, readFile, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { openPdf } from '../node/pdf.ts';
@@ -10,8 +10,8 @@ import { buildDocModel } from '../core/tokenize.ts';
 import { compareDocs } from '../core/compare.ts';
 import { addVisualChanges, countChanges } from '../core/pipeline.ts';
 import { cropRegions, drawCrop, type CanvasLike, type Region } from '../core/crops.ts';
-import { buildJson, buildReport } from '../core/report.ts';
-import { countLabel, describeChange, kindLabel, locationLabel, notices } from '../core/describe.ts';
+import { buildJson, buildReport, comparedEverything, reportNotices } from '../core/report.ts';
+import { countLabel, describeChange, kindLabel, locationLabel } from '../core/describe.ts';
 import { createHash } from 'node:crypto';
 import { detectLang, explainOpenError, t, type Lang } from '../core/i18n.ts';
 import type { Change, CompareResult } from '../core/types.ts';
@@ -27,7 +27,8 @@ Usage:
 Options:
   -o, --out <file>         Write a shareable HTML review report
       --json <file>        Write all changes as JSON
-      --lang <en|zh>       Language of descriptions (default: from $LANG)
+      --lang <en|zh>       Language of descriptions: en or zh (zh-CN, en-US … also
+                           accepted; default: from $LANG)
       --no-visual          Skip the comparison of graphics, images and colours
       --no-format          Do not report bold / size / font changes
       --include-furniture  Also compare headers, footers and page numbers
@@ -35,15 +36,64 @@ Options:
       --ignore-punctuation Ignore punctuation differences
       --pair <old:new>     Treat old page <old> and new page <new> as the same page
                            (repeatable; e.g. --pair 2:3 for a page without text)
-      --fail-on-change     Exit with code 1 when differences are found (for CI)
-  -q, --quiet              Only print the summary line
+      --fail-on-change     Exit with code 1 when differences are found, 3 when
+                           none were found but not everything was compared (for CI)
+  -q, --quiet              Only print the summary line and the notes
   -h, --help               Show this help
   -v, --version            Show the version
+
+Exit codes:
+  0  Done. With --fail-on-change: no differences and everything was compared.
+  1  With --fail-on-change: differences were found.
+  2  Wrong arguments, a PDF could not be read, or an output file could not be
+     written (or would overwrite an input).
+  3  With --fail-on-change: no differences in what was compared, but some of it
+     was not compared: pages without a text layer, unreadable characters, or
+     graphics (--no-visual, or @napi-rs/canvas missing). The notes say what.
 
 Examples:
   changelens contract-v1.pdf contract-v2.pdf -o review.html
   changelens a.pdf b.pdf --json changes.json --fail-on-change
 `;
+
+/**
+ * Text from a PDF (and file names) can contain control characters or bidi
+ * overrides that would rewrite the terminal (e.g. ESC[2J clears the screen).
+ * Show them as visible escapes instead; colour codes are added afterwards.
+ */
+function safe(s: string): string {
+  return s.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, (ch) => {
+    const n = ch.charCodeAt(0);
+    return n < 0x100 ? '\\x' + n.toString(16).padStart(2, '0') : '\\u' + n.toString(16).padStart(4, '0');
+  });
+}
+
+/** Refuse output paths that would overwrite an input or each other, or cannot be written. */
+async function checkOutputs(inputs: string[], outputs: { flag: string; path: string }[]): Promise<string | null> {
+  const same = async (a: string, b: string) => {
+    if (resolve(a) === resolve(b)) return true;
+    // Same file under another name (symlink, hard link, case-insensitive file system).
+    const [sa, sb] = await Promise.all([stat(a).catch(() => null), stat(b).catch(() => null)]);
+    return !!sa && !!sb && sa.dev === sb.dev && sa.ino === sb.ino;
+  };
+  for (const [k, o] of outputs.entries()) {
+    for (const input of inputs)
+      if (await same(o.path, input)) return `${o.flag} ${o.path}: this is an input file and would be overwritten. Choose another name.`;
+    for (const other of outputs.slice(k + 1))
+      if (await same(o.path, other.path)) return `${o.flag} and ${other.flag} name the same file (${o.path}). Choose two different names.`;
+    const existing = await stat(o.path).catch(() => null);
+    if (existing?.isDirectory()) return `${o.flag} ${o.path}: this is a folder; give a file name.`;
+    const dir = dirname(resolve(o.path));
+    try {
+      if (!(await stat(dir)).isDirectory()) return `${o.flag} ${o.path}: ${dir} is not a folder.`;
+      await access(existing ? o.path : dir, constants.W_OK);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      return code === 'ENOENT' ? `${o.flag} ${o.path}: the folder ${dir} does not exist.` : `${o.flag} ${o.path}: no permission to write there (${code}).`;
+    }
+  }
+  return null;
+}
 
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 const c = (code: string, s: string) => (tty ? `\x1b[${code}m${s}\x1b[0m` : s);
@@ -124,8 +174,24 @@ async function main(): Promise<number> {
     process.stderr.write(HELP);
     return 2;
   }
-  const lang: Lang = o.lang === 'zh' || o.lang === 'en' ? o.lang : detectLang(process.env.LC_ALL || process.env.LANG || '');
+  let lang: Lang;
+  if (o.lang === undefined) lang = detectLang(process.env.LC_ALL || process.env.LANG || '');
+  else if (/^(zh|en)([-_][\w-]*)?$/i.test(o.lang)) lang = detectLang(o.lang);
+  else {
+    process.stderr.write(`Unknown --lang value "${safe(o.lang)}" (use en or zh, e.g. --lang zh)\n`);
+    return 2;
+  }
   const [oldPath, newPath] = positionals;
+  // Check the output paths before the (possibly long) comparison.
+  const outputs = [
+    ...(o.out !== undefined ? [{ flag: '-o', path: o.out }] : []),
+    ...(o.json !== undefined ? [{ flag: '--json', path: o.json }] : []),
+  ];
+  const outputError = await checkOutputs([oldPath, newPath], outputs);
+  if (outputError) {
+    process.stderr.write(safe(outputError) + '\n');
+    return 2;
+  }
 
   const open = async (path: string) => {
     try {
@@ -139,7 +205,7 @@ async function main(): Promise<number> {
   const newDoc = buildDocModel(await extractText(pdfs.new, basename(newPath)));
   for (const d of [oldDoc, newDoc]) {
     if (d.tokens.length === 0) {
-      process.stderr.write(t(lang, 'noText', { name: d.name }) + '\n');
+      process.stderr.write(safe(t(lang, 'noText', { name: d.name })) + '\n');
       return 2;
     }
   }
@@ -147,7 +213,7 @@ async function main(): Promise<number> {
   for (const p of o.pair ?? []) {
     const m = /^(\d+):(\d+)$/.exec(p);
     if (!m || +m[1] < 1 || +m[2] < 1 || +m[1] > oldDoc.pages.length || +m[2] > newDoc.pages.length) {
-      process.stderr.write(`--pair ${p}: expected OLD:NEW with pages 1–${oldDoc.pages.length} and 1–${newDoc.pages.length}, e.g. --pair 2:3\n`);
+      process.stderr.write(`--pair ${safe(p)}: expected OLD:NEW with pages 1–${oldDoc.pages.length} and 1–${newDoc.pages.length}, e.g. --pair 2:3\n`);
       return 2;
     }
     manualPairs.push([+m[1] - 1, +m[2] - 1]);
@@ -174,20 +240,20 @@ async function main(): Promise<number> {
   }
 
   const counts = countChanges(result.changes);
-  const head = `${bold(basename(oldPath))} (${oldDoc.pages.length}) → ${bold(basename(newPath))} (${newDoc.pages.length})`;
+  const head = `${bold(safe(basename(oldPath)))} (${oldDoc.pages.length}) → ${bold(safe(basename(newPath)))} (${newDoc.pages.length})`;
   process.stdout.write(`${head}\n`);
-  if (counts.total === 0) process.stdout.write(t(lang, 'noChanges') + '\n');
-  else process.stdout.write(`${bold(countLabel(lang, counts.total))} — ${t(lang, 'summaryLine', { text: counts.text, num: counts.numbers, visual: counts.visual })}\n`);
   // Filtered differences and uncovered areas are always stated.
-  const notes = notices(lang, result);
   const visualCompared = !o['no-visual'] && rendering;
-  if (!visualCompared) notes.push({ level: 'info', text: t(lang, 'noticeNoVisual') });
-  for (const n of notes) process.stdout.write((n.level === 'warn' ? c('33', '! ') : dim('· ')) + (n.level === 'warn' ? n.text : dim(n.text)) + '\n');
+  const notes = reportNotices(lang, result, visualCompared);
+  const complete = comparedEverything(notes, visualCompared);
+  if (counts.total === 0) process.stdout.write(t(lang, complete ? 'noChanges' : 'noChangesIncomplete') + '\n');
+  else process.stdout.write(`${bold(countLabel(lang, counts.total))} — ${t(lang, 'summaryLine', { text: counts.text, num: counts.numbers, visual: counts.visual })}\n`);
+  for (const n of notes) process.stdout.write((n.level === 'warn' ? c('33', '! ') + safe(n.text) : dim('· ' + safe(n.text))) + '\n');
   if (!o.quiet) {
     const width = String(result.changes.length).length;
     for (const [k, ch] of result.changes.entries()) {
-      const loc = locationLabel(lang, ch);
-      process.stdout.write(`  ${dim(String(k + 1).padStart(width))}  ${color(ch, kindLabel(lang, ch).padEnd(lang === 'zh' ? 2 : 8))}  ${describeChange(lang, ch)}  ${dim(loc)}\n`);
+      const loc = safe(locationLabel(lang, ch));
+      process.stdout.write(`  ${dim(String(k + 1).padStart(width))}  ${color(ch, safe(kindLabel(lang, ch)).padEnd(lang === 'zh' ? 2 : 8))}  ${safe(describeChange(lang, ch))}  ${dim(loc)}\n`);
     }
   }
 
@@ -201,22 +267,29 @@ async function main(): Promise<number> {
     version: VERSION,
     visualCompared,
   };
-  if (o.out) {
-    const crops = rendering ? await makeCrops(result, pdfs) : {};
-    await writeFile(o.out, buildReport({ ...input, crops }));
-    process.stdout.write(dim(`→ ${o.out}\n`));
-  }
-  if (o.json) {
-    await writeFile(o.json, JSON.stringify(buildJson(input), null, 2));
-    process.stdout.write(dim(`→ ${o.json}\n`));
-  }
-  return o['fail-on-change'] && counts.total > 0 ? 1 : 0;
+  // Each output is written on its own: one failure does not lose the other.
+  let writeFailed = false;
+  const write = async (path: string, content: () => Promise<string>) => {
+    try {
+      await writeFile(path, await content());
+      process.stdout.write(dim(`→ ${safe(path)}`) + '\n');
+    } catch (e) {
+      process.stderr.write(`Could not write ${safe(path)}: ${safe((e as Error)?.message ?? String(e))}\n`);
+      writeFailed = true;
+    }
+  };
+  if (o.json) await write(o.json, async () => JSON.stringify(buildJson(input), null, 2));
+  if (o.out) await write(o.out, async () => buildReport({ ...input, crops: rendering ? await makeCrops(result, pdfs) : {} }));
+  if (writeFailed) return 2;
+  if (!o['fail-on-change']) return 0;
+  if (counts.total > 0) return 1;
+  return complete ? 0 : 3;
 }
 
 main().then(
   (code) => process.exit(code),
   (err) => {
-    process.stderr.write(`${err?.message ?? err}\n`);
+    process.stderr.write(`${safe(String(err?.message ?? err))}\n`);
     process.exit(2);
   },
 );
