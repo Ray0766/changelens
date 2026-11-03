@@ -226,6 +226,8 @@ export interface Change {
    * page size or orientation changed (rects cover the page).
    */
   pageChange?: 'added' | 'removed' | 'resized';
+  /** (pageChange 'added' / 'removed') The page is blank: no text and no ink at all. */
+  blankPage?: boolean;
   /** Not an edit but a consequence of one (e.g. list items renumbered after an insertion). */
   consequence?: 'renumber';
   /** Inserted content that repeats text found elsewhere in the new version (0-based page). */

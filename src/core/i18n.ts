@@ -192,6 +192,8 @@ const en = {
   pageRemovedNoText: 'Page without text removed (images or drawings only)',
   pageResized: 'Page size changed: {from} → {to}',
   noticeVisualSkipped: '{side} {pages}: graphics and images were not compared (the page is too large to render, or could not be rendered).',
+  pageAddedBlank: 'Blank page added (no text, images or drawings)',
+  pageRemovedBlank: 'Blank page removed (no text, images or drawings)',
 };
 
 export type MessageKey = keyof typeof en;
@@ -387,6 +389,8 @@ const zh: Record<MessageKey, string> = {
   pageRemovedNoText: '删除了一页没有文字的页面（只有图片或图形）',
   pageResized: '页面尺寸变化：{from} → {to}',
   noticeVisualSkipped: '{side}{pages}未比较图形和图片（页面太大无法渲染，或渲染失败）。',
+  pageAddedBlank: '新增了一页空白页（没有文字、图片或图形）',
+  pageRemovedBlank: '删除了一页空白页（没有文字、图片或图形）',
 };
 
 const dicts: Record<Lang, Record<MessageKey, string>> = { en, zh };

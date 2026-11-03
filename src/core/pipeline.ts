@@ -217,7 +217,10 @@ function wholePage(what: 'added' | 'removed' | 'resized', result: CompareResult,
     nw = caret(result.newDoc, near?.[1]);
   }
   const order = what === 'removed' ? (near ? near[1] + (after ? 0.99 : 0) : 0) * 100000 : p * 100000;
-  return { id: '', kind: 'graphic', category: 'visual', old, new: nw, pageChange: what, size: 0, cjk: false, contextBefore: '', contextAfter: '', order };
+  const change: Change = { id: '', kind: 'graphic', category: 'visual', old, new: nw, pageChange: what, size: 0, cjk: false, contextBefore: '', contextAfter: '', order };
+  // Rendered, and nothing on it: a blank page (an extra page break), not one with images or drawings.
+  if (what !== 'resized' && ink === null) change.blankPage = true;
+  return change;
 }
 
 export interface Counts {

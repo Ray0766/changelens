@@ -112,3 +112,10 @@ test('charts that another page size moved to other places are not reported as re
   const r = await fixture('letter4-a4.pdf', 'letter4-letter.pdf');
   assert.deepEqual(list(r.changes.filter((c) => c.category === 'visual')), 'Page size changed: 595 × 842 pt → 612 × 792 pt (in 2 places)');
 });
+
+test('a blank page added is described as blank', { skip }, async () => {
+  const r = await fixture('blank4-before.pdf', 'blank4-after.pdf');
+  assert.deepEqual(list(r.changes), 'Blank page added (no text, images or drawings)');
+  const back = await fixture('blank4-after.pdf', 'blank4-before.pdf');
+  assert.equal(describeChange('zh', back.changes[0]), '删除了一页空白页（没有文字、图片或图形）');
+});

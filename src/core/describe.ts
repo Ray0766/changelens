@@ -157,8 +157,8 @@ export function describeChange(lang: Lang, c: Change): string {
 }
 
 function describePage(lang: Lang, c: Change): string {
-  if (c.pageChange === 'added') return t(lang, 'pageAddedNoText');
-  if (c.pageChange === 'removed') return t(lang, 'pageRemovedNoText');
+  if (c.pageChange === 'added') return t(lang, c.blankPage ? 'pageAddedBlank' : 'pageAddedNoText');
+  if (c.pageChange === 'removed') return t(lang, c.blankPage ? 'pageRemovedBlank' : 'pageRemovedNoText');
   const size = (s: Side) => {
     const r = s.rects[0]?.rect;
     return r ? `${Math.round(r.w)} × ${Math.round(r.h)} pt` : '';
