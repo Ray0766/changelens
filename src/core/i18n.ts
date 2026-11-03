@@ -195,6 +195,8 @@ const en = {
   noticeRepeatedLines: '{n} {n:line|lines} repeated at the top of a page (such as a table’s header row) came or went only because page breaks moved; {n:it is|they are} not listed.',
   repeatedLineAdded: 'Repeated at the top of the page after the page break moved: “{text}”',
   repeatedLineRemoved: 'No longer repeated at the top of the page after the page break moved: “{text}”',
+  noticePairedNoVisual: 'Paired by hand: {pair} (images not compared).',
+  noticeNoFormat: 'Changes in bold, italic, font size and font were not compared.',
 };
 
 export type MessageKey = keyof typeof en;
@@ -393,6 +395,8 @@ const zh: Record<MessageKey, string> = {
   noticeRepeatedLines: '另有 {n} 处页首重复行（如跨页表格的表头）仅因分页位置变化而出现或消失，未列入清单。',
   repeatedLineAdded: '分页变化后在页首重复：「{text}」',
   repeatedLineRemoved: '分页变化后不再在页首重复：「{text}」',
+  noticePairedNoVisual: '已手动配对：{pair}（未比较图像）。',
+  noticeNoFormat: '未比较加粗、斜体、字号和字体的变化。',
 };
 
 const dicts: Record<Lang, Record<MessageKey, string>> = { en, zh };

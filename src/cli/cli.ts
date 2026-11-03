@@ -27,8 +27,8 @@ Usage:
 Options:
   -o, --out <file>         Write a shareable HTML review report
       --json <file>        Write all changes as JSON
-      --lang <en|zh>       Language of descriptions: en or zh (zh-CN, en-US … also
-                           accepted; default: from $LANG)
+      --lang <en|zh>       Language of descriptions: en or zh (zh-CN, en_US.UTF-8 …
+                           also accepted; default: from $LANG)
       --no-visual          Skip the comparison of graphics, images and colours
       --no-format          Do not report bold / size / font changes
       --include-furniture  Also compare headers, footers and page numbers
@@ -44,6 +44,8 @@ Options:
 
 Exit codes:
   0  Done. With --fail-on-change: no differences and everything was compared.
+     Differences left out on purpose (--no-format, --ignore-case,
+     --ignore-punctuation) are not counted; the notes say they were left out.
   1  With --fail-on-change: differences were found.
   2  Wrong arguments, a PDF could not be read, or an output file could not be
      written (or would overwrite an input).
@@ -77,6 +79,8 @@ async function checkOutputs(inputs: string[], outputs: { flag: string; path: str
     return !!sa && !!sb && sa.dev === sb.dev && sa.ino === sb.ino;
   };
   for (const [k, o] of outputs.entries()) {
+    // An empty name (e.g. -o "$REPORT" with REPORT unset) would write nothing.
+    if (!o.path.trim()) return `${o.flag} needs a file name (it was given an empty one).`;
     for (const input of inputs)
       if (await same(o.path, input)) return `${o.flag} ${o.path}: this is an input file and would be overwritten. Choose another name.`;
     for (const other of outputs.slice(k + 1))
@@ -176,7 +180,8 @@ async function main(): Promise<number> {
   }
   let lang: Lang;
   if (o.lang === undefined) lang = detectLang(process.env.LC_ALL || process.env.LANG || '');
-  else if (/^(zh|en)([-_][\w-]*)?$/i.test(o.lang)) lang = detectLang(o.lang);
+  // Also the POSIX locale form of $LANG: zh_CN.UTF-8, en_US@euro.
+  else if (/^(zh|en)([-_][\w-]*)?(\.[\w-]+)?(@[\w-]+)?$/i.test(o.lang)) lang = detectLang(o.lang);
   else {
     process.stderr.write(`Unknown --lang value "${safe(o.lang)}" (use en or zh, e.g. --lang zh)\n`);
     return 2;
@@ -278,8 +283,8 @@ async function main(): Promise<number> {
       writeFailed = true;
     }
   };
-  if (o.json) await write(o.json, async () => JSON.stringify(buildJson(input), null, 2));
-  if (o.out) await write(o.out, async () => buildReport({ ...input, crops: rendering ? await makeCrops(result, pdfs) : {} }));
+  if (o.json !== undefined) await write(o.json, async () => JSON.stringify(buildJson(input), null, 2));
+  if (o.out !== undefined) await write(o.out, async () => buildReport({ ...input, crops: rendering ? await makeCrops(result, pdfs) : {} }));
   if (writeFailed) return 2;
   if (!o['fail-on-change']) return 0;
   if (counts.total > 0) return 1;

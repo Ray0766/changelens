@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compareDocs } from '../src/core/compare.ts';
-import { notices } from '../src/core/describe.ts';
+import { notices, pairLabel } from '../src/core/describe.ts';
 import { t } from '../src/core/i18n.ts';
 import { buildJson, buildReport, excerptHtml } from '../src/core/report.ts';
 import type { Change } from '../src/core/types.ts';
@@ -80,7 +80,7 @@ test('printed report uses light colours even under a dark colour scheme, and bad
 test('a moved and edited paragraph shows its old wording as well as the new one', () => {
   const side = (text: string) => ({ pages: [0], rects: [], text });
   const move = {
-    id: 'c1', kind: 'move', category: 'text', size: 9, cjk: false, contextBefore: '', contextAfter: '', order: 0,
+    id: 'c1', kind: 'move', category: 'text', size: 9, cjk: false, contextBefore: '', contextAfter: '', order: 0, moveEdits: 1,
     old: side('The monthly service fee is 100 dollars per seat.'),
     new: side('The monthly service fee is 900 dollars per seat.'),
   } as Change;
@@ -88,9 +88,63 @@ test('a moved and edited paragraph shows its old wording as well as the new one'
   assert.match(html, /<del>The monthly service fee is 100 dollars per seat\.<\/del>/);
   assert.match(html, /<mark class="mv">The monthly service fee is 900 dollars per seat\.<\/mark>/);
   // A plain move shows the text once.
-  const plain = excerptHtml({ ...move, new: side(move.old.text) });
+  const plain = excerptHtml({ ...move, moveEdits: undefined, new: side(move.old.text) });
   assert.ok(!plain.includes('<del>'));
   assert.equal(plain.split('100 dollars').length, 2);
+});
+
+test('a pure move whose wordings differ only in what the comparison ignores is not shown as deleted text', () => {
+  const X = ['The supplier delivers the goods to the site within ten working days of the order.'];
+  const Y = ['Invoices are due thirty days after delivery and are paid by bank transfer.'];
+  const moved = (from: string, to: string, opts = {}) => {
+    const r = compareDocs(model(makeDoc('a', [[[from], X, Y]])), model(makeDoc('b', [[X, Y, [to]]])), opts);
+    assert.deepEqual(r.changes.map((c) => [c.kind, c.moveEdits]), [['move', undefined]], JSON.stringify(r.changes.map((c) => c.kind)));
+    return excerptHtml(r.changes[0]);
+  };
+  // Curly and straight quotes (ignored by default), and case with --ignore-case.
+  for (const html of [
+    moved('The “final” inspection report is sent to the office within five working days of the visit.', 'The "final" inspection report is sent to the office within five working days of the visit.'),
+    moved('The Final Inspection Report is sent to the office within five working days of the visit.', 'The final inspection report is sent to the office within five working days of the visit.', { ignoreCase: true }),
+  ]) {
+    assert.ok(!html.includes('<del>'), html);
+    assert.match(html, /^<mark class="mv">The (&quot;final&quot;|final) inspection report/);
+  }
+  // Moved and edited: the old wording is shown, and the edit is its own change.
+  const a = model(makeDoc('a', [[['The final inspection report is sent to the office within five working days of the visit.'], X, Y]]));
+  const b = model(makeDoc('b', [[X, Y, ['The final inspection report is sent to the office within ten working days of the visit.']]]));
+  const r = compareDocs(a, b);
+  const move = r.changes.find((c) => c.kind === 'move')!;
+  assert.equal(move.moveEdits, 1);
+  assert.match(excerptHtml(move), /^<del>The final inspection report is sent to the office within five working days/);
+  assert.ok(r.changes.some((c) => c.kind === 'replace' && c.old.text === 'five' && c.new.text === 'ten'));
+});
+
+test('JSON: --pair pages are 1-based in the options too; notices say what pairing and --no-format left out', () => {
+  const doc = () => model(makeDoc('x', [P1, [], P3]));
+  const r = compareDocs(doc(), doc(), { manualPairs: [[1, 1]], detectFormatting: false });
+  const j = buildJson({ result: r, lang: 'en', oldName: 'a.pdf', newName: 'b.pdf', visualCompared: false }) as {
+    options: { manualPairs: [number, number][] };
+    manualPairs: { old: number; new: number }[];
+    notices: { level: string; text: string }[];
+    complete: boolean;
+  };
+  assert.deepEqual(j.options.manualPairs, [[2, 2]]);
+  assert.deepEqual(j.manualPairs, [{ old: 2, new: 2 }]);
+  // The core result stays 0-based.
+  assert.deepEqual(r.options.manualPairs, [[1, 1]]);
+  const text = j.notices.map((n) => n.text);
+  // Without the visual stage a page paired by hand was not compared as an image.
+  assert.ok(text.includes('Paired by hand: old p. 2 ↔ new p. 2 (images not compared).'), JSON.stringify(text));
+  assert.ok(!text.some((s) => /compared as images/.test(s)), JSON.stringify(text));
+  assert.ok(text.includes(t('en', 'noticeNoVisual')));
+  assert.ok(j.notices.some((n) => n.level === 'info' && n.text === t('en', 'noticeNoFormat')));
+  assert.equal(j.complete, false);
+  // With the visual stage: compared as images; formatting compared: no note.
+  const r2 = compareDocs(doc(), doc(), { manualPairs: [[1, 1]] });
+  const j2 = buildJson({ result: r2, lang: 'zh', oldName: 'a.pdf', newName: 'b.pdf', visualCompared: true }) as { notices: { text: string }[] };
+  const text2 = j2.notices.map((n) => n.text);
+  assert.ok(text2.includes(t('zh', 'noticePaired', { pair: pairLabel('zh', 1, 1) })), JSON.stringify(text2));
+  assert.ok(!text2.includes(t('zh', 'noticeNoFormat')));
 });
 
 test('English counts use singular forms', () => {

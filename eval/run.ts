@@ -1,17 +1,33 @@
 // Evaluation: ChangeLens vs. two baselines on the synthetic corpus in
 // eval/cases (plus the pairs listed in eval/extra-cases.json). Run:
 //   node eval/run.ts [--json out.json] [--cases a,b*] [--exclude c*] [--blind] [--verbose]
+//                    [--strict-snippets] [--strict-carets] [--items items.json]
+//                    [--rescore items.json]
 //                    [--dir <folder of cases>]   (default eval/cases)
 //
 // Case selection: every case is scored except those marked `"blind": true`
 // in truth.json (a held-out set waiting for its single recorded run; add
 // --blind to include them). --cases / --exclude take comma-separated ids;
-// `*` matches any characters (e.g. --cases 'holdout2-*').
+// `*` matches any characters (e.g. --cases 'holdout2-*'). Only the selected
+// cases' truth.json is read; one that cannot be read or is invalid is
+// skipped and named at the end, and a selection that matches no case is an
+// error.
 //
 // Sets (field `set` in truth.json; the extra-cases.json pairs are "extra"):
 //   tuning      cases the engine was tuned on
 //   held-out-1  first held-out round (engine author), since used for fixes
 //   held-out-2  second held-out round (independent authors), since used for fixes
+//   held-out-3  third held-out round (independent authors), since used for fixes
+// Any other set name is reported under that name; a blind case without a
+// set under "blind". With --blind, the cases not marked blind are also
+// summed on their own, so the default selection's totals stay visible.
+//
+// --items writes the ChangeLens items of every scored case; --rescore scores
+// such a file again (with the truth of the selected cases and the rules
+// given) without running the engine. A blind round's single run can so be
+// scored under a rule decided later, separately from later engine changes.
+// test/fixtures/holdout3-recorded-items.json holds the items of the
+// recorded blind run of round 3.
 //
 // Baselines
 //  - text-lines: text extracted per line (headers/footers included, as
@@ -23,14 +39,27 @@
 //
 // Scoring (per truth item; one reported item may cover several truth items)
 //  - found:    some reported item covers it. ChangeLens: the change type
-//              matches (insert/delete/replace/move exactly) and the change
-//              contains the truth text; a truth item without text must be on
-//              its page and overlap its region (oldRect/newRect: [x, y, w, h]
-//              in PDF points, top-left origin; a region given for a text item
-//              must be overlapped too). Text line diff: a hunk
-//              contains the text. Pixel page diff: any region on the expected
-//              page (a generous rule for that baseline).
+//              matches (insert/delete/replace/move exactly; format: whatever
+//              the UI labels Format) and the change contains the truth text,
+//              or (context rule, the default) the changed text lies inside
+//              the truth text and the truth text lies inside what the report
+//              shows: context before + changed text + context after, at a
+//              place that covers the changed text, on each side the truth
+//              item has. --strict-snippets turns the context rule off (the
+//              rule of the recorded blind runs). A truth item without text
+//              must be on its page and overlap its region (oldRect/newRect:
+//              [x, y, w, h] in PDF points, top-left origin; a region given
+//              for a text item must be overlapped too). Text line diff: a
+//              hunk contains the text, or (context rule) the hunk lies inside it
+//              and it lies inside the line before + hunk + line after. Pixel
+//              page diff: any region on the expected page (a generous rule
+//              for that baseline).
 //  - located:  found by an item that is on the expected page in both files.
+//              An insertion point (caret) right before the first body text
+//              of a page also counts for the previous page, and one right
+//              after the last body text for the next page: the same place in
+//              the reading order. --strict-carets counts the caret's own page
+//              only (the rule of the recorded blind runs).
 //  - separate: truth items found as an item of their own (the largest
 //              one-to-one assignment) — the stricter, granularity-aware count.
 //  - extra:    reported items that no truth item explains. A truth item
@@ -39,7 +68,7 @@
 //  - items:    everything a reviewer has to read.
 // Expected pages are explicit (oldPage/newPage) or the single page whose body
 // text contains the snippet; a snippet on no page or on several is an error.
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { openPdf } from '../src/node/pdf.ts';
@@ -51,7 +80,7 @@ import { addVisualChanges } from '../src/core/pipeline.ts';
 import { intern, matchSequences, opsFromMatches } from '../src/core/diff.ts';
 import type { DocModel } from '../src/core/types.ts';
 import type { Raster } from '../src/core/visual.ts';
-import { changeItem, changeLensMatch, expectedPages, furnitureDisclosure, score, textMatch, validate, type CaseMeta, type Item, type Score, type Scored, type Truth } from './score.ts';
+import { changeItem, changeLensMatch, expectedPages, furnitureDisclosure, recordCase, rescoreCase, score, textMatch, validate, type CaseMeta, type Item, type RecordedCase, type Score, type Scored, type SnippetRule, type Truth } from './score.ts';
 
 const root = new URL('.', import.meta.url).pathname;
 
@@ -64,13 +93,15 @@ function lineItems(a: DocModel, b: DocModel): Item[] {
   const ops = opsFromMatches(matchSequences(ka, kb), la.length, lb.length);
   const items: Item[] = [];
   let cur: Item | null = null;
+  // The unchanged line next to a hunk, as a diff shows it (diff -U1).
+  const lineAt = (i: number, j: number) => lb[j] ?? la[i] ?? '';
   for (const op of ops) {
     if (op.type === 'equal') {
-      if (cur) items.push(cur);
+      if (cur) items.push({ ...cur, shown: { ...cur.shown!, after: lineAt(op.a0, op.b0) } });
       cur = null;
       continue;
     }
-    cur ??= { oldText: '', newText: '', oldPages: [], newPages: [] };
+    cur ??= { oldText: '', newText: '', oldPages: [], newPages: [], shown: { before: lineAt(op.a0 - 1, op.b0 - 1), old: '', new: '', after: '' } };
     for (let i = op.a0; i < op.a1; i++) {
       cur.oldText += ' ' + la[i];
       cur.oldPages.push(a.lines[i].page + 1);
@@ -81,7 +112,7 @@ function lineItems(a: DocModel, b: DocModel): Item[] {
     }
   }
   if (cur) items.push(cur);
-  return items.map((it) => ({ ...it, oldPages: [...new Set(it.oldPages)], newPages: [...new Set(it.newPages)] }));
+  return items.map((it) => ({ ...it, oldPages: [...new Set(it.oldPages)], newPages: [...new Set(it.newPages)], shown: { ...it.shown!, old: it.oldText, new: it.newText } }));
 }
 
 function pixelRegions(ra: Raster | null, rb: Raster | null): number {
@@ -128,8 +159,13 @@ function pixelRegions(ra: Raster | null, rb: Raster | null): number {
   return regions;
 }
 
-async function evalCase(id: string, before: string, after: string, truth: Truth[]) {
-  validate(id, truth);
+interface Rules {
+  snippets: SnippetRule;
+  /** Whether a caret at a page boundary also counts for the page across the boundary. */
+  boundaryCarets: boolean;
+}
+
+async function evalCase(id: string, before: string, after: string, truth: Truth[], rules: Rules) {
   const pa = await openPdf(before);
   const pb = await openPdf(after);
   const a = buildDocModel(await extractText(pa, 'a'));
@@ -140,13 +176,16 @@ async function evalCase(id: string, before: string, after: string, truth: Truth[
   const r = compareDocs(a, b);
   await addVisualChanges(r, (p) => renderPage(pa, p, 1.5), (p) => renderPage(pb, p, 1.5));
   const clMs = performance.now() - t0;
-  const cl = score(id, truth, r.changes.map(changeItem), a, b, changeLensMatch, furnitureDisclosure(r, a, b));
+  const items = r.changes.map((c) => (rules.boundaryCarets ? changeItem(c, a, b) : changeItem(c)));
+  const disclosed = furnitureDisclosure(r, a, b);
+  const cl = score(id, truth, items, a, b, (t, it) => changeLensMatch(t, it, rules.snippets), disclosed);
+  if (recorded) recorded[id] = recordCase(id, truth, r.changes, a, b, disclosed);
 
   // Text baseline.
   t0 = performance.now();
   const lines = lineItems(a, b);
   const textMs = performance.now() - t0;
-  const tx = score(id, truth, lines, a, b, (t, it) => (t.type === 'graphic' || t.type === 'format' ? false : textMatch(t, it)));
+  const tx = score(id, truth, lines, a, b, (t, it) => (t.type === 'graphic' || t.type === 'format' ? false : textMatch(t, it, rules.snippets)));
 
   // Pixel baseline: page N vs page N.
   t0 = performance.now();
@@ -187,8 +226,20 @@ const { values: args } = parseArgs({
     exclude: { type: 'string' },
     blind: { type: 'boolean' },
     verbose: { type: 'boolean' },
+    'strict-snippets': { type: 'boolean' },
+    'strict-carets': { type: 'boolean' },
+    items: { type: 'string' },
+    rescore: { type: 'string' },
   },
 });
+// --items: also write the ChangeLens items of each case, so that this run can
+// be scored again later (--rescore) under other rules, without the engine.
+const recorded: Record<string, RecordedCase> | null = args.items ? {} : null;
+const rules: Rules = { snippets: args['strict-snippets'] ? 'strict' : 'context', boundaryCarets: !args['strict-carets'] };
+const rulesLine =
+  `Rules: snippets ${rules.snippets === 'strict' ? 'strict (--strict-snippets)' : 'with context (default)'}; ` +
+  `carets ${rules.boundaryCarets ? 'at a page boundary count for both pages (default)' : 'count on their own page only (--strict-carets)'}. ` +
+  'The recorded blind runs used --strict-snippets --strict-carets.';
 const patterns = (s?: string) => (s ? s.split(',').map((p) => new RegExp('^' + p.trim().replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$')) : null);
 const only = patterns(args.cases);
 const skip = patterns(args.exclude);
@@ -198,31 +249,83 @@ const SETS: Record<string, string> = {
   tuning: 'Tuning set',
   'held-out-1': 'Held-out round 1 (since used for fixes)',
   'held-out-2': 'Held-out round 2 (since used for fixes)',
-  'held-out-3': 'Held-out round 3 (blind until its recorded run)',
+  'held-out-3': 'Held-out round 3 (since used for fixes)',
   extra: 'Extra pairs (demos, LibreOffice)',
+  blind: 'Blind cases without a set (first run)',
 };
-const pairs: { id: string; before: string; after: string; meta: CaseMeta }[] = [];
+const setLabel = (set: string) => SETS[set] ?? set;
+// Only the selected cases' truth is read, so a case folder that is still
+// being written does not stop the others; one that cannot be read is named.
+const pairs: { id: string; before: string; after: string; read: () => CaseMeta }[] = [];
 const casesDir = args.dir ?? join(root, 'cases');
-for (const id of readdirSync(casesDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort()) {
+const isDir = (p: string) => {
+  try {
+    return statSync(p).isDirectory(); // follows symlinks
+  } catch {
+    return false;
+  }
+};
+for (const id of readdirSync(casesDir).filter((n) => isDir(join(casesDir, n))).sort()) {
   const dir = join(casesDir, id);
-  pairs.push({ id, before: join(dir, 'before.pdf'), after: join(dir, 'after.pdf'), meta: JSON.parse(readFileSync(join(dir, 'truth.json'), 'utf8')) });
+  pairs.push({ id, before: join(dir, 'before.pdf'), after: join(dir, 'after.pdf'), read: () => JSON.parse(readFileSync(join(dir, 'truth.json'), 'utf8')) });
 }
 // Further pairs (demo files, LibreOffice fixture) listed with their paths.
 const extraCases = JSON.parse(readFileSync(join(root, 'extra-cases.json'), 'utf8')) as Record<string, CaseMeta & { before: string; after: string }>;
-for (const [id, meta] of Object.entries(extraCases)) pairs.push({ id, before: join(root, '..', meta.before), after: join(root, '..', meta.after), meta: { set: 'extra', ...meta } });
+for (const [id, meta] of Object.entries(extraCases)) pairs.push({ id, before: join(root, '..', meta.before), after: join(root, '..', meta.after), read: () => ({ set: 'extra', ...meta }) });
 
-type Result = Awaited<ReturnType<typeof evalCase>> & { description: string; set: string };
+type Result = Awaited<ReturnType<typeof evalCase>> & { description: string; set: string; blind: boolean };
 const results: Record<string, Result> = {};
+const skipped: Record<string, string> = {};
 let blindSkipped = 0;
-for (const { id, before, after, meta } of pairs) {
+const todo: { id: string; before: string; after: string; meta: CaseMeta }[] = [];
+for (const { id, before, after, read } of pairs) {
   if (!selected(id)) continue;
-  if (meta.blind && !args.blind) {
-    blindSkipped++;
+  let meta: CaseMeta;
+  try {
+    meta = read();
+    if (meta.blind && !args.blind) {
+      blindSkipped++;
+      continue;
+    }
+    if (!Array.isArray(meta.truth)) throw new Error('no "truth" list');
+    validate(id, meta.truth);
+  } catch (e) {
+    skipped[id] = (e as Error).message;
     continue;
   }
-  const set = meta.set ?? 'tuning';
-  if (!SETS[set]) throw new Error(`${id}: unknown set "${set}"`);
-  results[id] = { description: meta.description, set, ...(await evalCase(id, before, after, meta.truth)) };
+  todo.push({ id, before, after, meta });
+}
+if (args.rescore) {
+  // Score the items of a recorded run (--items) again; ChangeLens only.
+  const rec = JSON.parse(readFileSync(args.rescore, 'utf8')) as Record<string, RecordedCase>;
+  const sum = { found: 0, located: 0, separate: 0, total: 0, extra: 0, items: 0 };
+  let table = '| Case | Truth | ChangeLens found / located / extra (separate) |\n|---|---|---|\n';
+  const lost: string[] = [];
+  for (const { id, meta } of todo) {
+    if (!rec[id]) continue;
+    const sc = rescoreCase(meta.truth, rec[id], rules);
+    for (const k of Object.keys(sum) as (keyof typeof sum)[]) sum[k] += sc[k];
+    table += `| ${id} | ${sc.total} | ${sc.found} / ${sc.located} / ${sc.extra} (${sc.separate}) |\n`;
+    lost.push(...sc.misses.map((m) => `${id} #${m.truth} ${m.text}: ${m.why}`));
+  }
+  if (!todo.some((c) => rec[c.id])) {
+    console.error(`No selected case is in ${args.rescore} (blind cases need --blind).`);
+    process.exit(1);
+  }
+  table += `| **Total** | ${sum.total} | **${sum.found} / ${sum.located} / ${sum.extra} (${sum.separate})** |\n`;
+  console.log(`Rescored the items recorded in ${args.rescore}.\n\n${table}\n${rulesLine}`);
+  if (lost.length) console.log('ChangeLens misses:\n  ' + lost.join('\n  '));
+  if (args.json) writeFileSync(args.json, JSON.stringify({ rules, totals: { changelens: sum } }, null, 2));
+  process.exit(0);
+}
+if (!todo.length && !blindSkipped) {
+  console.error(`No case to score${args.cases || args.exclude ? ` (--cases ${args.cases ?? '*'}${args.exclude ? `, --exclude ${args.exclude}` : ''})` : ''} in ${casesDir}.`);
+  for (const [id, why] of Object.entries(skipped)) console.error(`  skipped ${id}: ${why}`);
+  process.exit(1);
+}
+for (const { id, before, after, meta } of todo) {
+  const set = meta.set ?? (meta.blind ? 'blind' : 'tuning');
+  results[id] = { description: meta.description, set, blind: !!meta.blind, ...(await evalCase(id, before, after, meta.truth, rules)) };
 }
 
 const tools = ['changelens', 'textLines', 'pixelPages'] as const;
@@ -250,17 +353,26 @@ for (const [id, r] of Object.entries(results)) {
 out += `| **Total** | | | ${totals.changelens.total} | ${tools.map((t) => `**${cell(totals[t])}**`).join(' | ')} |\n`;
 console.log(out);
 let summary = `| Set | Cases | Truth | ${columns} |\n|---|---|---|${tools.map(() => '---').join('|')}|\n`;
-for (const set of Object.keys(SETS).filter((s) => bySet[s])) {
-  const count = Object.values(results).filter((r) => r.set === set).length;
-  summary += `| ${SETS[set]} | ${count} | ${bySet[set].changelens.total} | ${tools.map((t) => cell(bySet[set][t])).join(' | ')} |\n`;
+const setRow = (label: string, rs: Result[], sum: Record<Tool, Score>) => `| ${label} | ${rs.length} | ${sum.changelens.total} | ${tools.map((t) => cell(sum[t])).join(' | ')} |\n`;
+const setOrder = [...Object.keys(SETS), ...Object.keys(bySet).filter((s) => !SETS[s]).sort()];
+for (const set of setOrder.filter((s) => bySet[s])) summary += setRow(setLabel(set), Object.values(results).filter((r) => r.set === set), bySet[set]);
+// With --blind: the cases of the default selection on their own as well.
+const open = Object.values(results).filter((r) => !r.blind);
+if (open.length && open.length < Object.keys(results).length) {
+  const sum = perTool();
+  for (const r of open) for (const t of tools) add(sum[t], r[t]);
+  summary += setRow('Not marked blind (the default selection)', open, sum);
 }
 summary += `| **All selected** | ${Object.keys(results).length} | ${totals.changelens.total} | ${tools.map((t) => `**${cell(totals[t])}**`).join(' | ')} |\n`;
 console.log(summary);
+console.log(rulesLine);
 console.log('(separate) = truth items found as an item of their own (one-to-one).');
 console.log('To read: ' + tools.map((t) => `${toolLabel[t]} ${totals[t].extra} extra ${unit[t]} (${totals[t].items} in total)`).join('; '));
 console.log('Time (ms): ' + tools.map((t) => `${toolLabel[t]} ${totals[t].ms.toFixed(0)}`).join(', '));
 if (blindSkipped) console.log(`${blindSkipped} blind case(s) not scored; add --blind for their single recorded run.`);
+for (const [id, why] of Object.entries(skipped)) console.error(`Skipped ${id}: ${why}`);
 const misses = Object.entries(results).flatMap(([id, r]) => r.misses.map((m) => `${id} #${m.truth} ${m.text}: ${m.why}`));
 if (misses.length) console.log('ChangeLens misses:\n  ' + misses.join('\n  '));
-if (args.json) writeFileSync(args.json, JSON.stringify({ results, totals, sets: bySet, blindSkipped }, null, 2));
+if (args.json) writeFileSync(args.json, JSON.stringify({ rules, results, totals, sets: bySet, blindSkipped, skipped }, null, 2));
+if (args.items) writeFileSync(args.items, JSON.stringify(recorded));
 if (args.verbose) for (const [id, r] of Object.entries(results)) console.log(id, JSON.stringify(r.reported));
