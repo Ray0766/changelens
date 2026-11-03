@@ -20,18 +20,10 @@ import { makeDoc, model } from './helpers.ts';
  * until the list matches, so it cannot silently go stale.
  */
 const expectedMisses: Record<string, string> = {
-  'holdout2-b-footnote-duplicate #2':
-    'The superscript footnote marker is read as part of the preceding word, so the insertion is reported as Changed “temperatures” → “temperatures1” (a replace), not as an added “1”.',
-  'move-beside-deletion #1':
-    'The moved paragraph lands right after a deleted sentence; the deletion and the insertion are folded into replaces, so the move is not detected (the old copy is reported as deleted).',
-  'move-beside-deletion #3': 'Same cause: the deleted sentence is reported as part of a replace with the start of the moved paragraph.',
   'small-graphics-second-box #1': 'A tick in the second checkbox is classified as a minor shift of lines or graphics (≤ 4 pt) and hidden; it is only counted in the notice.',
 };
 /** Extra (unexplained) items per case that come with the misses above. */
-const expectedExtra: Record<string, number> = {
-  'holdout2-b-footnote-duplicate': 1,
-  'move-beside-deletion': 3,
-};
+const expectedExtra: Record<string, number> = {};
 
 interface CaseResult {
   changelens: { found: number; located: number; separate: number; total: number; extra: number };

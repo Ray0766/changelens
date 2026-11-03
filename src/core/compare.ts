@@ -58,8 +58,17 @@ function keyCounts(keys: Int32Array, n: number): Int32Array {
  * locate edits is never folded away, so a fully revised table still yields
  * one change per figure or row instead of one "rewrote N words".
  */
-function foldRule(ctx: Ctx): (eq: Span, before: Span, after: Span) => boolean {
+function foldRule(ctx: Ctx, initial?: DiffOp[]): (eq: Span, before: Span, after: Span) => boolean {
   const { A, B, ka, kb } = ctx;
+  // Words of each block that the first alignment matched (main diff only:
+  // inside a moved passage every word is "unmatched" in the main diff).
+  const matchedA = new Map<number, number>();
+  const matchedB = new Map<number, number>();
+  for (const op of initial ?? []) {
+    if (op.type !== 'equal') continue;
+    for (let i = op.a0; i < op.a1; i++) if (A[i].kind !== 'punct') matchedA.set(A[i].block, (matchedA.get(A[i].block) ?? 0) + 1);
+    for (let i = op.b0; i < op.b1; i++) if (B[i].kind !== 'punct') matchedB.set(B[i].block, (matchedB.get(B[i].block) ?? 0) + 1);
+  }
   let n = 0;
   for (const k of ka) if (k >= n) n = k + 1;
   for (const k of kb) if (k >= n) n = k + 1;
@@ -73,6 +82,16 @@ function foldRule(ctx: Ctx): (eq: Span, before: Span, after: Span) => boolean {
   const direction = (g: Span) => (g.a1 > g.a0 && g.b1 > g.b0 ? 'mixed' : g.a1 > g.a0 ? 'delete' : 'insert');
   const lineStart = (T: Token[], s: number) => s === 0 || T[s - 1].line !== T[s].line;
   const big = (g: Span) => g.orig > 8;
+  // The equality lies in a long block of which the first alignment matched
+  // almost nothing: it is (nearly) all new or all gone.
+  const engulfed = (blocks: Map<number, [number, number]>, matched: Map<number, number>, T: Token[], s: number, e: number) => {
+    if (!initial || e <= s || T[e - 1].block !== T[s].block) return false;
+    const r = blocks.get(T[s].block);
+    if (!r) return false;
+    let words = 0;
+    for (let k = r[0]; k < r[1]; k++) if (T[k].kind !== 'punct') words++;
+    return words >= 12 && (matched.get(T[s].block) ?? 0) <= 0.25 * words;
+  };
   return (eq, before, after) => {
     const db = direction(before);
     const da = direction(after);
@@ -104,6 +123,12 @@ function foldRule(ctx: Ctx): (eq: Span, before: Span, after: Span) => boolean {
     // and 20") stay separate changes; the parts of a date ("11 月 30 日")
     // are folded into one.
     if ((label || latin) && numericEdit(before) && numericEdit(after)) return false;
+    // A word or two that happens to match inside a paragraph that is
+    // otherwise wholly new (or wholly gone) is a coincidence, e.g. "every"
+    // shared by a deleted sentence and a paragraph moved next to it.
+    // Folding it lets the paragraph be recognised as inserted (or moved).
+    if (words <= 2 && (engulfed(ctx.blocksA, matchedA, A, eq.a0, eq.a1) || engulfed(ctx.blocksB, matchedB, B, eq.b0, eq.b1)))
+      return true;
     // Sizes of the original edits (orig), not of groups merged earlier:
     // merging must not snowball across a document.
     // Keep a small edit apart from a large block (which may be a moved
@@ -157,7 +182,9 @@ function splitAtBlocks(ctx: Ctx, h: Hunk): Hunk[] {
   const na = A[h.a1];
   const pb = B[h.b0 - 1];
   const nb = B[h.b1];
-  if (!pa || !na || !pb || !nb || pa.block === na.block || pb.block === nb.block) return [h];
+  if (!pa || !na || !pb || !nb) return [h];
+  // Nothing to split when neither side reaches from one block into another.
+  if (pa.block === na.block && pb.block === nb.block) return [h];
   const cut = (T: Token[], s: number, e: number, prev: Token, next: Token): [number, number] => {
     let i = s;
     while (i < e && T[i].block === prev.block) i++;
@@ -554,7 +581,18 @@ function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, aft
       local.map((o) => ({ ...o, a0: o.a0 + d.h.a0, a1: o.a1 + d.h.a0, b0: o.b0 + ins.h.b0, b1: o.b1 + ins.h.b0 })),
       fold,
     );
+    // A full stop at the edge of the moved text that the alignment gave to
+    // the paragraph next to it ("…asked." | "…report.") is not an edit: the
+    // same mark sits right beside the moved text in the other version.
+    const sameMarks = (T: Token[], s: number, e: number, U: Token[], u: number) =>
+      e > s && T.slice(s, e).every((t, j) => t.kind === 'punct' && U[u + j]?.key === t.key);
+    const edgeMark = (h: Hunk) =>
+      (h.b0 === h.b1 && h.a1 === d.h.a1 && sameMarks(ctx.A, h.a0, h.a1, ctx.B, ins.h.b1)) ||
+      (h.a0 === h.a1 && h.b1 === ins.h.b1 && sameMarks(ctx.B, h.b0, h.b1, ctx.A, d.h.a1)) ||
+      (h.b0 === h.b1 && h.a0 === d.h.a0 && sameMarks(ctx.A, h.a0, h.a1, ctx.B, ins.h.b0 - (h.a1 - h.a0))) ||
+      (h.a0 === h.a1 && h.b0 === ins.h.b0 && sameMarks(ctx.B, h.b0, h.b1, ctx.A, d.h.a0 - (h.b1 - h.b0)));
     const edits = hunksOf(ops)
+      .filter((h) => !edgeMark(h))
       .flatMap((h) => splitHunk(ctx, h))
       .map((h) => textChange(ctx, h));
     for (const e of edits) e.inMove = '';
@@ -819,15 +857,18 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   for (let i = 0; i < A.length; i++) if (A[i].kind === 'number' || A[i].kind === 'punct') weak[ka[i]] = 1;
   for (let j = 0; j < B.length; j++) if (B[j].kind === 'number' || B[j].kind === 'punct') weak[kb[j]] = 1;
   const info: MatchInfo = { unaligned: 0, weak };
+  const initial = opsFromMatches(matchSequences(ka, kb, info), A.length, B.length);
+  const ops = refine(ctx, initial, foldRule(ctx, initial));
   const fold = foldRule(ctx);
-  const ops = refine(ctx, opsFromMatches(matchSequences(ka, kb, info), A.length, B.length), fold);
 
   // Final matched pairs after clean-up.
   const pairList: number[] = [];
   for (const op of ops) if (op.type === 'equal') for (let k = 0; k < op.a1 - op.a0; k++) pairList.push(op.a0 + k, op.b0 + k);
   const pairs = Int32Array.from(pairList);
 
-  const moved = detectMoves(ctx, hunksOf(ops), fold);
+  // Split at paragraph boundaries first, so a paragraph moved next to an
+  // edit of the paragraph before it is still a pure insertion.
+  const moved = detectMoves(ctx, hunksOf(ops).flatMap((h) => splitAtBlocks(ctx, h)), fold);
   const changes: Change[] = [...moved.rest.flatMap((h) => splitHunk(ctx, h)).map((h) => textChange(ctx, h)), ...moved.moves, ...moved.inner];
   mergeNearby(changes, oldDoc, newDoc);
   markDuplicates(changes, B);

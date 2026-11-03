@@ -308,6 +308,14 @@ function numberEnd(chars: Char[], start: number, j: number): number {
 
 const textOf = (chars: Char[]) => chars.map((c) => c.ch).join('');
 
+/** Two runs where one is set smaller and off the other's baseline. */
+function shiftedScript(a: TextRun, b: TextRun): boolean {
+  if (a === b) return false;
+  const big = Math.max(a.fontSize, b.fontSize);
+  const small = Math.min(a.fontSize, b.fontSize);
+  return small < 0.9 * big && Math.abs(a.baseline - b.baseline) > 0.2 * big;
+}
+
 function tokenizeChars(chars: Char[]): Tok[] {
   const out: Tok[] = [];
   let space = true;
@@ -334,6 +342,9 @@ function tokenizeChars(chars: Char[]): Tok[] {
       let j = k + 1;
       while (j < chars.length) {
         const cj = chars[j].n;
+        // A superscript or subscript run (a footnote marker "temperatures¹")
+        // is its own token, so an added marker is not a rewritten word.
+        if (shiftedScript(chars[j - 1].run, chars[j].run)) break;
         if (classify(cj) === 'alnum') {
           j++;
           continue;

@@ -126,3 +126,17 @@ test('Japanese is compared character by character; Korean word by word', () => {
   assert.deepEqual(ko.changes.map((c) => [c.old.text, c.new.text, c.cjk]), [['삼', '사', false]]);
   assert.deepEqual(texts(['계약 기간은', '삼 년입니다.'], ['계약 기간은 삼 년입니다.']), []);
 });
+
+test('a superscript footnote marker is its own token, not part of the word', () => {
+  const marked = line(run('at low temperatures', 56, 317, { w: 245 }), run('1', 301.4, 312.75, { w: 5.1, fontSize: 9.16 }), run(' and', 307, 317, { eol: true }));
+  assert.deepEqual(
+    buildDocModel(marked).tokens.map((t) => t.text),
+    ['at', 'low', 'temperatures', '1', 'and'],
+  );
+  // Same size and baseline (kerning splits a word into runs): still one word.
+  const split = line(run('tempera', 56, 317, { w: 40 }), run('tures', 96, 317, { eol: true }));
+  assert.deepEqual(
+    buildDocModel(split).tokens.map((t) => t.text),
+    ['temperatures'],
+  );
+});

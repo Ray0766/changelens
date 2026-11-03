@@ -68,3 +68,20 @@ test('a page that only received moved content is not flagged as new', () => {
   assert.deepEqual(r.coverage.new.uncertain, []);
   assert.ok(!notices('en', r).some((n) => n.text.includes('mostly new content')));
 });
+
+test('a paragraph moved right after a deleted sentence is still a move', () => {
+  // The deleted sentence and the moved paragraph share the word "every";
+  // that coincidence must not turn the move into two rewrites.
+  const P2 = ['Routine inspections take place every quarter. During each inspection the technician checks filters, belts and drains and records meter readings for the energy report.'];
+  const kept = 'Faults reported by phone are answered on the same day by the duty technician on call.';
+  const cut = 'Certificates are renewed every year and a copy is sent to the facilities manager without being asked.';
+  const a = model(makeDoc('a', [[P2, P1, P3, P4, [`${kept} ${cut}`]]]));
+  const b = model(makeDoc('b', [[P1, P3, P4, [kept], P2]]));
+  const r = compareDocs(a, b);
+  // (Synthetic lines can also stick out of the page: only text changes count here.)
+  assert.deepEqual(r.changes.filter((c) => c.category === 'text').map((c) => c.kind).sort(), ['delete', 'move']);
+  const del = r.changes.find((c) => c.kind === 'delete')!;
+  assert.ok(del.old.text.startsWith('Certificates are renewed every year'), del.old.text);
+  const move = r.changes.find((c) => c.kind === 'move')!;
+  assert.equal(move.moveEdits, undefined, 'the full stop next to the moved paragraph is not an edit');
+});
