@@ -37,7 +37,7 @@ const CURRENCY_WORDS = /^(usd|eur|gbp|cny|rmb|jpy|元|万|亿|円|k|m|bn)$/i;
 export function isNumericPhrase(texts: string[]): boolean {
   let digits = 0;
   for (const t of texts) {
-    if (/\d/.test(t) && /^[\d.,:/\-+%\u2212\u2013()]+$/.test(t)) {
+    if (/\d/.test(t) && /^[\d.,:/\-+%\u2212\u2013()$€£¥₹₩¢₽₺]+$/.test(t)) {
       digits++;
       continue;
     }

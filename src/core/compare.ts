@@ -157,12 +157,23 @@ function textChange(ctx: Ctx, h: Hunk): Change {
   };
   if (whole > 0 && kind !== 'replace') change.wholeParagraphs = whole;
   if (kind === 'replace' && isNumericPhrase(delToks.map((t) => t.text)) && isNumericPhrase(insToks.map((t) => t.text))) {
-    const from = oldSide.text;
-    const to = newSide.text;
+    // Show the unchanged unit or currency sign that is written onto the
+    // number ("4%" → "8%", "€62.40"), so the description keeps its meaning.
+    const before = A[h.a0 - 1];
+    const after = A[h.a1];
+    const pre = before && UNIT.test(before.text) && !delToks[0].spaceBefore && !insToks[0].spaceBefore && before.line === delToks[0].line ? before.text : '';
+    const post = after && UNIT.test(after.text) && !after.spaceBefore && B[h.b1]?.text === after.text && !B[h.b1].spaceBefore ? after.text : '';
+    const from = pre + oldSide.text + post;
+    const to = pre + newSide.text + post;
+    oldSide.text = from;
+    newSide.text = to;
     change.numeric = { from, to, fromValue: parseNumber(from), toValue: parseNumber(to) };
   }
   return change;
 }
+
+/** Unit and currency symbols that are written directly onto numbers. */
+const UNIT = /^[%‰$€£¥₹₩¢₽₺°]$/;
 
 /**
  * "delete X, insert Y…X" is really "insert Y…, keep X" (and likewise for a
@@ -579,6 +590,8 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   const changes: Change[] = [...rest.map((h) => textChange(ctx, h)), ...moves];
   mergeNearby(changes, oldDoc, newDoc);
   markDuplicates(changes, B);
+  const renumbered = extractRenumbering(changes, oldDoc, newDoc);
+  aggregateReplacements(changes);
   if (options.detectFormatting) changes.push(...aggregateFormatting(detectFormatting(ctx, ops)));
 
   if (options.detectFormatting) changes.push(...detectPositions(ctx, pairs));
@@ -602,8 +615,9 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
       furniture: options.ignoreFurniture ? furnitureDifferences(oldDoc, newDoc) : 0,
       caseOnly: options.ignoreCase ? caseOnlyDifferences(A, B, pairs) : 0,
       minorShifts: 0,
+      renumbered: renumbered.length,
     },
-    minor: [],
+    minor: renumbered,
     stats: {
       oldTokens: A.length,
       newTokens: B.length,
@@ -711,6 +725,84 @@ function aggregateFormatting(changes: Change[]): Change[] {
     out.push(merged);
   }
   return out;
+}
+
+/**
+ * List numbers that changed only because an item was added or removed above
+ * them ("4." → "5.", "5." → "6.", …). They are consequences, not edits:
+ * taken out of the change list (shown on request) and counted.
+ */
+function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocModel): Change[] {
+  const label = (doc: DocModel, start: number | undefined, end: number | undefined) => {
+    if (start === undefined || end !== start + 1) return null;
+    const t = doc.tokens[start];
+    const line = doc.lines[t.line];
+    const next = doc.tokens[start + 1];
+    // A bare integer at the start of a line, followed by "." ")" or "、".
+    if (!/^\d{1,3}$/.test(t.text) || line.start !== start || !next || next.line !== t.line || !/^[.)、．]$/.test(next.text)) return null;
+    return { value: Number(t.text), line: t.line };
+  };
+  type Cand = { c: Change; delta: number; line: number };
+  const cands: Cand[] = [];
+  for (const c of changes) {
+    if (c.kind !== 'replace' || !c.numeric) continue;
+    const a = label(oldDoc, c.old.start, c.old.end);
+    const b = label(newDoc, c.new.start, c.new.end);
+    if (!a || !b || a.value === b.value || Math.abs(b.value - a.value) > 3) continue;
+    cands.push({ c, delta: b.value - a.value, line: a.line });
+  }
+  cands.sort((x, y) => x.line - y.line);
+  // Lines (old document) where something was inserted or deleted.
+  const structural = changes
+    .filter((c) => c.kind === 'insert' || c.kind === 'delete')
+    .map((c) => (c.old.start !== undefined ? oldDoc.tokens[c.old.start].line : c.old.caret ? lineAt(oldDoc, c.old.caret.page, c.old.caret.y) : -1));
+  const out: Change[] = [];
+  let k = 0;
+  while (k < cands.length) {
+    let j = k + 1;
+    while (j < cands.length && cands[j].delta === cands[k].delta && cands[j].line - cands[j - 1].line <= 6) j++;
+    const group = cands.slice(k, j);
+    const first = group[0].line;
+    const follows = structural.some((l) => l >= 0 && l <= first && first - l <= 8);
+    if (group.length >= 2 || follows) {
+      for (const g of group) {
+        g.c.minor = true;
+        g.c.consequence = 'renumber';
+        out.push(g.c);
+      }
+    }
+    k = j;
+  }
+  for (const c of out) changes.splice(changes.indexOf(c), 1);
+  return out;
+}
+
+function lineAt(doc: DocModel, page: number, y: number): number {
+  let best = -1;
+  for (const l of doc.lines) if (l.page === page && l.rect.y <= y + 1) best = l.id;
+  return best;
+}
+
+/**
+ * The same replacement in several places (a party renamed throughout, one
+ * price changed in every table) becomes one change listing all places.
+ */
+function aggregateReplacements(changes: Change[]): void {
+  const groups = new Map<string, Change[]>();
+  for (const c of changes) {
+    if (c.kind !== 'replace') continue;
+    const k = c.old.text + '\u0000' + c.new.text;
+    groups.set(k, [...(groups.get(k) ?? []), c]);
+  }
+  for (const list of groups.values()) {
+    if (list.length < 3) continue;
+    const first = list[0];
+    first.old = { ...first.old, rects: list.flatMap((c) => c.old.rects), pages: [...new Set(list.flatMap((c) => c.old.pages))].sort((a, b) => a - b) };
+    first.new = { ...first.new, rects: list.flatMap((c) => c.new.rects), pages: [...new Set(list.flatMap((c) => c.new.pages))].sort((a, b) => a - b) };
+    first.places = list.length;
+    first.size = list.reduce((n, c) => n + c.size, 0);
+    for (const c of list.slice(1)) changes.splice(changes.indexOf(c), 1);
+  }
 }
 
 /** Insertions of ≥ 10 words whose exact text also appears elsewhere in the new version. */

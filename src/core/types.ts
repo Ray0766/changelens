@@ -189,6 +189,8 @@ export interface Change {
   places?: number;
   /** Graphics only displaced by a few points (layout drift); hidden by default. */
   minor?: boolean;
+  /** Not an edit but a consequence of one (e.g. list items renumbered after an insertion). */
+  consequence?: 'renumber';
   /** Inserted content that repeats text found elsewhere in the new version (0-based page). */
   duplicateOf?: number;
   /** Order key for sorting (position in the new document, then old). */
@@ -226,7 +228,7 @@ export interface CompareResult {
   /** What could not be compared as text — shown so "no changes" is never a false all-clear. */
   coverage: { old: Coverage; new: Coverage };
   /** Differences that exist but were filtered out by the options. */
-  ignored: { furniture: number; caseOnly: number; minorShifts: number };
+  ignored: { furniture: number; caseOnly: number; minorShifts: number; renumbered: number };
   /** Minor layout shifts, kept apart from `changes` (shown on request). */
   minor: Change[];
   stats: { oldTokens: number; newTokens: number; matchedTokens: number; similarity: number };

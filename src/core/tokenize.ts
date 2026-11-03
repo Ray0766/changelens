@@ -121,6 +121,7 @@ const HYPHENS = new Set(['-', '‐', '­']);
 /** Minus/plus signs: hyphen-minus, U+2212 minus, en dash (often used as minus), plus. */
 const SIGNS = new Set(['-', '\u2212', '\u2013', '+']);
 const OPENERS = new Set(['(', '[', '{', '=', ':', '$', '€', '£', '¥', '\uff08']);
+const CURRENCY = new Set(['$', '€', '£', '¥', '₹', '₩', '¢', '₽', '₺']);
 
 function tokenKind(text: string, cls: string): TokenKind {
   if (cls === 'cjk') return 'cjk';
@@ -231,10 +232,12 @@ function tokenizeChars(chars: Char[]): Tok[] {
     }
     // A sign directly in front of a digit belongs to the number ("−500"),
     // unless it joins two words or numbers ("2026-11", "A-3").
-    if (SIGNS.has(c.ch) && DIGIT.test(chars[k + 1]?.ch ?? '')) {
+    // "−€62.40": a sign in front of a currency symbol belongs to the amount too.
+    const viaCurrency = SIGNS.has(c.ch) && CURRENCY.has(chars[k + 1]?.ch ?? '') && DIGIT.test(chars[k + 2]?.ch ?? '');
+    if (SIGNS.has(c.ch) && (viaCurrency || DIGIT.test(chars[k + 1]?.ch ?? ''))) {
       const prev = chars[k - 1]?.ch;
       if (!prev || space || OPENERS.has(prev)) {
-        let j = k + 2;
+        let j = k + (viaCurrency ? 3 : 2);
         while (j < chars.length) {
           const cj = chars[j].ch;
           if (DIGIT.test(cj)) j++;

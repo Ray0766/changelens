@@ -36,6 +36,24 @@ export function percentChange(from: number | null, to: number | null): string | 
   return (pct > 0 ? '+' : '') + s + '%';
 }
 
+type CountKey = (w: 'addedWords' | 'deletedWords' | 'rewrote') => 'addedWords' | 'deletedWords' | 'rewrote' | 'addedChars' | 'deletedChars' | 'rewroteChars';
+
+function describeReplace(lang: Lang, c: Change, countKey: CountKey): string {
+  if (c.numeric) {
+    const { fromValue: a, toValue: b } = c.numeric;
+    const base = t(lang, 'numberChanged', { from: c.numeric.from, to: c.numeric.to });
+    // A sign flip is the important fact; a percentage would only confuse.
+    if (a !== null && b !== null && a !== 0 && b !== 0 && Math.sign(a) !== Math.sign(b))
+      return lang === 'zh' ? `${base}（${t(lang, 'signChanged')}）` : `${base} (${t(lang, 'signChanged')})`;
+    // "(3)" → "(4)" are labels or both negative: compare magnitudes.
+    const bothParen = c.numeric.from.startsWith('(') && c.numeric.to.startsWith('(');
+    const pct = bothParen ? percentChange(Math.abs(a ?? 0) || null, Math.abs(b ?? 0) || null) : percentChange(a, b);
+    return pct ? (lang === 'zh' ? `${base}（${pct}）` : `${base} (${pct})`) : base;
+  }
+  if (Array.from(c.old.text).length <= 40 && Array.from(c.new.text).length <= 40) return t(lang, 'changedText', { from: c.old.text, to: c.new.text });
+  return t(lang, countKey('rewrote'), { n: c.size });
+}
+
 /** One-line, plain-language description of a change. */
 export function describeChange(lang: Lang, c: Change): string {
   const short = 48;
@@ -53,20 +71,9 @@ export function describeChange(lang: Lang, c: Change): string {
       if (c.wholeParagraphs) return c.wholeParagraphs === 1 ? t(lang, 'deletedParagraph') : t(lang, 'deletedParagraphs', { n: c.wholeParagraphs });
       return t(lang, countKey('deletedWords'), { n: c.size });
     case 'replace': {
-      if (c.numeric) {
-        const { fromValue: a, toValue: b } = c.numeric;
-        const base = t(lang, 'numberChanged', { from: c.numeric.from, to: c.numeric.to });
-        // A sign flip is the important fact; a percentage would only confuse.
-        if (a !== null && b !== null && a !== 0 && b !== 0 && Math.sign(a) !== Math.sign(b))
-          return lang === 'zh' ? `${base}（${t(lang, 'signChanged')}）` : `${base} (${t(lang, 'signChanged')})`;
-        // "(3)" → "(4)" are labels or both negative: compare magnitudes.
-        const bothParen = c.numeric.from.startsWith('(') && c.numeric.to.startsWith('(');
-        const pct = bothParen ? percentChange(Math.abs(a ?? 0) || null, Math.abs(b ?? 0) || null) : percentChange(a, b);
-        return pct ? (lang === 'zh' ? `${base}（${pct}）` : `${base} (${pct})`) : base;
-      }
-      if (Array.from(c.old.text).length <= 40 && Array.from(c.new.text).length <= 40)
-        return t(lang, 'changedText', { from: c.old.text, to: c.new.text });
-      return t(lang, countKey('rewrote'), { n: c.size });
+      if (c.consequence === 'renumber') return t(lang, 'renumbered', { from: c.old.text, to: c.new.text });
+      const places = c.places ? (lang === 'zh' ? `（${t(lang, 'inPlaces', { n: c.places })}）` : ` (${t(lang, 'inPlaces', { n: c.places })})`) : '';
+      return describeReplace(lang, c, countKey) + places;
     }
     case 'move':
       if (c.wholeParagraphs) return c.wholeParagraphs === 1 ? t(lang, 'movedParagraph') : t(lang, 'movedParagraphs', { n: c.wholeParagraphs });
@@ -158,6 +165,7 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
   }
   for (const u of r.coverage?.new.uncertain ?? []) out.push({ level: 'warn', text: t(lang, 'noticeUncertain', { pages: pageRuns(lang, [u.page]), pct: Math.round(u.matched * 100) + '%' }) });
   if (r.ignored?.furniture) out.push({ level: 'info', text: t(lang, 'noticeFurniture', { n: r.ignored.furniture }), action: 'furniture' });
+  if (r.ignored?.renumbered) out.push({ level: 'info', text: t(lang, 'noticeRenumbered', { n: r.ignored.renumbered }), action: 'minor' });
   if (r.ignored?.minorShifts) out.push({ level: 'info', text: t(lang, 'noticeMinor', { n: r.ignored.minorShifts, pt: SHIFT_PT }), action: 'minor' });
   if (r.ignored?.caseOnly) out.push({ level: 'info', text: t(lang, 'noticeCase', { n: r.ignored.caseOnly }) });
   if (r.options.ignorePunctuation) out.push({ level: 'info', text: t(lang, 'noticePunct') });

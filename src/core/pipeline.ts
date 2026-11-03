@@ -31,9 +31,10 @@ export async function addVisualChanges(
     onProgress?.(k + 1, pairs.length);
   }
   const visual = dedupeGraphics(found.filter((c) => !c.minor));
-  result.minor = found.filter((c) => c.minor);
+  const shifts = found.filter((c) => c.minor);
+  result.minor = [...result.minor.filter((c) => c.consequence), ...shifts].sort((a, b) => a.order - b.order);
   result.minor.forEach((c, k) => (c.id = 'm' + (k + 1)));
-  result.ignored.minorShifts = result.minor.length;
+  result.ignored.minorShifts = shifts.length;
   result.changes.push(...visual);
   sortAndNumber(result.changes);
   return visual;
