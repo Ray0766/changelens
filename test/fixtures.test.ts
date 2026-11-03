@@ -84,3 +84,29 @@ test('LibreOffice: moves, numbers and whole paragraphs', async () => {
   // Fewer distinct keys (case-folded) must not fragment the moved paragraph.
   assert.deepEqual(compareDocs(a, b, { ignoreCase: true }).changes.map((c) => describeChange('en', c)), expected);
 });
+
+// A chart-only page after an inserted page cannot be paired from text; a
+// manual pair makes its change visible (scripts/make-pairing-fixture.mjs).
+test('manual page pairing finds a change on a page without text', { skip: !(await canRender()) && 'no canvas' }, async () => {
+  const pa = await openPdf(dir + 'textless-before.pdf');
+  const pb = await openPdf(dir + 'textless-after.pdf');
+  const a = buildDocModel(await extractText(pa, 'a'));
+  const b = buildDocModel(await extractText(pb, 'b'));
+  const run = async (manualPairs: [number, number][]) => {
+    const r = compareDocs(a, b, { manualPairs });
+    await addVisualChanges(r, (p) => renderPage(pa, p, 1.5), (p) => renderPage(pb, p, 1.5));
+    return r;
+  };
+  const auto = await run([]);
+  assert.deepEqual(auto.coverage.old.textless, [1]);
+  assert.ok(!auto.changes.some((c) => c.kind === 'graphic'), 'without pairing the chart change is not found');
+  const paired = await run([[1, 2]]);
+  const g = paired.changes.filter((c) => c.kind === 'graphic');
+  assert.equal(g.length, 1);
+  assert.equal(pages(g[0]), '2→3');
+  assert.ok(paired.pageLinks.some((l) => l.manual && l.oldPage === 1 && l.newPage === 2));
+  // Scrolling anchors include the pair's page tops.
+  assert.ok(paired.anchors.some((x) => x.oldPage === 1 && x.newPage === 2 && x.oldY === 0));
+  // Out-of-range pairs are ignored.
+  assert.equal(compareDocs(a, b, { manualPairs: [[9, 9]] }).pageLinks.filter((l) => l.manual).length, 0);
+});

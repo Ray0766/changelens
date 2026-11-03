@@ -304,3 +304,14 @@ a { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* manual page pairing */
+.minimap rect.sel { stroke: var(--accent); stroke-opacity: 1; stroke-width: 2.5; }
+.pairform { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; font-size: 13px; color: var(--text); }
+.pairform select { font: inherit; padding: 2px 4px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--surface); }
+.pair-hint { flex-basis: 100%; margin: 0; color: var(--muted); }
+.btn.sm { height: 28px; padding: 0 10px; font-size: 13px; }
+.pairs { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px; color: var(--text); }
+.pairs li { display: flex; align-items: center; gap: 6px; }
+.pair-dash { width: 18px; border-top: 2.5px dashed var(--mv); }
+.pair-btn { margin-top: 6px; font-size: 13px; }

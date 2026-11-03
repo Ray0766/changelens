@@ -500,6 +500,43 @@ function pageMap(oldDoc: DocModel, newDoc: DocModel, A: Token[], B: Token[], pai
   };
 }
 
+function validPairs(pairs: [number, number][], nOld: number, nNew: number): [number, number][] {
+  const seen = new Set<string>();
+  return pairs.filter(([o, n]) => {
+    const ok = Number.isInteger(o) && Number.isInteger(n) && o >= 0 && n >= 0 && o < nOld && n < nNew && !seen.has(`${o}:${n}`);
+    seen.add(`${o}:${n}`);
+    return ok;
+  });
+}
+
+/**
+ * Manual pairs add page-top anchors for synchronised scrolling. Text anchors
+ * that contradict a manual pair are dropped, so the reviewer's pairing wins.
+ */
+function withManualAnchors(anchors: Anchor[], manual: [number, number][], oldDoc: DocModel, newDoc: DocModel): Anchor[] {
+  if (!manual.length) return anchors;
+  const pos = (page: number, y: number, doc: DocModel) => page + y / (doc.pages[page]?.height || 1);
+  const marks = manual
+    .map(([o, n]) => ({ oldPage: o, oldY: 0, newPage: n, newY: 0 }))
+    .sort((a, b) => a.oldPage - b.oldPage);
+  const consistent = (a: Anchor) =>
+    marks.every((m) => {
+      const ao = pos(a.oldPage, a.oldY, oldDoc) - m.oldPage;
+      const an = pos(a.newPage, a.newY, newDoc) - m.newPage;
+      return (ao >= 0 && an >= 0) || (ao < 0 && an < 0);
+    });
+  const merged = [...anchors.filter(consistent), ...marks].sort(
+    (a, b) => pos(a.oldPage, a.oldY, oldDoc) - pos(b.oldPage, b.oldY, oldDoc) || pos(a.newPage, a.newY, newDoc) - pos(b.newPage, b.newY, newDoc),
+  );
+  const out: Anchor[] = [];
+  for (const a of merged) {
+    const last = out[out.length - 1];
+    if (last && pos(a.newPage, a.newY, newDoc) < pos(last.newPage, last.newY, newDoc)) continue;
+    out.push(a);
+  }
+  return out;
+}
+
 function buildAnchors(A: Token[], B: Token[], pairs: Int32Array): Anchor[] {
   const anchors: Anchor[] = [];
   let lastLine = -1;
@@ -596,6 +633,12 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
 
   if (options.detectFormatting) changes.push(...detectPositions(ctx, pairs));
   const map = pageMap(oldDoc, newDoc, A, B, pairs);
+  const manual = validPairs(options.manualPairs ?? [], oldDoc.pages.length, newDoc.pages.length);
+  for (const [o, n] of manual) {
+    map.oldToNew[o] = n;
+    map.newToOld[n] = o;
+    map.links.push({ oldPage: o, newPage: n, weight: 0, manual: true });
+  }
   changes.push(...findOverflow(oldDoc, newDoc, A, B, pairs));
 
   sortAndNumber(changes);
@@ -607,7 +650,7 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
     pageLinks: map.links,
     oldToNew: map.oldToNew,
     newToOld: map.newToOld,
-    anchors: buildAnchors(A, B, pairs),
+    anchors: withManualAnchors(buildAnchors(A, B, pairs), manual, oldDoc, newDoc),
     matches: Int32Array.from(pairs, (v, k) => (k % 2 === 0 ? A[v].i : B[v].i)),
     options,
     coverage: { old: coverageOf(oldDoc), new: { ...coverageOf(newDoc), uncertain: uncertainPages(newDoc, B, pairs) } },

@@ -133,3 +133,42 @@ test('the same font change everywhere becomes one change', () => {
   assert.equal(fmt.length, 1);
   assert.equal(fmt[0].places, 4);
 });
+
+test('a minus in front of a currency sign belongs to the amount', () => {
+  const a = makeDoc('a', [[['Loyalty discount −€62.40 applied to this invoice.']]]);
+  const b = makeDoc('b', [[['Loyalty discount €62.40 applied to this invoice.']]]);
+  const r = compareDocs(model(a), model(b));
+  assert.equal(r.changes.length, 1);
+  assert.equal(describeChange('en', r.changes[0]), 'Number changed: −€62.40 → €62.40 (sign changed)');
+});
+
+test('units written onto a number are part of the shown change', () => {
+  const a = makeDoc('a', [[['The late fee is 4% of the amount due per month.']]]);
+  const b = makeDoc('b', [[['The late fee is 8% of the amount due per month.']]]);
+  const r = compareDocs(model(a), model(b));
+  assert.equal(describeChange('en', r.changes[0]), 'Number changed: 4% → 8% (+100%)');
+});
+
+test('the same replacement in many places is one change', () => {
+  const para = (n: number) => [`Quillfield Ltd shall deliver item ${n} by the agreed date number ${n}.`];
+  const a = makeDoc('a', [[para(1), para(2), para(3), para(4)]]);
+  const b = makeDoc('b', [[para(1), para(2), para(3), para(4)].map((p) => p.map((l) => l.replace('Quillfield', 'Brackenridge')))]);
+  const r = compareDocs(model(a), model(b));
+  assert.equal(r.changes.length, 1);
+  assert.equal(r.changes[0].places, 4);
+  assert.equal(describeChange('en', r.changes[0]), 'Changed “Quillfield” → “Brackenridge” (in 4 places)');
+});
+
+test('list numbers that change because an item was inserted are a consequence, not edits', () => {
+  const items = ['Isolate the power supply.', 'Check the gas detector.', 'Open the hatch.', 'Enter with a second person.', 'Record the entry time.'];
+  const list = (xs: string[]) => [xs.map((x, k) => `${k + 1}. ${x}`)];
+  const a = makeDoc('a', [list(items)]);
+  const b = makeDoc('b', [list([...items.slice(0, 2), 'Ventilate the chamber for ten minutes.', ...items.slice(2)])]);
+  const r = compareDocs(model(a), model(b));
+  // Only the inserted step is listed; which label the diff gives to the
+  // insertion can vary, so at least the following labels must be hidden.
+  assert.deepEqual(r.changes.map((c) => c.kind), ['insert']);
+  assert.ok(r.changes[0].new.text.includes('Ventilate the chamber'));
+  assert.ok(r.ignored.renumbered >= 2);
+  assert.ok(r.minor.every((c) => c.consequence === 'renumber'));
+});

@@ -301,7 +301,7 @@ export class App {
       ov.set(this.tr('comparingText'), 0.5);
       await new Promise((r) => setTimeout(r, 16));
       const { graphics, ...diffOpts } = this.options;
-      const result = compareDocs(this.loaded.old.model, this.loaded.new.model, diffOpts);
+      const result = compareDocs(this.loaded.old.model, this.loaded.new.model, { ...diffOpts, manualPairs: this.loadPairs() });
       this.showMinor = false;
       if (graphics) {
         const lo = this.loaded.old;
@@ -325,6 +325,24 @@ export class App {
       ov.close();
       this.busy = false;
     }
+  }
+
+  private pairsKey(): string {
+    return `changelens.pairs.${this.loaded.old?.fingerprint}.${this.loaded.new?.fingerprint}`;
+  }
+
+  /** Manual page pairs for the current pair of files (kept in local storage). */
+  private loadPairs(): [number, number][] {
+    try {
+      const v = JSON.parse(store.get(this.pairsKey()) ?? '[]');
+      return Array.isArray(v) ? v.filter((p) => Array.isArray(p) && p.length === 2 && p.every(Number.isInteger)) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private savePairs(pairs: [number, number][]): void {
+    store.set(this.pairsKey(), JSON.stringify(pairs));
   }
 
   private reviewKey(): string {
@@ -375,6 +393,15 @@ export class App {
         store.set(this.reviewKey(), JSON.stringify(this.reviewsBySig));
       },
       onPage: (side, page) => this.viewer?.scrollToPage(side, page),
+      onPair: async (o, n) => {
+        const pairs = this.loadPairs().filter(([a, b]) => a !== o && b !== n);
+        this.savePairs([...pairs, [o, n]]);
+        await this.run();
+      },
+      onUnpair: async (o, n) => {
+        this.savePairs(this.loadPairs().filter(([a, b]) => !(a === o && b === n)));
+        await this.run();
+      },
       onNotice: async (action) => {
         if (action === 'minor') {
           this.showMinor = !this.showMinor;

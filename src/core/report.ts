@@ -1,6 +1,6 @@
 import type { Change, CompareResult } from './types.ts';
 import { t, type Lang } from './i18n.ts';
-import { countLabel, describeChange, excerpt, kindLabel, locationLabel, notices, pageLabel, truncate } from './describe.ts';
+import { countLabel, describeChange, excerpt, kindLabel, locationLabel, notices, pageLabel, pairLabel, truncate } from './describe.ts';
 import { countChanges } from './pipeline.ts';
 import { COLORS } from './crops.ts';
 
@@ -69,17 +69,21 @@ export function pageMapSvg(result: CompareResult, lang: Lang): string {
   const x = (i: number) => 90 + i * step;
   const maxW = Math.max(1, ...result.pageLinks.map((l) => l.weight));
   const links = result.pageLinks
-    .filter((l) => l.weight >= 3)
-    .map(
-      (l) =>
-        `<line x1="${x(l.oldPage) + pw / 2}" y1="${yOld + ph}" x2="${x(l.newPage) + pw / 2}" y2="${yNew}" stroke="currentColor" stroke-opacity="${(0.25 + 0.6 * (l.weight / maxW)).toFixed(2)}" stroke-width="${(1 + 2 * (l.weight / maxW)).toFixed(1)}"/>`,
+    .filter((l) => l.weight >= 3 || l.manual)
+    .map((l) =>
+      l.manual
+        ? `<line class="manual" x1="${x(l.oldPage) + pw / 2}" y1="${yOld + ph}" x2="${x(l.newPage) + pw / 2}" y2="${yNew}" stroke="${COLORS.move}" stroke-width="2.5" stroke-dasharray="4 3"/>`
+        : `<line x1="${x(l.oldPage) + pw / 2}" y1="${yOld + ph}" x2="${x(l.newPage) + pw / 2}" y2="${yNew}" stroke="currentColor" stroke-opacity="${(0.25 + 0.6 * (l.weight / maxW)).toFixed(2)}" stroke-width="${(1 + 2 * (l.weight / maxW)).toFixed(1)}"/>`,
     )
     .join('');
+  // Pages that could not be paired from text (no text layer, mostly new): dashed outline.
+  const unsure = (side: 'old' | 'new', p: number) =>
+    !!result.coverage?.[side].textless.includes(p) || (side === 'new' && !!result.coverage?.new.uncertain?.some((u) => u.page === p));
   const pages = (count: number, y: number, side: 'old' | 'new') =>
     Array.from({ length: count }, (_, i) => {
       const hot = changed(side, i);
-      return `<rect x="${x(i)}" y="${y}" width="${pw}" height="${ph}" rx="2" fill="${hot ? (side === 'old' ? COLORS.del : COLORS.ins) : 'none'}" fill-opacity="${hot ? 0.22 : 0}" stroke="currentColor" stroke-opacity="0.55"/>` +
-        (count <= 40 ? `<text x="${x(i) + pw / 2}" y="${y + ph / 2 + 3.5}" font-size="${step > 20 ? 9 : 7}" text-anchor="middle" fill="currentColor">${i + 1}</text>` : '');
+      return `<rect data-side="${side}" data-page="${i}" pointer-events="all" x="${x(i)}" y="${y}" width="${pw}" height="${ph}" rx="2" fill="${hot ? (side === 'old' ? COLORS.del : COLORS.ins) : 'none'}" fill-opacity="${hot ? 0.22 : 0}" stroke="currentColor" stroke-opacity="0.55"${unsure(side, i) ? ' stroke-dasharray="2 2"' : ''}/>` +
+        (count <= 40 ? `<text x="${x(i) + pw / 2}" y="${y + ph / 2 + 3.5}" font-size="${step > 20 ? 9 : 7}" text-anchor="middle" fill="currentColor" pointer-events="none">${i + 1}</text>` : '');
     }).join('');
   return `<svg class="pagemap" viewBox="0 0 ${width} ${yNew + ph + 6}" width="${width}" role="img" aria-label="${escapeHtml(t(lang, 'pageMap'))}">
   <text x="0" y="${yOld + ph / 2 + 4}" font-size="11" fill="currentColor">${escapeHtml(t(lang, 'oldVersion'))}</text>
@@ -180,6 +184,7 @@ export function buildReport(input: ReportInput): string {
     return `<dd><b>${escapeHtml(name)}</b> · ${escapeHtml(t(lang, 'pagesCount', { n: doc.pages.length }))}${sha ? ` · <span class="mono">${escapeHtml(t(lang, 'sha'))} ${escapeHtml(sha)}</span>` : ''}</dd>`;
   };
   const coverageNotes = notes.filter((n) => n.level === 'warn');
+  const manualPairs = result.pageLinks.filter((l) => l.manual).map((l) => pairLabel(lang, l.oldPage, l.newPage));
   const method = `<section class="method">
   <h2>${escapeHtml(t(lang, 'methodTitle'))}</h2>
   <dl>
@@ -187,6 +192,7 @@ export function buildReport(input: ReportInput): string {
     <dt>${escapeHtml(t(lang, 'methodTool'))}</dt><dd>ChangeLens ${escapeHtml(input.version ?? '')} · ${escapeHtml(date)}</dd>
     <dt>${escapeHtml(t(lang, 'methodHow'))}</dt><dd>${escapeHtml(t(lang, visual ? 'methodHowText' : 'methodHowTextOnly'))}</dd>
     <dt>${escapeHtml(t(lang, 'methodSettings'))}</dt><dd>${escapeHtml(settings.join(' · '))}</dd>
+    ${manualPairs.length ? `<dt>${escapeHtml(t(lang, 'manualPairs'))}</dt><dd>${manualPairs.map((p) => escapeHtml(p)).join('<br>')}</dd>` : ''}
     <dt>${escapeHtml(t(lang, 'methodCoverage'))}</dt><dd>${coverageNotes.length ? coverageNotes.map((n) => escapeHtml(n.text)).join('<br>') : escapeHtml(t(lang, 'methodCoverageNone'))}</dd>
   </dl>
   <p class="disclaimer">${escapeHtml(t(lang, 'disclaimer'))}</p>
@@ -265,6 +271,7 @@ export function buildJson(input: ReportInput): unknown {
     ignored: result.ignored,
     notices: notices(lang, result),
     files: input.files,
+    manualPairs: result.pageLinks.filter((l) => l.manual).map((l) => ({ old: l.oldPage + 1, new: l.newPage + 1 })),
     minor: result.minor.map((c) => ({ id: c.id, description: describeChange(lang, c), location: locationLabel(lang, c) })),
     pageMap: { oldToNew: result.oldToNew.map((p) => (p < 0 ? null : p + 1)), newToOld: result.newToOld.map((p) => (p < 0 ? null : p + 1)) },
     changes: result.changes.map((c) => ({

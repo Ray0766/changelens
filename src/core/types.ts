@@ -112,6 +112,11 @@ export interface DiffOptions {
   ignoreFurniture: boolean;
   /** Report font / size / weight changes of unchanged text. */
   detectFormatting: boolean;
+  /**
+   * Page pairs set by the reviewer ([old, new], 0-based). They override the
+   * automatic page pairing (visual comparison, synchronised scrolling).
+   */
+  manualPairs?: [number, number][];
 }
 
 export const defaultOptions: DiffOptions = {
@@ -202,6 +207,8 @@ export interface PageLink {
   newPage: number;
   /** Number of matched tokens shared by the two pages. */
   weight: number;
+  /** Set by the reviewer rather than derived from matched text. */
+  manual?: boolean;
 }
 
 export interface Anchor {

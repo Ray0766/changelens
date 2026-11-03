@@ -136,7 +136,7 @@ export interface Notice {
   level: 'warn' | 'info';
   text: string;
   /** Lets the UI offer a "Show" action for filtered differences. */
-  action?: 'furniture' | 'minor';
+  action?: 'furniture' | 'minor' | 'pair';
 }
 
 function pageRuns(lang: Lang, pages: number[]): string {
@@ -155,15 +155,19 @@ function pageRuns(lang: Lang, pages: number[]): string {
 /** What was not compared or was filtered out — shown so nothing is hidden silently. */
 export function notices(lang: Lang, r: CompareResult): Notice[] {
   const out: Notice[] = [];
-  const side = (s: 'old' | 'new') => t(lang, s === 'old' ? 'oldVersion' : 'newVersion') + (lang === 'zh' ? '' : ' ');
+  const side = (s: 'old' | 'new') => t(lang, s === 'old' ? 'oldVersion' : 'newVersion');
+  const manual = r.pageLinks.filter((l) => l.manual);
+  const paired = (s: 'old' | 'new', p: number) => manual.some((l) => (s === 'old' ? l.oldPage : l.newPage) === p);
   for (const s of ['old', 'new'] as const) {
     const cov = r.coverage?.[s];
     if (!cov) continue;
-    if (cov.textless.length) out.push({ level: 'warn', text: t(lang, 'noticeTextless', { side: side(s), pages: pageRuns(lang, cov.textless) }) });
+    const textless = cov.textless.filter((p) => !paired(s, p));
+    if (textless.length) out.push({ level: 'warn', text: t(lang, 'noticeTextless', { side: side(s), pages: pageRuns(lang, textless) }), action: 'pair' });
     if (cov.unreadable.length)
       out.push({ level: 'warn', text: t(lang, 'noticeUnreadable', { side: side(s), pages: pageRuns(lang, cov.unreadable.map((u) => u.page)), n: cov.unreadable.reduce((n, u) => n + u.count, 0) }) });
   }
-  for (const u of r.coverage?.new.uncertain ?? []) out.push({ level: 'warn', text: t(lang, 'noticeUncertain', { pages: pageRuns(lang, [u.page]), pct: Math.round(u.matched * 100) + '%' }) });
+  for (const u of r.coverage?.new.uncertain ?? []) out.push({ level: 'warn', text: t(lang, 'noticeUncertain', { pages: pageRuns(lang, [u.page]), pct: Math.round(u.matched * 100) + '%' }), action: 'pair' });
+  for (const l of manual) out.push({ level: 'info', text: t(lang, 'noticePaired', { pair: pairLabel(lang, l.oldPage, l.newPage) }) });
   if (r.ignored?.furniture) out.push({ level: 'info', text: t(lang, 'noticeFurniture', { n: r.ignored.furniture }), action: 'furniture' });
   if (r.ignored?.renumbered) out.push({ level: 'info', text: t(lang, 'noticeRenumbered', { n: r.ignored.renumbered }), action: 'minor' });
   if (r.ignored?.minorShifts) out.push({ level: 'info', text: t(lang, 'noticeMinor', { n: r.ignored.minorShifts, pt: SHIFT_PT }), action: 'minor' });
@@ -174,4 +178,9 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
 
 export function countLabel(lang: Lang, n: number): string {
   return n === 1 ? t(lang, 'oneChange') : t(lang, 'changesCount', { n });
+}
+
+/** "Old p. 2 ↔ new p. 3" */
+export function pairLabel(lang: Lang, oldPage: number, newPage: number): string {
+  return t(lang, 'pairLabel', { old: oldPage + 1, new: newPage + 1 });
 }

@@ -1,6 +1,6 @@
 import type { Change, CompareResult } from '../core/types.ts';
 import { t, type Lang } from '../core/i18n.ts';
-import { describeChange, kindLabel, locationLabel, notices } from '../core/describe.ts';
+import { describeChange, kindLabel, locationLabel, notices, pairLabel } from '../core/describe.ts';
 import { excerptHtml, pageMapSvg, type Review } from '../core/report.ts';
 import { countChanges } from '../core/pipeline.ts';
 import { h, icon, clear } from './dom.ts';
@@ -30,6 +30,9 @@ export interface SidebarCallbacks {
   onPage(side: 'old' | 'new', page: number): void;
   /** "Show" on a notice about filtered differences. */
   onNotice(action: 'furniture' | 'minor'): void;
+  /** Pair two pages by hand (0-based), or remove such a pair. */
+  onPair(oldPage: number, newPage: number): void;
+  onUnpair(oldPage: number, newPage: number): void;
 }
 
 export class Sidebar {
@@ -38,10 +41,14 @@ export class Sidebar {
   private tabs: HTMLDivElement;
   private progress: HTMLDivElement;
   private summary: HTMLDivElement;
+  private mapDetails: HTMLDetailsElement | null = null;
   private selected: string | null = null;
   filter: Filter = 'all';
   /** Also list minor layout shifts (hidden by default). */
   showMinor = false;
+  /** Page-pairing form is open. */
+  private pairing = false;
+  private pairOld: number | null = null;
   private lang: Lang;
   private result: CompareResult;
   private reviews: Record<string, Review>;
@@ -88,22 +95,41 @@ export class Sidebar {
     const big = h('div', { class: 'summary-head' },
       h('div', { class: 'summary-count' }, String(counts.total)),
       h('div', {},
-        h('div', { class: 'summary-title' }, counts.total ? t(lang, 'totalChanges') : t(lang, 'noChanges')),
+        h('div', { class: 'summary-title' }, counts.total === 1 ? t(lang, 'totalChange1') : counts.total ? t(lang, 'totalChanges') : t(lang, 'noChanges')),
         h('div', { class: 'summary-sub' }, `${t(lang, 'pagesLine', { old: oldDoc.pages.length, new: newDoc.pages.length })} · ${t(lang, 'similarity', { pct: (stats.similarity * 100).toFixed(1) + '%' })}`),
       ),
     );
     const map = h('div', { class: 'minimap', html: pageMapSvg(this.result, lang) });
+    const pairForm = this.pairing ? this.pairFormEl() : null;
     map.addEventListener('click', (e) => {
-      const rect = (e.target as Element).closest('rect');
-      const svg = map.querySelector('svg');
-      if (!rect || !svg) return;
-      const rects = [...svg.querySelectorAll('rect')];
-      const idx = rects.indexOf(rect);
-      const n = oldDoc.pages.length;
-      if (idx < 0) return;
-      if (idx < n) this.cb.onPage('old', idx);
-      else this.cb.onPage('new', idx - n);
+      const rect = (e.target as Element).closest<SVGRectElement>('rect[data-side]');
+      if (!rect) return;
+      const side = rect.dataset.side as 'old' | 'new';
+      const page = Number(rect.dataset.page);
+      if (!this.pairing) return void this.cb.onPage(side, page);
+      // Pairing mode: old page first, then the new page.
+      const selOld = pairForm?.querySelector<HTMLSelectElement>('select[name=old]');
+      const selNew = pairForm?.querySelector<HTMLSelectElement>('select[name=new]');
+      if (side === 'old') {
+        this.pairOld = page;
+        if (selOld) selOld.value = String(page);
+        map.querySelectorAll('rect.sel').forEach((r) => r.classList.remove('sel'));
+        rect.classList.add('sel');
+      } else if (this.pairOld !== null) {
+        this.finishPair(this.pairOld, page);
+      } else if (selNew) {
+        selNew.value = String(page);
+      }
     });
+    const manual = this.result.pageLinks.filter((l) => l.manual);
+    const pairs = manual.length
+      ? h('ul', { class: 'pairs' }, manual.map((l) =>
+          h('li', {}, h('span', { class: 'pair-dash', 'aria-hidden': 'true' }), pairLabel(lang, l.oldPage, l.newPage),
+            h('button', { class: 'btn link', title: t(lang, 'removePair'), 'aria-label': `${t(lang, 'removePair')}: ${pairLabel(lang, l.oldPage, l.newPage)}`, onclick: () => this.cb.onUnpair(l.oldPage, l.newPage) }, '✕'))))
+      : null;
+    const pairButton = this.pairing ? null : h('button', { class: 'btn link pair-btn', onclick: () => this.openPairing() }, t(lang, 'pairPages'));
+    this.mapDetails = h('details', { class: 'mapdetails', open: this.pairing || manual.length > 0 || oldDoc.pages.length !== newDoc.pages.length },
+      h('summary', {}, t(lang, 'pageMap')), map, ...(pairForm ? [pairForm] : []), ...(pairs ? [pairs] : []), ...(pairButton ? [pairButton] : []));
     // State what was filtered out or not covered, with a way to show it.
     const notes = notices(lang, this.result);
     const noteList = notes.length
@@ -111,10 +137,12 @@ export class Sidebar {
           h('li', { class: `notice ${n.level}` },
             n.level === 'warn' ? icon('alert', 15) : icon('layers', 15),
             h('span', {}, n.text),
-            n.action ? h('button', { class: 'btn link', onclick: () => this.cb.onNotice(n.action!) }, n.action === 'minor' && this.showMinor ? t(lang, 'hide') : t(lang, 'show')) : null,
+            n.action === 'pair'
+              ? h('button', { class: 'btn link', onclick: () => this.openPairing() }, t(lang, 'pair'))
+              : n.action ? h('button', { class: 'btn link', onclick: () => this.cb.onNotice(n.action as 'furniture' | 'minor') }, n.action === 'minor' && this.showMinor ? t(lang, 'hide') : t(lang, 'show')) : null,
           )))
       : null;
-    this.summary.append(big, ...(noteList ? [noteList] : []), h('details', { class: 'mapdetails', open: oldDoc.pages.length !== newDoc.pages.length }, h('summary', {}, t(lang, 'pageMap')), map));
+    this.summary.append(big, ...(noteList ? [noteList] : []), this.mapDetails);
 
     clear(this.tabs);
     const tabs: [Filter, string, number][] = [
@@ -138,6 +166,40 @@ export class Sidebar {
       );
     }
     this.renderList();
+  }
+
+  private openPairing(): void {
+    this.pairing = true;
+    this.pairOld = null;
+    this.render();
+    this.mapDetails?.querySelector<HTMLSelectElement>('select[name=old]')?.focus();
+  }
+
+  private finishPair(oldPage: number, newPage: number): void {
+    this.pairing = false;
+    this.pairOld = null;
+    this.cb.onPair(oldPage, newPage);
+  }
+
+  /** Keyboard-accessible pairing form; clicks in the page map fill it in. */
+  private pairFormEl(): HTMLElement {
+    const lang = this.lang;
+    const options = (n: number) => Array.from({ length: n }, (_, i) => h('option', { value: i }, String(i + 1)));
+    const selOld = h('select', { name: 'old', 'aria-label': t(lang, 'oldVersion') }, options(this.result.oldDoc.pages.length));
+    const selNew = h('select', { name: 'new', 'aria-label': t(lang, 'newVersion') }, options(this.result.newDoc.pages.length));
+    // Preselect the first page that needs pairing.
+    const textlessOld = this.result.coverage.old.textless[0];
+    const unsureNew = this.result.coverage.new.textless[0] ?? this.result.coverage.new.uncertain?.[0]?.page;
+    if (textlessOld !== undefined) selOld.value = String(textlessOld);
+    if (unsureNew !== undefined) selNew.value = String(unsureNew);
+    return h('div', { class: 'pairform' },
+      h('p', { class: 'pair-hint' }, `${t(lang, 'pairHintOld')} ${t(lang, 'pairHintNew')}`),
+      h('label', {}, t(lang, 'oldVersion'), ' ', selOld),
+      h('span', { 'aria-hidden': 'true' }, '↔'),
+      h('label', {}, t(lang, 'newVersion'), ' ', selNew),
+      h('button', { class: 'btn primary sm', onclick: () => this.finishPair(Number(selOld.value), Number(selNew.value)) }, t(lang, 'pair')),
+      h('button', { class: 'btn link', onclick: () => { this.pairing = false; this.render(); } }, t(lang, 'pairCancel')),
+    );
   }
 
   private renderList(): void {

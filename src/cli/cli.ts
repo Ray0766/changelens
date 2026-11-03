@@ -33,6 +33,8 @@ Options:
       --include-furniture  Also compare headers, footers and page numbers
       --ignore-case        Ignore upper/lower case differences
       --ignore-punctuation Ignore punctuation differences
+      --pair <old:new>     Treat old page <old> and new page <new> as the same page
+                           (repeatable; e.g. --pair 2:3 for a page without text)
       --fail-on-change     Exit with code 1 when differences are found (for CI)
   -q, --quiet              Only print the summary line
   -h, --help               Show this help
@@ -98,6 +100,7 @@ async function main(): Promise<number> {
         'include-furniture': { type: 'boolean' },
         'ignore-case': { type: 'boolean' },
         'ignore-punctuation': { type: 'boolean' },
+        pair: { type: 'string', multiple: true },
         'fail-on-change': { type: 'boolean' },
         quiet: { type: 'boolean', short: 'q' },
         help: { type: 'boolean', short: 'h' },
@@ -140,7 +143,17 @@ async function main(): Promise<number> {
       return 2;
     }
   }
+  const manualPairs: [number, number][] = [];
+  for (const p of o.pair ?? []) {
+    const m = /^(\d+):(\d+)$/.exec(p);
+    if (!m || +m[1] < 1 || +m[2] < 1 || +m[1] > oldDoc.pages.length || +m[2] > newDoc.pages.length) {
+      process.stderr.write(`--pair ${p}: expected OLD:NEW with pages 1–${oldDoc.pages.length} and 1–${newDoc.pages.length}, e.g. --pair 2:3\n`);
+      return 2;
+    }
+    manualPairs.push([+m[1] - 1, +m[2] - 1]);
+  }
   const result = compareDocs(oldDoc, newDoc, {
+    manualPairs,
     ignoreCase: !!o['ignore-case'],
     ignorePunctuation: !!o['ignore-punctuation'],
     ignoreFurniture: !o['include-furniture'],
