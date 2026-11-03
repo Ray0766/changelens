@@ -17,6 +17,10 @@
 //                  with one bar 4 pt taller (push4-grew-after.pdf)
 //   letter4-*.pdf — the same report printed on A4 and on US Letter: the
 //                  charts move to other pages and places
+//   figpage4-*.pdf — the new version inserts a page with a chart and a
+//                  one-line caption between two text pages
+//   margin4-*.pdf — five numbered paragraphs, left-aligned; the side margins
+//                  shrink from 25 to 20 mm, so every line re-wraps
 //   blank4-*.pdf — the new version has a blank page between two text pages
 //
 // Run with Playwright available: node test/fixtures/make-visual4-fixtures.mjs
@@ -87,6 +91,17 @@ const push = (added, h) => (added ? paras(3, 40) : '') + paras(12) + '<p>Figure 
 
 const report = Array.from({ length: 24 }, (_, k) => `<p>${k + 1}. ${P[k % 5]}</p>` + (k % 8 === 4 ? '<svg width="200" height="60" style="display:block;margin:0 0 8pt"><rect width="200" height="60" fill="#2a5caa"/></svg>' : '')).join('');
 
+// Numbered paragraphs, left-aligned, with side margins of `mm`.
+const longer = [
+  `${P[0].slice(0, -1)} in all floors.`,
+  `${P[1].slice(0, -1)} before starting.`,
+  `${P[2].slice(0, -1)}, longer in winter.`,
+  `${P[3].slice(0, -1)} to the agreed standard.`,
+  `${P[4].slice(0, -1)} in writing.`,
+];
+const margins = (mm) =>
+  `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:A4;margin:20mm ${mm}mm} body{font-family:'Liberation Serif';font-size:11pt;line-height:1.4;margin:0} p{margin:0 0 8pt}</style></head><body>${longer.map((p, k) => `<p>${k + 1}. ${p} ${p}</p>`).join('')}</body></html>`;
+
 const docs = {
   'reflow4-before.pdf': html(reflow(false)),
   'reflow4-after.pdf': html(reflow(true)),
@@ -97,6 +112,14 @@ const docs = {
   'push4-grew-after.pdf': html(push(true, 66)),
   'letter4-a4.pdf': html(report, 'A4'),
   'letter4-letter.pdf': html(report, 'letter'),
+  'figpage4-before.pdf': html(`<div><p>${P[0]}</p><p>${P[1]}</p></div><div class="pb"><p>${P[2]}</p><p>${P[3]}</p></div>`),
+  'figpage4-after.pdf': html(
+    `<div><p>${P[0]}</p><p>${P[1]}</p></div><div class="pb"><svg width="400" height="300" style="display:block"><line x1="10" y1="280" x2="390" y2="280" stroke="#000" stroke-width="1"/>${[120, 200, 160, 240]
+      .map((h, i) => `<rect x="${40 + i * 90}" y="${280 - h}" width="50" height="${h}" fill="#4f86b7"/>`)
+      .join('')}</svg><p>Figure 2. Call-outs per site, 2025.</p></div><div class="pb"><p>${P[2]}</p><p>${P[3]}</p></div>`,
+  ),
+  'margin4-before.pdf': margins(25),
+  'margin4-after.pdf': margins(20),
   'blank4-before.pdf': html(`<div><p>${P[0]}</p><p>${P[1]}</p></div><div class="pb"><p>${P[2]}</p><p>${P[3]}</p></div>`),
   'blank4-after.pdf': html(`<div><p>${P[0]}</p><p>${P[1]}</p></div><div class="pb" style="height:1pt"></div><div class="pb"><p>${P[2]}</p><p>${P[3]}</p></div>`),
 };

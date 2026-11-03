@@ -1,7 +1,7 @@
 import type { Change, CompareResult, DocModel, Rect, Side } from './types.ts';
 import { sortAndNumber } from './compare.ts';
 import { union as unionRect } from './geometry.ts';
-import { alignPages, compareRasters, dedupeGraphics, foundOnPair, pageSignature, planVisual, reappears, sameGraphic, tooLargeToCompare, type Raster, type VisualPair } from './visual.ts';
+import { alignPages, compareRasters, dedupeGraphics, foundOnPair, pageGraphics, pageSignature, planVisual, reappears, sameGraphic, tooLargeToCompare, type Raster, type VisualPair } from './visual.ts';
 
 export type RenderFn = (page: number) => Promise<Raster>;
 
@@ -176,6 +176,7 @@ export async function addVisualChanges(
     if (count > 1) c.places = count;
     pageChanges.push(c);
   }
+  await graphicsOfUnpairedPages(result, pairs, render, large);
   const visual = [...dedupeGraphics(found.filter((c) => !c.minor)), ...pageChanges];
   const shifts = found.filter((c) => c.minor);
   result.minor = [...result.minor.filter((c) => c.consequence), ...shifts].sort((a, b) => a.order - b.order);
@@ -187,6 +188,41 @@ export async function addVisualChanges(
   result.changes.push(...visual);
   sortAndNumber(result.changes);
   return visual;
+}
+
+/**
+ * A page with text that no page of the other version corresponds to (an
+ * inserted or a deleted page) is not compared visually, so its graphics are
+ * not reported on their own. They belong to the page's text that was added
+ * or deleted: their regions are added to the largest insertion (deletion)
+ * on that page, so the reviewer sees the chart with its caption. Graphics
+ * that the neighbouring pages have at the same place (the template) are
+ * left out. A page without such a text change keeps its graphics unshown.
+ */
+async function graphicsOfUnpairedPages(
+  result: CompareResult,
+  pairs: VisualPair[],
+  render: { old: RenderFn; new: RenderFn },
+  large: (side: 'old' | 'new', p: number) => boolean,
+): Promise<void> {
+  for (const side of ['old', 'new'] as const) {
+    const doc = side === 'old' ? result.oldDoc : result.newDoc;
+    const textless = new Set(result.coverage?.[side].textless ?? []);
+    const kind = side === 'old' ? 'delete' : 'insert';
+    for (let p = 0; p < doc.pages.length; p++) {
+      if (textless.has(p) || large(side, p) || pairs.some((x) => x[side] === p)) continue;
+      const onPage = (c: Change) => c[side].rects.filter((r) => r.page === p).length;
+      const host = result.changes.filter((c) => c.kind === kind && onPage(c) > 0).sort((a, b) => onPage(b) - onPage(a))[0];
+      if (!host) continue;
+      try {
+        const neighbours = [];
+        for (const q of [p - 1, p + 1]) if (q >= 0 && q < doc.pages.length && !large(side, q)) neighbours.push({ page: q, r: await render[side](q) });
+        for (const rect of pageGraphics(doc, p, await render[side](p), neighbours)) host[side].rects.push({ page: p, rect });
+      } catch {
+        // Not rendered: the page's text change stays as it is.
+      }
+    }
+  }
 }
 
 /**

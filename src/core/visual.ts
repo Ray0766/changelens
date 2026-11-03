@@ -1020,7 +1020,13 @@ function addedLine(a: Prepared, ra: Rect, b: Prepared, rb: Rect): 'strike' | 'un
       diff += Math.abs(win(pb, j, 1) - win(pa, j + off, 1));
       total += win(pa, j + off, 1);
     }
-    if (diff > 0.35 * total + 0.5) return null;
+    // A token of one or two glyphs (narrower than 8 pt) may have a stroke
+    // across its whole width of its own (the bar of a "4"); drawn at another
+    // sub-pixel position it can look like a line. Its other rows must then
+    // match almost exactly: a line added to the same glyph leaves them as
+    // they were.
+    const narrow = rb.w < 8;
+    if (diff > (narrow ? 0.08 : 0.35) * total + (narrow ? 0.1 : 0.5)) return null;
     const rel = (B.top + (k + e + 1) / 2 / b.r.scale - rb.y) / rb.h;
     if (rel < 0.3) return null;
     return rel >= 0.72 ? 'underline' : 'strike';
@@ -1528,6 +1534,40 @@ export function planVisual(result: CompareResult): { pairs: VisualPair[]; gaps: 
     else if (lo.length || ln.length) gaps.push({ old: lo, new: ln, before: k > 0 ? [o1, n1] : null, after: k + 2 < bounds.length ? [o2, n2] : null });
   }
   return { pairs: [...pairs.values()].sort((a, b) => a.new - b.new || a.old - b.old), gaps };
+}
+
+/**
+ * Graphics on a page that no page of the other version corresponds to: ink
+ * outside the text, as regions in page points. What a neighbouring page of
+ * the same document has at the same place (a running header's rule, a logo,
+ * a slide's background) is left out: it belongs to the template, not to the
+ * page's content.
+ */
+export function pageGraphics(doc: DocModel, page: number, r: Raster, neighbours: { page: number; r: Raster }[]): Rect[] {
+  const src = prepare(doc, page, r);
+  const others = neighbours.map((n) => prepare(doc, n.page, n.r));
+  const W = r.width;
+  const H = r.height;
+  const cols = Math.ceil(W / CELL);
+  const rows = Math.ceil(H / CELL);
+  const cells = new Uint16Array(cols * rows);
+  const [s0, s1, s2] = src.planes;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const p = y * W + x;
+      if (src.mask[p] === GLYPH || src.mask[p] === PAD || Math.min(s0[p], s1[p], s2[p]) >= 235) continue;
+      const template = others.some((o) => {
+        const qx = Math.round((x * o.r.scale) / r.scale);
+        const qy = Math.round((y * o.r.scale) / r.scale);
+        return qx < o.r.width && qy < o.r.height && colourFit(src, o, qy * o.r.width + qx, p);
+      });
+      if (!template) cells[((y / CELL) | 0) * cols + ((x / CELL) | 0)]++;
+    }
+  }
+  return cluster(
+    components(cells, cols, rows, r.scale).map((c) => c.rect),
+    W / r.scale,
+  );
 }
 
 /** Page pairs worth comparing visually, in document order. */

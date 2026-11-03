@@ -133,3 +133,21 @@ test('a reportlab logo moved by 1 pt is a minor shift; a light bar on a grey pan
   assert.deepEqual(list(bars.changes), 'Graphic or image changed');
   assert.equal(bars.minor.length, 0);
 });
+
+test('the chart on an inserted page is shown with the text added there', { skip }, async () => {
+  const r = await fixture('figpage4-before.pdf', 'figpage4-after.pdf');
+  assert.deepEqual(list(r.changes), 'Added “Figure 2. Call-outs per site, 2025.”');
+  const rects = r.changes[0].new.rects;
+  assert.ok(rects.every((x) => x.page === 1));
+  assert.ok(rects.some((x) => x.rect.h > 150 && x.rect.w > 250), JSON.stringify(rects));
+  // Deleted: the same on the old side.
+  const back = await fixture('figpage4-after.pdf', 'figpage4-before.pdf');
+  assert.ok(back.changes[0].old.rects.some((x) => x.rect.h > 150), JSON.stringify(back.changes[0].old.rects));
+});
+
+test('a "4" re-flowed to another place is not taken for a struck "4"', { skip }, async () => {
+  // Its bar spans the glyph; drawn at another sub-pixel position it looked
+  // like a line through it once one-glyph tokens were checked for lines.
+  const r = await fixture('margin4-before.pdf', 'margin4-after.pdf');
+  assert.deepEqual(list(r.changes.filter((c) => c.format?.decoration)), '');
+});
