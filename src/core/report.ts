@@ -298,6 +298,7 @@ export function buildJson(input: ReportInput): unknown {
   const coverage = (c: CompareResult['coverage']['old']) => ({
     textless: c.textless.map((p) => p + 1),
     unreadable: c.unreadable.map(page1),
+    ...(c.privateUse ? { privateUse: c.privateUse.map(page1) } : {}),
     ...(c.uncertain ? { uncertain: c.uncertain.map(page1) } : {}),
   });
   return {

@@ -56,6 +56,8 @@ export interface Coverage {
   textless: number[];
   /** Pages with glyphs whose text could not be read, with their count. */
   unreadable: { page: number; count: number }[];
+  /** Pages with characters in the Unicode private-use area: compared by code, but without a standard meaning. */
+  privateUse?: { page: number; count: number }[];
   /** (New version only) pages whose text mostly has no counterpart: pairing is uncertain. */
   uncertain?: { page: number; matched: number }[];
 }

@@ -205,6 +205,8 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
     if (textless.length) out.push({ level: 'warn', text: t(lang, 'noticeTextless', { side: side(s), pages: pageRuns(lang, textless) }), action: 'pair' });
     if (cov.unreadable.length)
       out.push({ level: 'warn', text: t(lang, 'noticeUnreadable', { side: side(s), pages: pageRuns(lang, cov.unreadable.map((u) => u.page)), n: cov.unreadable.reduce((n, u) => n + u.count, 0) }) });
+    if (cov.privateUse?.length)
+      out.push({ level: 'info', text: t(lang, 'noticePrivateUse', { side: side(s), pages: pageRuns(lang, cov.privateUse.map((u) => u.page)), n: cov.privateUse.reduce((n, u) => n + u.count, 0) }) });
   }
   for (const u of r.coverage?.new.uncertain ?? []) out.push({ level: 'warn', text: t(lang, 'noticeUncertain', { pages: pageRuns(lang, [u.page]), pct: Math.round(u.matched * 100) + '%' }), action: 'pair' });
   if (r.stats?.unalignedTokens) out.push({ level: 'warn', text: t(lang, 'noticeUnaligned') });

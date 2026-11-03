@@ -1212,15 +1212,26 @@ function coverageOf(doc: DocModel): Coverage {
   }
   const textless: number[] = [];
   const unreadable: { page: number; count: number }[] = [];
+  const privateUse: { page: number; count: number }[] = [];
   for (const pg of doc.pages) {
     const toks = byPage.get(pg.index) ?? [];
     if (toks.length === 0) textless.push(pg.index);
-    // Private-use code points come from glyphs without a proper Unicode mapping.
-    let count = pg.unmapped;
-    for (const t of toks) for (const ch of t.text) if (/[\ue000-\uf8ff\ufffd]/.test(ch)) count++;
+    // Glyphs without any mapping, or mapped to U+FFFD (many glyphs to one
+    // code), cannot be told apart: a change to them can be missed.
+    let count = pg.unmapped ?? 0;
+    // Private-use code points (a font's own codes, e.g. for alternate
+    // glyphs) still tell glyphs apart, so they are compared, but their text
+    // has no standard meaning and may not display.
+    let own = 0;
+    for (const t of toks)
+      for (const ch of t.text) {
+        if (ch === '\ufffd') count++;
+        else if (/[\ue000-\uf8ff]/.test(ch)) own++;
+      }
     if (count > 0) unreadable.push({ page: pg.index, count });
+    if (own > 0) privateUse.push({ page: pg.index, count: own });
   }
-  return { textless, unreadable };
+  return privateUse.length ? { textless, unreadable, privateUse } : { textless, unreadable };
 }
 
 /** Number of differing header/footer lines (shown as "ignored", not hidden silently). */
