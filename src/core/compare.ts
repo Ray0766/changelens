@@ -445,7 +445,7 @@ function textChange(ctx: Ctx, h: Hunk): Change {
       balanced(to) &&
       !(isListLabel(A, h.a0, h.a1, from) && isListLabel(B, h.b0, h.b1, to)) &&
       sameUnit(from, to) &&
-      !(groupLike(A, h.a0, h.a1) && groupLike(B, h.b0, h.b1) && A[h.a0 - 1].key === B[h.b0 - 1].key);
+      !halfOfGroupedNumber(ctx, h);
     const decimal = decimalMark(from) ?? decimalMark(to) ?? undefined;
     change.numeric = {
       from,
@@ -458,20 +458,27 @@ function textChange(ctx: Ctx, h: Hunk): Change {
 }
 
 /**
- * A 3-digit figure right after an unchanged 1–3 digit figure and a single
- * space, the two standing on their own ("4 500" → "4 800"): PDF producers
- * write the no-break space that groups thousands as a plain space, so this
- * may be one number (+6.7%) or two (+60%). No percentage is given rather
+ * The changed figure is one half of a pair standing on its own, a 1–3 digit
+ * figure, a single space and a 3-digit figure, whose other half is
+ * unchanged ("4 500" → "4 800", "4 500" → "6 500"). PDF producers write the
+ * no-break space that groups thousands as a plain space, so this may be one
+ * number (+6.7%, +44%) or two (+60%, +50%). No percentage is given rather
  * than a wrong one. A run of three or more such figures ("120 135 150") is
  * read as separate figures, as the tokeniser does.
  */
-function groupLike(T: Token[], s: number, e: number): boolean {
+function halfOfGroupedNumber(ctx: Ctx, h: Hunk): boolean {
+  if (h.a1 - h.a0 !== 1 || h.b1 - h.b0 !== 1) return false;
   const adjacent = (p: Token | undefined, t: Token | undefined) => {
     if (!p || !t || p.line !== t.line || !t.spaceBefore || !/^\d{1,3}$/.test(p.text) || !/^\d{3}$/.test(t.text)) return false;
     const r = p.rects[p.rects.length - 1];
     return t.rects[0].x - (r.x + r.w) < 0.6 * t.size;
   };
-  return e - s === 1 && adjacent(T[s - 1], T[s]) && !adjacent(T[s - 2], T[s - 1]) && !adjacent(T[s], T[s + 1]);
+  /** Tokens k and k + 1 form such a pair. */
+  const pair = (T: Token[], k: number) => adjacent(T[k], T[k + 1]) && !adjacent(T[k - 1], T[k]) && !adjacent(T[k + 1], T[k + 2]);
+  const { A, B } = ctx;
+  const lead = pair(A, h.a0 - 1) && pair(B, h.b0 - 1) && A[h.a0 - 1].key === B[h.b0 - 1].key;
+  const group = pair(A, h.a0) && pair(B, h.b0) && A[h.a1].key === B[h.b1].key;
+  return lead || group;
 }
 
 const balanced = (s: string) => (s.match(/\(/g) ?? []).length === (s.match(/\)/g) ?? []).length;

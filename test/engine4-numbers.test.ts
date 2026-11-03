@@ -53,6 +53,12 @@ test('a figure that may be the second group of a space-grouped number gets no pe
     'Number changed: 120 000 → 120 500',
     'Number changed: 500 → 800',
   ]);
+  assert.deepEqual(changed(['La ville compte 4 500 entreprises.'], ['La ville compte 6 500 entreprises.']), ['Number changed: 4 → 6']);
+  // Both figures of the pair changed: two separate changes, each with its percentage, as before.
+  assert.deepEqual(changed(['Pens and markers 10 500 in stock.'], ['Pens and markers 50 100 in stock.']), [
+    'Number changed: 10 → 50 (+400%)',
+    'Number changed: 500 → 100 (-80%)',
+  ]);
 });
 
 test('figures in a list are split without their separators', () => {
