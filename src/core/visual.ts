@@ -2269,7 +2269,9 @@ function compareAligned(
   };
   // `loose`: the regions of each side that nothing explains, as found
   // before any is folded into a text change (see the row bands below).
-  let loose: { old: Rect[]; new: Rect[] } | null = null;
+  // Found on first need (a region in a text change's row band), once.
+  let loose: { old: Rect[]; new: Rect[] } | undefined;
+  const looseOf = (): { old: Rect[]; new: Rect[] } => (loose ??= { old: keep(oldRects, 'old', true, true), new: keep(newRects, 'new', true, true) });
   const keep = (rects: Rect[], side: 'old' | 'new', real = false, dry = false) => {
     const page = side === 'old' ? oldPage : newPage;
     const explained = zones(side, page);
@@ -2294,9 +2296,11 @@ function compareAligned(
       // rule that was restyled too) whose region the other side has a
       // region for, at the same place, that nothing explains: one graphic
       // that changed, listed with both places.
-      const other = loose && (side === 'old' ? loose.new : loose.old);
-      const matched = (x: { change: Change; angled: Shape[] | null }) =>
-        !!other && !x.angled && !x.change.consequence && other.some((q) => intersects(expand(map(r), 6), q) || intersects(expand(mapBelow(r), 6), q));
+      const matched = (x: { change: Change; angled: Shape[] | null }) => {
+        if (dry || x.angled || x.change.consequence) return false;
+        const l = looseOf();
+        return (side === 'old' ? l.new : l.old).some((q) => intersects(expand(map(r), 6), q) || intersects(expand(mapBelow(r), 6), q));
+      };
       const row = rows[side].find((x) => (x.angled ? covered(r, x.angled) >= 0.6 : coveredShare(r, [x.rect]) >= 0.6 && (x.change.consequence === 'repeatedLine' || r.w >= 0.5 * x.rect.w)) && !matched(x));
       if (row && dry) return false;
       if (row) {
@@ -2325,7 +2329,6 @@ function compareAligned(
       return true;
     });
   };
-  loose = { old: keep(oldRects, 'old', true, true), new: keep(newRects, 'new', true, true) };
   const oldKeep = keep(oldRects, 'old', true);
   const newKeep = keep(newRects, 'new', true);
 
