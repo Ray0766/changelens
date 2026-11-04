@@ -704,6 +704,19 @@ function slideToBoundaries(ops: DiffOp[], A: Token[], B: Token[]): void {
  * step inserted at the end of a step list does not take the label of the
  * heading after it. The pairing of the other words is unchanged.
  */
+/** The line-start labels in T[s, e) of the kind and role of label `like` (document token k). */
+function itemsIn(doc: DocModel, T: Token[], s: number, e: number, like: Label, k: number): number {
+  const box = labelBox(doc, k, like);
+  const parent = like.parts.slice(0, -1).join('.');
+  let n = 0;
+  for (let j = s; j < e; j++) {
+    if (doc.lines[T[j].line].start !== T[j].i) continue;
+    const l = labelAt(doc, T[j].i);
+    if (l && l.style === like.style && l.parts.length === like.parts.length && l.parts.slice(0, -1).join('.') === parent && sameRole(labelBox(doc, T[j].i, l), box)) n++;
+  }
+  return n;
+}
+
 function relabel(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: Hunk[]; pairs: Int32Array; labels: Set<Hunk> } {
   const { A, B, oldDoc, newDoc } = ctx;
   const toB = new Int32Array(A.length).fill(-1);
@@ -743,8 +756,10 @@ function relabel(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: Hunk[]; p
       const last = labelAt(tDoc, q.i);
       const before = labelAt(uDoc, U[x - m].i);
       if (!same(first, last) || !before || !last) return false;
-      if (!(ins ? labelShift(before, last) : labelShift(last, before))) return false;
-      return sameRole(labelBox(uDoc, U[x - m].i, before), labelBox(tDoc, q.i, last));
+      const shift = ins ? labelShift(before, last, Infinity) : labelShift(last, before, Infinity);
+      if (!shift || !sameRole(labelBox(uDoc, U[x - m].i, before), labelBox(tDoc, q.i, last))) return false;
+      // A shift of more than 3: as many items of the label's kind are inserted.
+      return Math.abs(shift.delta) <= 3 || itemsIn(tDoc, T, s - 1 - m, e - 1 - m, last, q.i) === Math.abs(shift.delta);
     };
     let m = 0;
     while (m <= 8 && !fits(m)) {
@@ -1680,10 +1695,10 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
 
 /**
  * How label a became label b when it was renumbered: exactly one level
- * changed, by at most 3, and every deeper level is the same ("8.4" → "8.5"
- * and "8.4.1" → "8.5.1" shift the same level of the same parent).
+ * changed, by at most `max`, and every deeper level is the same ("8.4" →
+ * "8.5" and "8.4.1" → "8.5.1" shift the same level of the same parent).
  */
-function labelShift(a: Label, b: Label): { level: number; delta: number } | null {
+function labelShift(a: Label, b: Label, max = 3): { level: number; delta: number } | null {
   if (a.style !== b.style || a.parts.length !== b.parts.length) return null;
   let level = -1;
   for (let i = 0; i < a.parts.length; i++) {
@@ -1693,7 +1708,7 @@ function labelShift(a: Label, b: Label): { level: number; delta: number } | null
   }
   if (level < 0) return null;
   const delta = b.parts[level] - a.parts[level];
-  if (Math.abs(delta) > 3) return null;
+  if (Math.abs(delta) > max) return null;
   return { level, delta };
 }
 
@@ -1846,7 +1861,7 @@ const REDLINE_LABEL = /^(?:(\d{1,3}(?:\.\d{1,3})*)\.?)?\[(\d{1,3}(?:\.\d{1,3})*)
  * change list (shown on request) and counted. Each needs positive evidence;
  * a label that changed without it is listed.
  * - List, clause and row labels ("4." → "5.", "8.4" → "8.5", a table's row
- *   number "7" → "8"): one level changed, by at most 3, and
+ *   number "7" → "8"): one level changed, and
  *   (1) the label numbers on from 1 (or, for "N." items, from the first
  *       label of the list, when the list starts at the same number in both
  *       versions: paragraphs 12.–19. that continue another part's
@@ -1964,7 +1979,8 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     if (c.kind !== 'replace' || !c.numeric || c.consequence || c.inMove !== undefined || !single(c)) continue;
     const a = oldLabels.at.get(c.old.start!);
     const b = newLabels.at.get(c.new.start!);
-    const shift = a && b && labelShift(a.label, b.label);
+    // Any shift: the net number of added siblings must equal it (see net).
+    const shift = a && b && labelShift(a.label, b.label, Infinity);
     if (shift) cands.push({ c, a: a!, b: b!, ...shift });
   }
   /**

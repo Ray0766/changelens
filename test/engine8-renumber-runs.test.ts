@@ -88,3 +88,27 @@ test('zero-padded labels changed by hand are listed; a time in the first cell ke
   const t = compare(items('a', [['12.00', 'Lunch']]), items('b', [['13.00', 'Lunch']]));
   assert.deepEqual(listed(t), ['Number changed: 12.00 → 13.00 (+8.3%)']);
 });
+
+test('a shift of more than 3 is renumbering when as many siblings were inserted (R1-11)', async () => {
+  // Chromium: four definitions inserted after 1.2, so 1.3–1.6 become 1.7–1.10.
+  const p08 = await probe('r1-11-p08');
+  assert.deepEqual(listed(p08), ['Added 4 paragraphs']);
+  assert.ok(p08.changes[0].new.text.startsWith('1.3 “Change Note”'), p08.changes[0].new.text);
+  assert.deepEqual(minor(p08), ['1.3 → 1.7', '1.4 → 1.8', '1.5 → 1.9', '1.6 → 1.10']);
+  // Word automatic numbering via LibreOffice: four steps inserted after step 2.
+  const w11 = await probe('r1-11-w11');
+  assert.deepEqual(listed(w11), ['Added 4 paragraphs']);
+  assert.ok(w11.changes[0].new.text.startsWith('3. Wear insulated gloves.'), w11.changes[0].new.text);
+  assert.deepEqual(minor(w11), ['3 → 7', '4 → 8', '5 → 9', '6 → 10']);
+});
+
+test('a large jump with one sibling inserted is listed (R1-11 control)', () => {
+  const T = [...P, 'Disputes go to the courts of the seat.'];
+  const old: [string, string][] = T.map((t, k) => [`${k + 1}.`, t]);
+  // "Late payments bear interest." inserted as 2; old 5. typed as 10. instead of 6.
+  const grown: [string, string][] = [old[0], ['2.', 'Late payments bear interest.'], ...old.slice(1).map(([, t], k): [string, string] => [k === 3 ? '10.' : `${k + 3}.`, t])];
+  const r = compare(items('a', old), items('b', grown));
+  // The list then reads 1, …, 5, 10, 7: nothing explains 10, and 7 no longer numbers on.
+  assert.deepEqual(r.changes.filter((c) => c.numeric).map((c) => describeChange('en', c)), ['Number changed: 5 → 10', 'Number changed: 6 → 7']);
+  assert.deepEqual(minor(r), ['2 → 3', '3 → 4', '4 → 5']);
+});
