@@ -55,19 +55,45 @@ function clauses(name: string, rows: [string, string][]): DocText {
 }
 
 test('a label display compared with the version that has the change accepted (R1-02 control)', () => {
-  // The redline shows 4.3 → 4.2 and 4.4 → 4.3 (the deleted clause is not shown).
-  const T = ['Records are kept for six years.', 'Paper records may be scanned after review.', 'Working copies are kept only while needed.'];
-  const redline = clauses('redline', [['4.1', T[0]], ['4.2[4.3]', T[1]], ['4.3[4.4]', T[2]]]);
+  // The redline shows 4.3 → 4.2 and 4.4 → 4.3, and the deleted clause 4.2 struck through.
+  const T = ['Records are kept for six years.', 'Paper records may be scanned after review.', 'Working copies are kept only while needed.', 'A record under a legal hold is not destroyed.'];
+  const shown = clauses('redline', [['4.1', T[0]], ['[4.2]', T[3]], ['4.2[4.3]', T[1]], ['4.3[4.4]', T[2]]]);
   const accepted = clauses('accepted', [['4.1', T[0]], ['4.2', T[1]], ['4.3', T[2]]]);
+  const s = compareDocs(buildDocModel(shown), buildDocModel(accepted));
+  // The deleted clause is listed; "[4.4]" numbers on from the display above it ("[4.3]"),
+  // which lies in that listed deletion: a consequence.
+  assert.ok(listed(s).some((d) => /^Deleted 11 words/.test(d)), JSON.stringify(listed(s)));
+  assert.ok(minor(s).includes('List number shown as a tracked change: “4.3[4.4]”'), JSON.stringify(minor(s)));
+  // Without the deleted clause, "[4.3]" follows only "4.1", an unchanged label, so nothing
+  // shows it was 4.3: listed. Then it supplies no former number to "[4.4]" either (second
+  // pass: a display judged an edit is no evidence for the one below it), so both are listed.
+  const redline = clauses('redline', [['4.1', T[0]], ['4.2[4.3]', T[1]], ['4.3[4.4]', T[2]]]);
   const r = compareDocs(buildDocModel(redline), buildDocModel(accepted));
-  // "[4.4]" numbers on from the display above it ("[4.3]"): a consequence. "[4.3]" follows
-  // only "4.1", an unchanged label, so nothing shows it was 4.3: listed.
-  assert.deepEqual(listed(r), ['Deleted “[4.3]”']);
-  assert.deepEqual(minor(r), ['List number shown as a tracked change: “4.3[4.4]”']);
+  assert.deepEqual(listed(r), ['Deleted “[4.3]”', 'Deleted “[4.4]”']);
+  assert.deepEqual(minor(r), []);
   // A bracketed number that does not follow the label above it is listed.
   const odd = clauses('odd', [['4.1', T[0]], ['4.2', T[1]], ['4.3[4.1]', T[2]]]);
   const plain = clauses('plain', [['4.1', T[0]], ['4.2', T[1]], ['4.3', T[2]]]);
   const o = compareDocs(buildDocModel(odd), buildDocModel(plain));
   assert.deepEqual(listed(o), ['Deleted “[4.1]”']);
   assert.deepEqual(minor(o), []);
+});
+
+test('a footnote marker on the next row is listed when the marker above it is listed (R1-02, second pass)', async () => {
+  // Chromium: a footnote [1] exists; markers [3] and [4] are put on classes 2 and 3
+  // ("2[3]", "3[4]") with two new footnotes. "2[3]" is listed as an added marker, so it
+  // cannot show that class 3 was class 4 before.
+  for (const [id, swap] of [['r1-02-cr2', false], ['r1-02-cr2', true]] as const) {
+    const a = buildDocModel(await extractText(await openPdf(`${fixtures}probe8-${id}-${swap ? 'after' : 'before'}.pdf`), 'a.pdf'));
+    const b = buildDocModel(await extractText(await openPdf(`${fixtures}probe8-${id}-${swap ? 'before' : 'after'}.pdf`), 'b.pdf'));
+    const r = compareDocs(a, b);
+    const verb = swap ? 'Deleted' : 'Added';
+    assert.deepEqual(listed(r), [`${verb} “[3]”`, `${verb} “[4]”`, `${verb} 2 paragraphs`], `swap ${swap}`);
+    assert.deepEqual(minor(r), [], `swap ${swap}`);
+    assert.equal(renumberNotice(r), undefined, `swap ${swap}`);
+  }
+  // Control: the markers on classes 3 and 4 ("3[3]", "4[4]"), listed before as well.
+  const cr1 = await probe('r1-02-cr1');
+  assert.deepEqual(listed(cr1), ['Added “[3]”', 'Added “[4]”', 'Added 2 paragraphs']);
+  assert.deepEqual(minor(cr1), []);
 });

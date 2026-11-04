@@ -2196,8 +2196,9 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
    * the item B (it is the original). Kept A: the other version is the one
    * with the change accepted, and B must number on in this version from
    * the label above it: one more than that label's former number ("[4.3]"
-   * or "4.2[4.3]" above "4.3[4.4]"). A display with no label above it is
-   * not one.
+   * or "4.2[4.3]" above "4.3[4.4]"). A display above that was itself judged
+   * an edit (a footnote marker "2[3]" listed as added) supplies no former
+   * number, and a display with no label above it is not one.
    */
   const redlineEvidence = (doc: DocModel, line: number, end: number, changed: (i: number) => boolean) => {
     const l = doc.lines[line];
@@ -2221,6 +2222,7 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
       if (lj.furniture || lj.end <= lj.start) continue;
       const prev = clusterAt(doc, lj);
       if (!prev || prev.before.length > b.length) continue;
+      if (listedDisplay.has(`${doc === newDoc ? 'insert' : 'delete'}:${j}`)) return false;
       if (prev.before.length < b.length) return false;
       return prev.before.slice(0, -1).every((v, k) => v === b[k]) && prev.before[b.length - 1] + 1 === b[b.length - 1];
     }
@@ -2243,7 +2245,11 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     list.push(c);
   }
   const absorbed = new Set<Change>();
-  for (const [k, list] of clusters) {
+  /** The clusters judged edits ("kind:line"); a display below one may not take its former number from it. */
+  const listedDisplay = new Set<string>();
+  // In reading order, so a display above is judged before the one below it.
+  const lineOf = (k: string) => Number(k.split(':')[1]);
+  for (const [k, list] of [...clusters].sort((x, y) => lineOf(x[0]) - lineOf(y[0]))) {
     const c = list[0];
     const doc = c.kind === 'insert' ? newDoc : oldDoc;
     const line = doc.lines[Number(k.split(':')[1])];
@@ -2255,7 +2261,10 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     // row number ("3" → "3[1]"): see redlineEvidence.
     const sideOf = (x: Change) => (x.kind === 'insert' ? x.new : x.old);
     const changed = (i: number) => list.some((x) => sideOf(x).start! <= i && i < sideOf(x).end!);
-    if (!redlineEvidence(doc, line.id, end, changed)) continue;
+    if (!redlineEvidence(doc, line.id, end, changed)) {
+      listedDisplay.add(k);
+      continue;
+    }
     const toks = doc.tokens.slice(line.start, end);
     const rects = rectsOf(toks);
     const side: Side = { pages: [line.page], rects, text: joinTokens(toks), start: line.start, end };
