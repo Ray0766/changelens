@@ -82,3 +82,43 @@ test('R5-08: a graphic edit under an added watermark or stamp, away from its let
   assert.ok(list(s.changes).includes('Added “PAID”'));
   assert.ok(graphics(s).every((c) => !c.new.rects.length), list(s.changes).join(' | '));
 });
+
+test('R5-09: a full-width rule restyled next to an inserted or deleted paragraph is one change with both places', { skip }, async () => {
+  // Chromium lease letter; the <hr> above the signature block becomes
+  // 1.5 pt red. Before: "Graphic or image removed" (or "added") with one
+  // place, the other hidden in the insertion's (deletion's) places.
+  for (const [file, kind, side, y] of [
+    ['probe8-R5-09-ins-rule.pdf', 'insert', 'new', 236],
+    ['probe8-R5-09-del-rule.pdf', 'delete', 'old', 212],
+  ] as const) {
+    const r = await run('probe8-R5-09-before.pdf', file);
+    const g = graphics(r);
+    assert.deepEqual(list(g), ['Graphic or image changed'], `${file}: ${list(r.changes).join(' | ')}`);
+    assert.ok(g[0].old.rects.length && g[0].new.rects.length, JSON.stringify(g[0]));
+    const text = r.changes.find((c) => c.kind === kind)!;
+    assert.ok(!hits(text, side, 1, 300, y), `${file}: ${JSON.stringify(text[side].rects)}`);
+  }
+  // Controls: the insertion or deletion alone.
+  for (const [file, d] of [
+    ['probe8-R5-09-ins-only.pdf', 'Added a paragraph'],
+    ['probe8-R5-09-del-only.pdf', 'Deleted a paragraph'],
+  ]) {
+    const c = await run('probe8-R5-09-before.pdf', file);
+    assert.deepEqual(list(c.changes), [d], file);
+  }
+});
+
+test('R5-V03: a thin rule recoloured at the same width is changed, not removed', { skip }, async () => {
+  // reportlab minutes: a 1 pt dark grey rule turned green on paper, or red
+  // along the bottom of a light tinted box. Before: "Graphic or image
+  // removed" with the old place only (the new colour's anti-aliased
+  // pixels lie within the old rule's range of greys).
+  for (const [a, b] of [
+    ['probe8-R5-V03-paper-before.pdf', 'probe8-R5-V03-paper-green.pdf'],
+    ['probe8-R5-V03-tint-before.pdf', 'probe8-R5-V03-tint-red.pdf'],
+  ]) {
+    const r = await run(a, b);
+    assert.deepEqual(list(r.changes), ['Graphic or image changed'], b);
+    assert.ok(hits(r.changes[0], 'old', 1, 300, 150) && hits(r.changes[0], 'new', 1, 300, 150), JSON.stringify(r.changes[0]));
+  }
+});

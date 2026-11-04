@@ -2190,16 +2190,33 @@ function compareAligned(
   };
   const rows = { old: rowBands(result, 'old', oldPage), new: rowBands(result, 'new', newPage) };
   const runningRows = { old: furnitureRows(result, 'old', oldPage, newPage), new: furnitureRows(result, 'new', newPage, oldPage) };
-  const keep = (rects: Rect[], side: 'old' | 'new', real = false) => {
+  // Where a region of one page lies on the other: displaced like the
+  // matched line above it, or like the one below it (a rule between an
+  // inserted paragraph and the text after it went down with that text).
+  const mapWith = (anchors: Anch[], below = false) => (r: Rect): Rect => {
+    let best = anchors[0] ?? { y: 0, dx: 0, dy: 0, own: true };
+    if (below) best = anchors.find((a) => a.y > r.y + r.h / 2) ?? anchors[anchors.length - 1] ?? best;
+    else for (const a of anchors) if (a.y <= r.y + r.h / 2) best = a;
+    return { x: r.x + best.dx, y: r.y + best.dy, w: r.w, h: r.h };
+  };
+  const toNew = mapWith(ownF);
+  const toOld = mapWith(ownB);
+  const toNewBelow = mapWith(ownF, true);
+  const toOldBelow = mapWith(ownB, true);
+  // `loose`: the regions of each side that nothing explains, as found
+  // before any is folded into a text change (see the row bands below).
+  let loose: { old: Rect[]; new: Rect[] } | null = null;
+  const keep = (rects: Rect[], side: 'old' | 'new', real = false, dry = false) => {
     const page = side === 'old' ? oldPage : newPage;
     const explained = zones(side, page);
     const [src, dst] = side === 'old' ? [A, B] : [B, A];
+    const [map, mapBelow] = side === 'old' ? [toNew, toNewBelow] : [toOld, toOldBelow];
     return rects.filter((r) => {
       if (coveredShare(r, explained) >= 0.6 || covered(r, along[side]) >= 0.6) return false;
       // A change bar in the margin beside the lines of a change.
       const bar = real ? changeBar(result, side, page, r, src.r.scale, appearance) : null;
       if (bar) {
-        bar[side].rects.push({ page, rect: r });
+        if (!dry) bar[side].rects.push({ page, rect: r });
         return false;
       }
       // The fill and rules of a table row whose text is a change of its own
@@ -2209,7 +2226,15 @@ function compareAligned(
       // an inserted line, a rule that got shorter and red) is a change of
       // its own. Around text set at an angle (a stamp), which is no table
       // row, what lies in the band is the stamp's own frame.
-      const row = rows[side].find((x) => (x.angled ? covered(r, x.angled) >= 0.6 : coveredShare(r, [x.rect]) >= 0.6 && (x.change.consequence === 'repeatedLine' || r.w >= 0.5 * x.rect.w)));
+      // A row of a text change on one side only (a line inserted above a
+      // rule that was restyled too) whose region the other side has a
+      // region for, at the same place, that nothing explains: one graphic
+      // that changed, listed with both places.
+      const other = loose && (side === 'old' ? loose.new : loose.old);
+      const matched = (x: { change: Change; angled: Shape[] | null }) =>
+        !!other && !x.angled && !x.change.consequence && other.some((q) => intersects(expand(map(r), 6), q) || intersects(expand(mapBelow(r), 6), q));
+      const row = rows[side].find((x) => (x.angled ? covered(r, x.angled) >= 0.6 : coveredShare(r, [x.rect]) >= 0.6 && (x.change.consequence === 'repeatedLine' || r.w >= 0.5 * x.rect.w)) && !matched(x));
+      if (row && dry) return false;
       if (row) {
         const s = row.change[side];
         const place = { page, rect: r };
@@ -2236,16 +2261,9 @@ function compareAligned(
       return true;
     });
   };
+  loose = { old: keep(oldRects, 'old', true, true), new: keep(newRects, 'new', true, true) };
   const oldKeep = keep(oldRects, 'old', true);
   const newKeep = keep(newRects, 'new', true);
-
-  const mapWith = (anchors: Anch[]) => (r: Rect): Rect => {
-    let best = anchors[0] ?? { y: 0, dx: 0, dy: 0, own: true };
-    for (const a of anchors) if (a.y <= r.y + r.h / 2) best = a;
-    return { x: r.x + best.dx, y: r.y + best.dy, w: r.w, h: r.h };
-  };
-  const toNew = mapWith(ownF);
-  const toOld = mapWith(ownB);
 
   // Pair old and new regions that correspond to each other.
   const changes: Change[] = [];
@@ -2259,6 +2277,8 @@ function compareAligned(
     const same = expand(r, 10);
     const all = newKeep.map((n, k) => [n, k] as const);
     let partners = all.filter(([n]) => intersects(s, n) || (byMovedLine(r) && intersects(same, n)));
+    // Displaced like the line below it instead (a rule under an inserted line).
+    if (!partners.length) partners = all.filter(([n]) => intersects(expand(toNewBelow(r), 10), n));
     // On pages that correspond as a whole, the same spot is the next best guess
     // (a table whose columns were rearranged maps its rows far off).
     if (!partners.length && whole) partners = all.filter(([n]) => intersects(same, n));
@@ -2291,6 +2311,27 @@ function compareAligned(
     for (const r of c[side].rects) {
       const near = spots.find((g) => intersects(expand(map(r.rect), 10), g) || (whole && intersects(expand(r.rect, 10), g)));
       if (near && !c[other].rects.some((q) => intersects(q.rect, near))) c[other].rects.push({ page, rect: near });
+    }
+    // A graphic of about the same ink where the region lies on the other
+    // page (a thin rule recoloured at the same width, whose new colour
+    // lies within the old rule's range of anti-aliased greys there): it
+    // changed; it was not added or removed.
+    // Not where text set at an angle lies on the other page (a stamp's
+    // frame drawn over what was there). Only on pages that correspond: on
+    // a pair across a moved page break, a region found on one side is
+    // compared with the other pairs of its page (see dedupeGraphics).
+    if (!c[other].rects.length && result.oldToNew[oldPage] === newPage && result.newToOld[newPage] === oldPage) {
+      const [P, Q] = added ? [B, A] : [A, B];
+      const ink = (X: Prepared, q: Rect) => inkIn(X, q.x * X.r.scale, q.y * X.r.scale, (q.x + q.w) * X.r.scale, (q.y + q.h) * X.r.scale);
+      const stamped = (q: Rect) => covered(q, along[other]) > 0 || rows[other].some((x) => !!x.angled && covered(q, x.angled) > 0);
+      for (const r of c[side].rects) {
+        const own = ink(P, r.rect);
+        const there = [map(r.rect), ...(whole ? [r.rect] : [])].find((q) => {
+          const v = ink(Q, q);
+          return own >= 1 && v >= 0.5 * own && v <= 2 * own && !stamped(q);
+        });
+        if (there) c[other].rects.push({ page, rect: there });
+      }
     }
     c[other].pages = c[other].rects.length ? [page] : [];
   }
