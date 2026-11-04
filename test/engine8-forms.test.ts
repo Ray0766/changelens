@@ -148,3 +148,20 @@ test('R3-09 control: a field set in another standard font is a font change', () 
   assert.deepEqual(listed(compareDocs(doc('Helv'), doc('HeBo'))), ['“1,250.00” now bold']);
   assert.deepEqual(listed(compareDocs(doc('F1'), doc('F2'))), []);
 });
+
+test('R3-07: a widget turned by /MK /R is compared as text', async () => {
+  // Sample submission: a vertical "Batch no." field along the left margin (/MK /R 90, value in /V).
+  let r = await run('R3-07-before', 'R3-07-swap');
+  assert.deepEqual(listed(r), ['Number changed: B-2026-0417 → B-2026-0471 (form field)']);
+  // Located in the vertical widget (x 20–38, y 110–280 from the top), reading up the page.
+  const q = r.changes[0].new.rects[0].rect;
+  assert.ok(q.x >= 19 && q.x + q.w <= 39 && q.y >= 109 && q.y + q.h <= 281 && q.h > q.w, JSON.stringify(q));
+  assert.equal(r.coverage.new.fieldsUnread, undefined);
+  // Control: only the ordinary "Sample count" field changes.
+  r = await run('R3-07-before', 'R3-07-control');
+  assert.deepEqual(listed(r), ['Number changed: 12 → 21 (+75%) (form field)']);
+  // A page with /Rotate 90 whose fields carry /R 90 (as Acrobat adds them): upright values after their labels.
+  r = await run('R3-07-page-before', 'R3-07-page-after');
+  assert.deepEqual(listed(r), ['Number changed: 48,120 → 84,120 (+75%) (form field)']);
+  assert.equal(r.changes[0].contextBefore, 'Odometer (km)');
+});

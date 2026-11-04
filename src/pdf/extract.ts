@@ -289,7 +289,7 @@ export function fieldRuns(annotations: WidgetData[], vt: number[], content: Text
       out.unread++;
       continue;
     }
-    if (a.password || (a.rotation ?? 0) !== 0) {
+    if (a.password || !TURNS.has(a.rotation ?? 0)) {
       out.unread++;
       continue;
     }
@@ -340,16 +340,16 @@ function combValue(shown: string, value: unknown): string {
  * the field value: from the first cell, centred by whole cells (/Q 1) or in
  * the last cells (/Q 2), leading spaces counted as cells.
  */
-function combStart(a: WidgetData, str: string, cell: number): number {
+function combStart(a: WidgetData, str: string, cell: number, tpx: number | undefined): number {
   const n = Array.from(str).length;
   const max = a.maxLen!;
   const raw = typeof a.fieldValue === 'string' ? cleanText(a.fieldValue).trimEnd() : '';
   const squash = (s: string) => s.replace(/\s+/g, '');
   const lead = squash(raw) === squash(str) ? Array.from(raw).length - Array.from(raw.trimStart()).length : 0;
   let first: number;
-  if (a.textPosition && Number.isFinite(a.textPosition[0])) {
+  if (tpx !== undefined) {
     const drawnLead = /^\s/.test(a.textContent?.[0] ?? '') ? lead : 0;
-    first = Math.floor(a.textPosition[0] / cell) + drawnLead;
+    first = Math.floor(tpx / cell) + drawnLead;
   } else {
     const total = lead + n;
     first = lead + (a.textAlignment === 1 ? Math.floor((max - total) / 2) : a.textAlignment === 2 ? max - total : 0);
@@ -375,7 +375,15 @@ function apply(m: number[], x: number, y: number): [number, number] {
   return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
 }
 
-/** Lay out a field's text lines in its widget box (user space), as runs in viewport space. */
+/** A widget turned by /MK /R draws its appearance in the box turned by that angle (as PDF.js does). */
+const TURNS = new Set([0, 90, 180, 270]);
+
+/**
+ * Lay out a field's text lines in its widget box, as runs in viewport space.
+ * The layout is made in the frame of the widget's appearance: the box as
+ * drawn, upright, from (0, 0); a widget turned by /MK /R (90, 180 or 270)
+ * maps it into its rect turned by that angle, as PDF.js draws it.
+ */
 function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[]): TextRun[] {
   const family = fieldFamily(a.defaultAppearanceData?.fontName);
   // The glyph box of the standard font of that family, as PDF.js measures
@@ -383,8 +391,19 @@ function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[]):
   // Liberation fonts): a value burned into the page has the same box.
   const [ascent, descent] = FIELD_METRICS[family];
   const font = fieldFont(a.defaultAppearanceData?.fontName);
-  const boxW = r[2] - r[0];
-  const boxH = r[3] - r[1];
+  const rot = a.rotation ?? 0;
+  const rw = r[2] - r[0];
+  const rh = r[3] - r[1];
+  const turned = rot === 90 || rot === 270;
+  const boxW = turned ? rh : rw;
+  const boxH = turned ? rw : rh;
+  // Appearance frame → user space (PDF.js getRotationMatrix, then the rect's corner).
+  const frame = rot === 90 ? [0, 1, -1, 0, rw + r[0], r[1]] : rot === 180 ? [-1, 0, 0, -1, rw + r[0], rh + r[1]] : rot === 270 ? [0, -1, 1, 0, r[0], rh + r[1]] : [1, 0, 0, 1, r[0], r[1]];
+  // The first glyph's position, for an unturned widget (PDF.js gives it
+  // relative to the rect's corner; for a turned one in no clear frame).
+  const tp = rot === 0 && a.textPosition && a.textPosition.length === 2 ? a.textPosition : undefined;
+  const tpx = tp && Number.isFinite(tp[0]) ? tp[0] : undefined;
+  const tpy = tp && Number.isFinite(tp[1]) ? tp[1] : undefined;
   const multi = !!a.multiLine || (a.fieldType === 'Ch' && !a.combo) || lines.length > 1;
   let fs = a.defaultAppearanceData?.fontSize ?? 0;
   // Auto size (0): what fits the box, as viewers do.
@@ -392,7 +411,7 @@ function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[]):
   const advance = (s: string) => (Array.from(s).reduce((n, ch) => n + charWeight(ch, family), 0) / 1000) * fs;
   const align = a.textAlignment ?? 0;
   // The left padding: where the first glyph starts, for left-aligned text.
-  const pad = align === 0 && a.textPosition && Number.isFinite(a.textPosition[0]) ? Math.max(0, Math.min(a.textPosition[0], boxW / 4)) : 2;
+  const pad = align === 0 && tpx !== undefined ? Math.max(0, Math.min(tpx, boxW / 4)) : 2;
   const avail = Math.max(fs, boxW - 2 * pad);
   // Wrap long lines to the box (multi-line fields), as the viewer shows them.
   let visual = lines;
@@ -400,21 +419,21 @@ function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[]):
   const runs: TextRun[] = [];
   const comb = !!a.comb && (a.maxLen ?? 0) > 0;
   const at = (str: string, x: number, baseline: number, w: number, eol: boolean) =>
-    runs.push(makeRun(vt, [fs, 0, 0, fs, x, baseline], w, str, ascent, descent, { font, family, eol, field: true, ...(comb ? { comb: true as const } : {}) }));
-  const xOf = (w: number) => (align === 1 ? r[0] + (boxW - w) / 2 : align === 2 ? r[2] - pad - w : r[0] + pad);
+    runs.push(makeRun(vt, multiply(frame, [fs, 0, 0, fs, x, baseline]), w, str, ascent, descent, { font, family, eol, field: true, ...(comb ? { comb: true as const } : {}) }));
+  const xOf = (w: number) => (align === 1 ? (boxW - w) / 2 : align === 2 ? boxW - pad - w : pad);
   if (!multi) {
     const str = visual[0] ?? '';
     let w = advance(str);
-    let x = a.textPosition && Number.isFinite(a.textPosition[0]) ? r[0] + a.textPosition[0] : xOf(w);
+    let x = tpx ?? xOf(w);
     if (comb) {
       // One character per cell, from the cell the value starts in.
       const cell = boxW / a.maxLen!;
       w = cell * Array.from(str).length;
-      x = r[0] + cell * combStart(a, str, cell);
+      x = cell * combStart(a, str, cell, tpx);
     }
     // A value longer than the box scrolls in the viewer: keep its text, but inside the box.
-    w = Math.min(w, Math.max(1, r[2] - x));
-    const baseline = a.textPosition && Number.isFinite(a.textPosition[1]) ? r[1] + a.textPosition[1] : r[1] + (boxH - fs) / 2 + 0.22 * fs;
+    w = Math.min(w, Math.max(1, boxW - x));
+    const baseline = tpy ?? (boxH - fs) / 2 + 0.22 * fs;
     at(str, x, baseline, w, true);
     return runs;
   }
@@ -422,16 +441,16 @@ function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[]):
   // (and its count of lines); lines run down from the top of the box.
   const n = visual.length;
   let lh = 1.2 * fs;
-  let top = r[3] - pad - 0.8 * fs;
-  const known = a.textPosition && Number.isFinite(a.textPosition[1]) && a.textContent && a.textContent.length > 1 && a.textContent.length === n;
+  let top = boxH - pad - 0.8 * fs;
+  const known = tpy !== undefined && a.textContent && a.textContent.length > 1 && a.textContent.length === n;
   if (known) {
-    const bottom = r[1] + a.textPosition![1];
+    const bottom = tpy;
     const est = (top - bottom) / (n - 1);
     if (est >= 0.9 * fs && est <= 1.8 * fs) lh = est;
     top = bottom + (n - 1) * lh;
   }
   // Lines beyond the box scroll in the viewer: keep them inside it.
-  if (n > 1) lh = Math.max(0.3 * fs, Math.min(lh, (top - (r[1] + 0.2 * fs)) / (n - 1)));
+  if (n > 1) lh = Math.max(0.3 * fs, Math.min(lh, (top - 0.2 * fs) / (n - 1)));
   visual.forEach((str, k) => {
     const w = Math.min(advance(str), avail);
     at(str, xOf(w), top - k * lh, w, true);

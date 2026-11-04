@@ -87,13 +87,14 @@ const widget = (rect: number[], extra: Partial<WidgetData>): WidgetData => ({
   ...extra,
 });
 
-test('choice fields show their selected option; password, rotated and unreadable fields are counted', () => {
+test('choice fields show their selected option; password and unreadable fields are counted', () => {
   const f = fieldRuns(
     [
       widget([100, 700, 300, 718], { fieldType: 'Ch', combo: true, fieldValue: ['b'], options: [{ exportValue: 'a', displayValue: 'Annual' }, { exportValue: 'b', displayValue: 'Quarterly' }] }),
       widget([100, 670, 300, 688], { fieldValue: '12 May 2026' }),
       widget([100, 640, 300, 658], { password: true, fieldValue: 'secret' }),
       widget([100, 610, 300, 628], { rotation: 90, fieldValue: 'Sideways' }),
+      widget([100, 610, 300, 628], { rotation: 45, fieldValue: 'Askew' }),
       widget([100, 580, 300, 598], { fieldValue: 42 as unknown as string }),
       widget([100, 550, 300, 568], { hidden: true, fieldValue: 'Not shown' }),
       widget([100, 520, 113, 533], { fieldType: 'Btn', checkBox: true, fieldValue: 'Yes' }),
@@ -104,9 +105,11 @@ test('choice fields show their selected option; password, rotated and unreadable
   );
   assert.deepEqual(
     f.runs.map((g) => g.map((r) => r.str)),
-    [['Quarterly'], ['12 May 2026']],
+    [['Quarterly'], ['12 May 2026'], ['Sideways']],
   );
-  // Password, rotated widget, non-text value.
+  // A widget turned by /MK /R 90 reads up the page (fix round 8).
+  assert.equal(f.runs[2][0].angle, -90);
+  // Password, a turn that is not a quarter, non-text value.
   assert.equal(f.unread, 3);
   for (const g of f.runs) for (const run of g) assert.equal(run.field, true);
   // Without an appearance the value is centred vertically in the box: its baseline is inside it.
@@ -150,7 +153,7 @@ test('form fields that could not be read are named in a warning', () => {
   const b = model(makeDoc('b', [[['Applicant name and department are filled in below.']]]));
   b.pages[0].fieldsUnread = 2;
   const notes = notices('en', compareDocs(a, b));
-  assert.ok(notes.some((n) => n.level === 'warn' && n.text === 'New version p. 1: 2 form fields could not be compared as text (password, rotated or unreadable values); they are compared as images only.'), JSON.stringify(notes));
+  assert.ok(notes.some((n) => n.level === 'warn' && n.text === 'New version p. 1: 2 form fields could not be compared as text (password or unreadable values); they are compared as images only.'), JSON.stringify(notes));
   b.pages[0].fieldsUnread = -1;
   assert.ok(notices('zh', compareDocs(a, b)).some((n) => n.level === 'warn' && n.text.includes('表单字段无法读取')));
 });
