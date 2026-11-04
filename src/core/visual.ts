@@ -9,7 +9,7 @@
  * the matched words above and below it as anchors). Text itself is masked
  * out, and small anti-aliasing differences are tolerated.
  */
-import type { Change, CompareResult, DocModel, Rect, Token } from './types.ts';
+import type { Change, CompareResult, DocModel, Rect, TextRun, Token } from './types.ts';
 import { expand, intersects, union } from './geometry.ts';
 import { joinTokens } from './tokenize.ts';
 
@@ -180,9 +180,44 @@ function textMask(doc: DocModel, page: number, r: Raster, lum: Uint8Array): Uint
       else for (let i = y * W + x0, e = y * W + x1; i < e; i++) if (!m[i]) m[i] = v;
     }
   };
+  // Text set at an angle (a DRAFT watermark, a stamp) is masked along its
+  // letters only: its bounding box can cover half the page.
+  const slanted = (run: TextRun) => !!run.rot && run.angle % 90 !== 0;
+  const fillSlanted = (run: TextRun, pad: number, v: number, onlyEmpty: boolean) => {
+    const a = (run.angle * Math.PI) / 180;
+    const cos = Math.cos(a);
+    const sin = Math.sin(a);
+    const u0 = run.rot!.x * cos + run.baseline * sin - pad;
+    const v0 = -run.rot!.x * sin + run.baseline * cos;
+    const u1 = u0 + run.rot!.len + 2 * pad;
+    const top = v0 - run.rot!.ascent - pad;
+    const bottom = v0 + run.rot!.descent + pad;
+    const b = expand(run, pad);
+    const x0 = Math.max(0, Math.floor(b.x * s));
+    const y0 = Math.max(0, Math.floor(b.y * s));
+    const x1 = Math.min(W, Math.ceil((b.x + b.w) * s));
+    const y1 = Math.min(H, Math.ceil((b.y + b.h) * s));
+    for (let y = y0; y < y1; y++) {
+      const py = (y + 0.5) / s;
+      for (let x = x0; x < x1; x++) {
+        const px = (x + 0.5) / s;
+        const u = px * cos + py * sin;
+        const w = -px * sin + py * cos;
+        if (u < u0 || u > u1 || w < top || w > bottom) continue;
+        const i = y * W + x;
+        if (!onlyEmpty || !m[i]) m[i] = v;
+      }
+    }
+  };
   const runs = (doc.runs[page] ?? []).filter((run) => run.str.trim());
-  for (const run of runs) fill(expand(run, 0.12 * run.fontSize + 1), PAD, true);
-  for (const run of runs) fill(run, GLYPH, false);
+  for (const run of runs) {
+    if (slanted(run)) fillSlanted(run, 0.12 * run.fontSize + 1, PAD, true);
+    else fill(expand(run, 0.12 * run.fontSize + 1), PAD, true);
+  }
+  for (const run of runs) {
+    if (slanted(run)) fillSlanted(run, 0, GLYPH, false);
+    else fill(run, GLYPH, false);
+  }
   const minLen = Math.round(18 * s);
   const t = Math.ceil(1.5 * s) + 1;
   const darkShare = (y: number, x0: number, x1: number) => {
@@ -1394,11 +1429,11 @@ const OVERLAY_SHARE = 0.2;
  * ordinary inserted or deleted words sit beside other words, not on them.
  */
 type Shape = { box: Rect; inside: (x: number, y: number) => boolean };
-function overlays(result: CompareResult, side: 'old' | 'new', page: number): Shape[] {
+function overlays(result: CompareResult, side: 'old' | 'new', page: number, opts: { only?: Change[]; pad?: (h: number) => number } = {}): Shape[] {
   const doc = side === 'old' ? result.oldDoc : result.newDoc;
   const rotated = (doc.runs[page] ?? []).filter((r) => r.angle !== 0 && r.rot && r.str.trim());
   const out: Shape[] = [];
-  for (const c of result.changes) {
+  for (const c of opts.only ?? result.changes) {
     const s = c[side];
     if (c.category !== 'text' || c.kind === 'format' || c.kind === 'position' || s.start === undefined || s.end === undefined) continue;
     for (let i = s.start; i < s.end; i++) {
@@ -1409,7 +1444,8 @@ function overlays(result: CompareResult, side: 'old' | 'new', page: number): Sha
         const cy = b.y + b.h / 2;
         const run = rotated.find((r) => cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h);
         if (!run) {
-          out.push({ box: b, inside: (x, y) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h });
+          const e = expand(b, opts.pad?.(b.h) ?? 0);
+          out.push({ box: e, inside: (x, y) => x >= e.x && x <= e.x + e.w && y >= e.y && y <= e.y + e.h });
           continue;
         }
         // In the run's upright frame (see tokenize.ts): the token's box
@@ -1421,7 +1457,8 @@ function overlays(result: CompareResult, side: 'old' | 'new', page: number): Sha
         const L = Math.abs(cos) >= Math.abs(sin) ? (b.w - Math.abs(sin) * H) / Math.abs(cos) : (b.h - Math.abs(cos) * H) / Math.abs(sin);
         const cu = cx * cos + cy * sin;
         const cv = -cx * sin + cy * cos;
-        out.push({ box: b, inside: (x, y) => Math.abs(x * cos + y * sin - cu) <= L / 2 && Math.abs(-x * sin + y * cos - cv) <= H / 2 });
+        const pad = opts.pad?.(H) ?? 0;
+        out.push({ box: expand(b, pad), inside: (x, y) => Math.abs(x * cos + y * sin - cu) <= L / 2 + pad && Math.abs(-x * sin + y * cos - cv) <= H / 2 + pad });
       }
     }
   }
@@ -2122,11 +2159,19 @@ function compareAligned(
   // sideways explains the spot it left and where it went, and a frame or
   // stamp around it only if that moved along with it.
   const positions = result.changes.filter((c) => c.kind === 'position' && c.old.rects.length && c.new.rects.length);
+  // Text set at an angle (a watermark, a stamp) explains what lies along
+  // its letters, not its bounding box, which can cover half the page.
+  const slantedRuns = (side: 'old' | 'new', page: number) => ((side === 'old' ? result.oldDoc : result.newDoc).runs[page] ?? []).filter((x) => x.rot && x.angle % 90 !== 0 && x.str.trim());
+  const slanted = { old: slantedRuns('old', oldPage), new: slantedRuns('new', newPage) };
+  const alongSlanted = (side: 'old' | 'new', page: number) => (slanted[side].length ? overlays(result, side, page, { pad: () => 9 }).filter((f) => slanted[side].some((x) => coveredShare(f.box, [expand(x, 9)]) >= 0.9)) : []);
+  const along = { old: alongSlanted('old', oldPage), new: alongSlanted('new', newPage) };
   const zones = (side: 'old' | 'new', page: number) => {
     const out: Rect[] = [];
     // Text that is cut off or sticks out (overflow) explains the graphics
     // around it as well, as text changes do.
-    for (const c of result.changes) if (c.category === 'text' || c.kind === 'overflow') for (const r of c[side].rects) if (r.page === page) out.push(expand(r.rect, 9));
+    for (const c of result.changes)
+      if (c.category === 'text' || c.kind === 'overflow')
+        for (const r of c[side].rects) if (r.page === page && !slanted[side].some((x) => coveredShare(r.rect, [x]) >= 0.5)) out.push(expand(r.rect, 9));
     for (const c of positions) if (c[side].pages[0] === page) for (const r of [...c.old.rects, ...c.new.rects]) out.push(expand(r.rect, 4));
     return out;
   };
@@ -2137,7 +2182,7 @@ function compareAligned(
     const explained = zones(side, page);
     const [src, dst] = side === 'old' ? [A, B] : [B, A];
     return rects.filter((r) => {
-      if (coveredShare(r, explained) >= 0.6) return false;
+      if (coveredShare(r, explained) >= 0.6 || covered(r, along[side]) >= 0.6) return false;
       // A change bar in the margin beside the lines of a change.
       const bar = real ? changeBar(result, side, page, r, src.r.scale, appearance) : null;
       if (bar) {
@@ -2151,7 +2196,7 @@ function compareAligned(
       // an inserted line, a rule that got shorter and red) is a change of
       // its own. Around text set at an angle (a stamp), which is no table
       // row, what lies in the band is the stamp's own frame.
-      const row = rows[side].find((x) => coveredShare(r, [x.rect]) >= 0.6 && (x.change.consequence === 'repeatedLine' || x.angled || r.w >= 0.5 * x.rect.w));
+      const row = rows[side].find((x) => (x.angled ? covered(r, x.angled) >= 0.6 : coveredShare(r, [x.rect]) >= 0.6 && (x.change.consequence === 'repeatedLine' || r.w >= 0.5 * x.rect.w)));
       if (row) {
         const s = row.change[side];
         const place = { page, rect: r };
@@ -2531,9 +2576,9 @@ function changeBar(result: CompareResult, side: 'old' | 'new', page: number, r: 
  * header row that are matched on other pages are compared as usual, so a
  * header shading or rule changed throughout a table is reported there.
  */
-function rowBands(result: CompareResult, side: 'old' | 'new', page: number): { rect: Rect; change: Change; angled: boolean }[] {
+function rowBands(result: CompareResult, side: 'old' | 'new', page: number): { rect: Rect; change: Change; angled: Shape[] | null }[] {
   const doc = side === 'old' ? result.oldDoc : result.newDoc;
-  const out: { rect: Rect; change: Change; angled: boolean }[] = [];
+  const out: { rect: Rect; change: Change; angled: Shape[] | null }[] = [];
   const rotated = (doc.runs[page] ?? []).filter((r) => r.angle !== 0 && r.str.trim());
   let lines: DocModel['lines'] | null = null;
   const candidates = [
@@ -2547,9 +2592,11 @@ function rowBands(result: CompareResult, side: 'old' | 'new', page: number): { r
     // Whole lines only: a word changed inside a row says nothing about its fill.
     const own = lines.filter((l) => l.start >= s.start! && l.end <= s.end!);
     if (!own.length) continue;
-    // Lines set at an angle (a stamp): not a table row.
+    // Lines set at an angle (a stamp): not a table row. What lies along
+    // its letters, or within a third of their height and 10 pt (its frame),
+    // is its own.
     const angled = own.every((l) => rotated.some((r) => intersects(r, l.rect) && coveredShare(l.rect, [r]) >= 0.5));
-    out.push({ rect: rowAround(own, lines), change: c, angled });
+    out.push({ rect: rowAround(own, lines), change: c, angled: angled ? overlays(result, side, page, { only: [c], pad: (h) => Math.min(h / 3, 10) + 2 }) : null });
   }
   return out;
 }
