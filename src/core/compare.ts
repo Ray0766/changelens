@@ -369,8 +369,9 @@ function splitFigure(ctx: Ctx, h: Hunk): Hunk[] {
   return [h];
 }
 
-function splitHunk(ctx: Ctx, h: Hunk): Hunk[] {
-  return splitAtBlocks(ctx, h)
+/** (`blocks` false: an edit in place whose two sides stand at different points of the reading order, see inPlaceTokens.) */
+function splitHunk(ctx: Ctx, h: Hunk, blocks = true): Hunk[] {
+  return (blocks ? splitAtBlocks(ctx, h) : [h])
     .flatMap((p) => splitFigure(ctx, p))
     .flatMap((p) => splitNumbers(ctx, p))
     .filter((p) => !sameText(ctx, p));
@@ -1323,6 +1324,209 @@ function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, aft
   return out;
 }
 
+/**
+ * Words that stand at the same place on the page in both versions, but at
+ * another point of the content stream: a filled form against its flattened
+ * copy (the values burned into the page after its content), a table read
+ * cell by cell in one export and row by row in the other. The diff then
+ * deletes them in one place of the stream and inserts them in another;
+ * the reader sees the same word at the same place. The word-level
+ * counterpart of the in-place passages of detectMoves.
+ *
+ * A deleted and an inserted token (from different hunks: the two sides of
+ * one rewrite are left as the diff and its clean-up made them) are matched
+ * text when they have the same key, lie on pages the page map pairs, and
+ * every box of one is within 2 pt of the other's. The words around them
+ * must show that nothing moved there: the words already matched on their
+ * lines kept their height (a list item that took the place of a deleted one,
+ * with its label renumbered to the deleted label, is not in place), and
+ * their paragraph, in one version at least, holds such a word. The tokens
+ * a pair of hunks matches this way must make up at least half the words of
+ * one of them, so that a word that happens to stand where another passage stood
+ * does not split a rewritten passage. What is left of such hunks is listed
+ * as before; a deletion and an insertion left on one line at the same place
+ * (an edited value: "8" → "18") are one replacement. The words in the
+ * hunks of a relabelled list label are kept as they are.
+ */
+function inPlaceTokens(ctx: Ctx, hunks: Hunk[], keep: Set<Hunk>, oldToNew: number[], matched: ArrayLike<number>): { rest: Hunk[]; pairs: number[]; edits: Set<Hunk> } {
+  const { A, B } = ctx;
+  const TOL = 2;
+  // The words matched so far, and where each document token is in A or B.
+  const bOfA = new Int32Array(A.length).fill(-1);
+  const aOfB = new Int32Array(B.length).fill(-1);
+  for (let p = 0; p < matched.length; p += 2) {
+    bOfA[matched[p]] = matched[p + 1];
+    aOfB[matched[p + 1]] = matched[p];
+  }
+  const indexOf = (T: Token[], n: number) => {
+    const m = new Int32Array(n).fill(-1);
+    T.forEach((t, k) => (m[t.i] = k));
+    return m;
+  };
+  const inA = indexOf(A, ctx.oldDoc.tokens.length);
+  const inB = indexOf(B, ctx.newDoc.tokens.length);
+  /**
+   * The matched words on the token's line all kept their height on paired
+   * pages (a moved line is no evidence that this word stood still), and its
+   * paragraph has one such word: +1; a line that moved: -1; nothing to tell: 0.
+   */
+  const known = new Map<string, number>();
+  const stillness = (side: 'a' | 'b', k: number): number => {
+    const [T, doc, inT, other, O] = side === 'a' ? [A, ctx.oldDoc, inA, bOfA, B] : [B, ctx.newDoc, inB, aOfB, A];
+    // (T[k] itself is unmatched: the answer is the same for its whole line and paragraph.)
+    const id = `${side}${T[k].line}:${T[k].block}`;
+    const seen = known.get(id);
+    if (seen !== undefined) return seen;
+    const answer = (v: number) => (known.set(id, v), v);
+    const still = (j: number) => {
+      const o = O[other[j]];
+      const page = side === 'a' ? oldToNew[T[j].page] === o.page : oldToNew[o.page] === T[j].page;
+      return page && Math.abs(T[j].rects[0].y - o.rects[0].y) <= TOL;
+    };
+    const line = doc.lines[T[k].line];
+    for (let t = line.start; t < line.end; t++) {
+      const j = inT[t];
+      if (j >= 0 && other[j] >= 0 && !still(j)) return answer(-1);
+    }
+    const [b0, b1] = (side === 'a' ? ctx.blocksA : ctx.blocksB).get(T[k].block)!;
+    for (let j = b0; j < b1; j++) if (other[j] >= 0 && still(j)) return answer(1);
+    return answer(0);
+  };
+  const hunkOfB = new Map<number, number>();
+  const byKey = new Map<string, number[]>();
+  hunks.forEach((h, k) => {
+    if (keep.has(h)) return;
+    for (let j = h.b0; j < h.b1; j++) {
+      hunkOfB.set(j, k);
+      const key = B[j].key + '\u0000' + B[j].page;
+      let list = byKey.get(key);
+      if (!list) byKey.set(key, (list = []));
+      list.push(j);
+    }
+  });
+  if (!byKey.size) return { rest: hunks, pairs: [], edits: new Set() };
+  const near = (a: Token, b: Token) =>
+    a.rects.length === b.rects.length && a.rects.every((r, k) => Math.abs(r.x - b.rects[k].x) <= TOL && Math.abs(r.y - b.rects[k].y) <= TOL);
+  // Tentative pairs, grouped by the hunks they join.
+  const groups = new Map<string, { ha: number; hb: number; pairs: [number, number][] }>();
+  const taken = new Set<number>();
+  hunks.forEach((h, k) => {
+    if (keep.has(h)) return;
+    for (let i = h.a0; i < h.a1; i++) {
+      const a = A[i];
+      const page = oldToNew[a.page];
+      if (page === undefined || page < 0) continue;
+      let best = -1;
+      let dist = Infinity;
+      for (const j of byKey.get(a.key + '\u0000' + page) ?? []) {
+        if (taken.has(j) || hunkOfB.get(j) === k || !near(a, B[j])) continue;
+        const d = Math.abs(a.rects[0].x - B[j].rects[0].x) + Math.abs(a.rects[0].y - B[j].rects[0].y);
+        if (d < dist) {
+          dist = d;
+          best = j;
+        }
+      }
+      if (best < 0) continue;
+      const sa = stillness('a', i);
+      const sb = stillness('b', best);
+      if (sa < 0 || sb < 0 || sa + sb === 0) continue;
+      taken.add(best);
+      const hb = hunkOfB.get(best)!;
+      const id = k + ':' + hb;
+      let g = groups.get(id);
+      if (!g) groups.set(id, (g = { ha: k, hb, pairs: [] }));
+      g.pairs.push([i, best]);
+    }
+  });
+  const words = (T: Token[], s: number, e: number) => {
+    let n = 0;
+    for (let k = s; k < e; k++) if (T[k].kind !== 'punct') n++;
+    return n;
+  };
+  const pairedA = new Set<number>();
+  const pairedB = new Set<number>();
+  const pairs: number[] = [];
+  for (const g of groups.values()) {
+    const n = g.pairs.filter(([i]) => A[i].kind !== 'punct').length;
+    const ha = hunks[g.ha];
+    const hb = hunks[g.hb];
+    const share = (w: number, all: number) => (w > 0 ? n / w : all > 0 && g.pairs.length === all ? 1 : 0);
+    const shareA = share(words(A, ha.a0, ha.a1), ha.a1 - ha.a0);
+    const shareB = share(words(B, hb.b0, hb.b1), hb.b1 - hb.b0);
+    if (Math.max(shareA, shareB) < 0.5) continue;
+    for (const [i, j] of g.pairs) {
+      pairedA.add(i);
+      pairedB.add(j);
+      pairs.push(i, j);
+    }
+  }
+  if (!pairs.length) return { rest: hunks, pairs, edits: new Set() };
+  // What is left of each hunk: its unmatched runs on each side.
+  const runs = (s: number, e: number, paired: Set<number>) => {
+    const out: [number, number][] = [];
+    for (let k = s; k < e; k++) {
+      if (paired.has(k)) continue;
+      if (out.length && out[out.length - 1][1] === k) out[out.length - 1][1] = k + 1;
+      else out.push([k, k + 1]);
+    }
+    return out;
+  };
+  const rest: Hunk[] = [];
+  /** Hunks left of a hunk that lost words to a pair: they may be one replacement (below). */
+  const touched = new Set<Hunk>();
+  for (const h of hunks) {
+    let hit = false;
+    for (let i = h.a0; i < h.a1 && !hit; i++) hit = pairedA.has(i);
+    for (let j = h.b0; j < h.b1 && !hit; j++) hit = pairedB.has(j);
+    if (!hit) {
+      rest.push(h);
+      continue;
+    }
+    const ra = runs(h.a0, h.a1, pairedA);
+    const rb = runs(h.b0, h.b1, pairedB);
+    const n = Math.max(ra.length, rb.length);
+    for (let k = 0; k < n; k++) {
+      const a = ra[k];
+      const b = rb[k];
+      const part: Hunk = a && b ? { a0: a[0], a1: a[1], b0: b[0], b1: b[1] } : a ? { a0: a[0], a1: a[1], b0: h.b0, b1: h.b0 } : { a0: h.a0, a1: h.a0, b0: b[0], b1: b[1] };
+      rest.push(part);
+      touched.add(part);
+    }
+  }
+  // A deletion and an insertion on one line each, at the same place of
+  // paired pages, one of them left by the pairing: an edit in place.
+  const oneLine = (T: Token[], s: number, e: number) => e > s && T[s].line === T[e - 1].line;
+  const span = (T: Token[], s: number, e: number) => {
+    const r0 = T[s].rects[0];
+    const r1 = T[e - 1].rects[T[e - 1].rects.length - 1];
+    return { page: T[s].page, y: r0.y, x0: r0.x, x1: r1.x + r1.w };
+  };
+  const dels = rest.filter((h) => h.b0 === h.b1 && oneLine(A, h.a0, h.a1));
+  const inss = new Map<number, Hunk[]>();
+  for (const h of rest) {
+    if (h.a0 !== h.a1 || !oneLine(B, h.b0, h.b1)) continue;
+    const list = inss.get(B[h.b0].page);
+    if (list) list.push(h);
+    else inss.set(B[h.b0].page, [h]);
+  }
+  const joined = new Set<Hunk>();
+  const replaced = new Map<Hunk, Hunk>();
+  for (const d of dels) {
+    const p = span(A, d.a0, d.a1);
+    const page = oldToNew[p.page];
+    for (const ins of inss.get(page) ?? []) {
+      if (joined.has(ins) || !(touched.has(d) || touched.has(ins))) continue;
+      const q = span(B, ins.b0, ins.b1);
+      if (q.page !== page || Math.abs(q.y - p.y) > TOL || Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0) <= 0) continue;
+      joined.add(ins);
+      replaced.set(d, { a0: d.a0, a1: d.a1, b0: ins.b0, b1: ins.b1 });
+      break;
+    }
+  }
+  const out = rest.filter((h) => !joined.has(h)).map((h) => replaced.get(h) ?? h);
+  return { rest: out, pairs, edits: new Set(replaced.values()) };
+}
+
 // ----------------------------------------------------------- formatting ---
 
 interface Style {
@@ -1386,6 +1590,13 @@ function opsOfPairs(pairs: Int32Array): DiffOp[] {
     if (last) ops.push({ type: 'delete', a0: last.a1, a1: a, b0: last.b1, b1: b });
     ops.push({ type: 'equal', a0: a, a1: a + 1, b0: b, b1: b + 1 });
   }
+  return ops;
+}
+
+/** One equal op per pair of in-place tokens (see inPlaceTokens). */
+function opsOfInPlace(pairs: number[]): DiffOp[] {
+  const ops: DiffOp[] = [];
+  for (let p = 0; p < pairs.length; p += 2) ops.push({ type: 'equal', a0: pairs[p], a1: pairs[p] + 1, b0: pairs[p + 1], b1: pairs[p + 1] + 1 });
   return ops;
 }
 
@@ -1603,11 +1814,15 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   const crossed = crossedPageBreak(ctx, splitEmbedded(ctx, relabelled.hunks), pairs);
   const hunks = crossed.hunks;
   const repeated = repeatedAtPageTop(ctx, hunks, pairs);
-  const moved = detectMoves(ctx, hunks.filter((h) => !repeated.has(h)), fold, pageMap(oldDoc, newDoc, A, B, pairs).oldToNew);
+  const oldToNew = pageMap(oldDoc, newDoc, A, B, pairs).oldToNew;
+  const moved = detectMoves(ctx, hunks.filter((h) => !repeated.has(h)), fold, oldToNew);
   moved.inPlace.push(...crossed.pairs);
+  const stray = inPlaceTokens(ctx, moved.rest, new Set([...relabelled.labels, ...crossed.labels]), oldToNew, [...pairs, ...moved.inPlace]);
+  moved.rest = stray.rest;
+  moved.inPlace.push(...stray.pairs);
   // A label paired by relabel stays one change even across a block or page boundary.
   const changes: Change[] = [
-    ...moved.rest.flatMap((h) => (relabelled.labels.has(h) || crossed.labels.has(h) ? [h] : splitHunk(ctx, h))).map((h) => textChange(ctx, h)),
+    ...moved.rest.flatMap((h) => (relabelled.labels.has(h) || crossed.labels.has(h) ? [h] : splitHunk(ctx, h, !stray.edits.has(h)))).map((h) => textChange(ctx, h)),
     ...moved.moves,
     ...moved.inner,
   ];
@@ -1661,7 +1876,7 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
     options,
     coverage: {
       old: coverageOf(oldDoc),
-      new: { ...coverageOf(newDoc), uncertain: uncertainPages(newDoc, B, pairs, moved.innerOps, [...moved.rest, ...repeated].filter((h) => h.a0 === h.a1)) },
+      new: { ...coverageOf(newDoc), uncertain: uncertainPages(newDoc, B, pairs, [...moved.innerOps, ...opsOfInPlace(stray.pairs)], [...moved.rest, ...repeated].filter((h) => h.a0 === h.a1)) },
     },
     ignored: {
       furniture: options.ignoreFurniture ? furnitureDifferences(oldDoc, newDoc) : 0,

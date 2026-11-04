@@ -91,3 +91,22 @@ test('R3-03: field values on a page turned in the new version follow their label
   r = await run('R3-03-rl-before', 'R3-03-rl-after');
   assert.deepEqual(listed(r), ['Number changed: 12 → 21 (+75%) (form field)']);
 });
+
+test('R3-02: a filled form against its flattened copy: the same words at the same place are unchanged', async () => {
+  // Room booking form: pypdf fill against pypdf flatten (values burned into
+  // the page after its content); the flattened copy has 8 → 18 people.
+  assert.deepEqual(listed(await run('R3-02-filled', 'R3-02-flat')), []);
+  let r = await run('R3-02-filled', 'R3-02-flat-edit');
+  assert.deepEqual(listed(r), ['Number changed: 8 → 18 (+125%)']);
+  // Located on the value in both versions (x 237, the "Number of people" row).
+  for (const s of [r.changes[0].old, r.changes[0].new]) assert.ok(Math.abs(s.rects[0].rect.x - 237) < 1 && Math.abs(s.rects[0].rect.y - 239) < 2, JSON.stringify(s.rects));
+  // Control without form fields: labels first, then the values, in the content stream.
+  assert.deepEqual(listed(await run('R3-02-stream-before', 'R3-02-stream-after')), []);
+  // One Word file exported by LibreOffice without and with form fields: a
+  // wrapped label cell ("Inspection of cooling / unit") reads in another order.
+  r = await run('R3-02-lo-plain', 'R3-02-lo-fields-edit');
+  const text = listed(r).filter((d) => !d.includes(' font '));
+  assert.deepEqual(text, ['Changed “Lisbon” → “Porto”', 'Changed “Standard” → “Express”', 'Number changed: 1,250.00 → 1,520.00 (+22%)']);
+  r = await run('R3-02-lo-plain', 'R3-02-lo-fields');
+  assert.ok(!r.changes.some((c) => c.category === 'text'), JSON.stringify(listed(r)));
+});
