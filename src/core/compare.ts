@@ -6,6 +6,7 @@ import type {
   DiffOptions,
   DocModel,
   FormatDetail,
+  Line,
   PageLink,
   Rect,
   Side,
@@ -2014,6 +2015,56 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     for (const s of labels.all) if (s.label.line < line) before = s;
     return !!before && before.label.style === 'list' && before.label.parts.length === inner.parts.length;
   };
+  /** The numbers of a line's first cluster ("4.3[4.4]" → now 4.3, before 4.4; a label "4.2" → both 4.2), if it is a label or a display of one. */
+  const clusterAt = (doc: DocModel, l: Line): { now: number[] | null; before: number[]; tok: number } | null => {
+    let end = l.start + 1;
+    while (end < l.end && !doc.tokens[end].spaceBefore) end++;
+    const m = REDLINE_LABEL.exec(doc.tokens.slice(l.start, end).map((t) => t.text).join(''));
+    const parts = (x: string) => x.split('.').map(Number);
+    if (m) return { now: m[1] === undefined ? null : parts(m[1]), before: parts(m[2]), tok: l.start };
+    const label = labelAt(doc, l.start);
+    return label ? { now: label.parts, before: label.parts, tok: l.start } : null;
+  };
+  const sameParts = (x: number[] | null, y: number[]) => !!x && x.length === y.length && x.every((v, k) => v === y[k]);
+  /**
+   * Evidence that the line-start cluster of `line` (tokens up to `end`), a
+   * label display "A[B]" or "[B]" in one version, shows the label B had
+   * before it became A, where `changed` tells the tokens that are not in
+   * the other version. The number kept from the other version must be that
+   * version's label at the line. Kept B: the other version still numbers
+   * the item B (it is the original). Kept A: the other version is the one
+   * with the change accepted, and B must number on in this version from
+   * the label above it: one more than that label's former number ("[4.3]"
+   * or "4.2[4.3]" above "4.3[4.4]"). A display with no label above it is
+   * not one.
+   */
+  const redlineEvidence = (doc: DocModel, line: number, end: number, changed: (i: number) => boolean) => {
+    const l = doc.lines[line];
+    const toks = doc.tokens.slice(l.start, end);
+    const open = toks.findIndex((t) => t.text === '[');
+    const outer = toks.slice(0, Math.max(0, open)).filter((t) => t.kind === 'number');
+    const inner = toks.slice(open + 1).filter((t) => t.kind === 'number');
+    if (open < 0 || inner.length !== 1 || outer.length > 1) return false;
+    const [matched, other] = doc === newDoc ? [oldOfNew, oldLabels] : [newOfOld, newLabels];
+    const keptAs = (t: Token) => {
+      if (changed(t.i)) return false;
+      const o = matched[t.i];
+      const s = o >= 0 ? other.at.get(o) : undefined;
+      return !!s && sameParts(s.label.parts, t.text.split('.').map(Number));
+    };
+    const b = inner[0].text.split('.').map(Number);
+    if (keptAs(inner[0])) return outer.every((t) => changed(t.i));
+    if (outer.length !== 1 || !keptAs(outer[0]) || !changed(inner[0].i)) return false;
+    for (let j = line - 1; j >= Math.max(0, line - 60); j--) {
+      const lj = doc.lines[j];
+      if (lj.furniture || lj.end <= lj.start) continue;
+      const prev = clusterAt(doc, lj);
+      if (!prev || prev.before.length > b.length) continue;
+      if (prev.before.length < b.length) return false;
+      return prev.before.slice(0, -1).every((v, k) => v === b[k]) && prev.before[b.length - 1] + 1 === b[b.length - 1];
+    }
+    return false;
+  };
   const clusters = new Map<string, Change[]>();
   for (const c of changes) {
     if (c.consequence || (c.kind !== 'insert' && c.kind !== 'delete')) continue;
@@ -2039,12 +2090,11 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     while (end < line.end && !doc.tokens[end].spaceBefore) end++;
     // The label itself is in both versions ("4.4" in "4.3[4.4]"): only its
     // display changed. A bracketed label that is wholly new ("[1]" put in
-    // front of a reference) is an edit.
+    // front of a reference) is an edit, and so is a footnote marker put on a
+    // row number ("3" → "3[1]"): see redlineEvidence.
     const sideOf = (x: Change) => (x.kind === 'insert' ? x.new : x.old);
     const changed = (i: number) => list.some((x) => sideOf(x).start! <= i && i < sideOf(x).end!);
-    let kept = false;
-    for (let i = line.start; i < end; i++) if (doc.tokens[i].kind === 'number' && !changed(i)) kept = true;
-    if (!kept) continue;
+    if (!redlineEvidence(doc, line.id, end, changed)) continue;
     const toks = doc.tokens.slice(line.start, end);
     const rects = rectsOf(toks);
     const side: Side = { pages: [line.page], rects, text: joinTokens(toks), start: line.start, end };
