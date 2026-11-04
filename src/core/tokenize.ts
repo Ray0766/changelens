@@ -156,7 +156,8 @@ function lineChars(line: RawLine): Char[] {
         chars.push({ ch: ' ', n: ' ', x0: prevEnd, x1: run.x, run, virtual: true });
       }
     }
-    const weights = cps.map((c) => charWeight(c, run.family));
+    // A comb field draws one character per cell of equal width.
+    const weights = cps.map((c) => (run.comb ? 1 : charWeight(c, run.family)));
     const total = weights.reduce((a, b) => a + b, 0) || 1;
     let acc = 0;
     for (let k = 0; k < cps.length; k++) {

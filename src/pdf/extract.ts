@@ -291,6 +291,31 @@ function combValue(shown: string, value: unknown): string {
   return /^\S(?: \S)*$/.test(shown.trim()) ? squash(shown) : shown;
 }
 
+/**
+ * The cell a comb field's value (`str`, its characters without leading
+ * spaces) starts in. With an appearance: the cell of the first glyph it
+ * draws (textPosition; the glyphs are centred in their cells), plus the
+ * leading spaces it draws as empty cells. Without one, where PDF.js draws
+ * the field value: from the first cell, centred by whole cells (/Q 1) or in
+ * the last cells (/Q 2), leading spaces counted as cells.
+ */
+function combStart(a: WidgetData, str: string, cell: number): number {
+  const n = Array.from(str).length;
+  const max = a.maxLen!;
+  const raw = typeof a.fieldValue === 'string' ? cleanText(a.fieldValue).trimEnd() : '';
+  const squash = (s: string) => s.replace(/\s+/g, '');
+  const lead = squash(raw) === squash(str) ? Array.from(raw).length - Array.from(raw.trimStart()).length : 0;
+  let first: number;
+  if (a.textPosition && Number.isFinite(a.textPosition[0])) {
+    const drawnLead = /^\s/.test(a.textContent?.[0] ?? '') ? lead : 0;
+    first = Math.floor(a.textPosition[0] / cell) + drawnLead;
+  } else {
+    const total = lead + n;
+    first = lead + (a.textAlignment === 1 ? Math.floor((max - total) / 2) : a.textAlignment === 2 ? max - total : 0);
+  }
+  return Math.max(0, Math.min(first, max - n));
+}
+
 /** Content text inside the widget's box already reads like the field value. */
 function shownByContent(lines: string[], r: number[], vt: number[], content: TextRun[]): boolean {
   const [x0, y0] = apply(vt, r[0], r[1]);
@@ -337,9 +362,10 @@ function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[]):
     let w = advance(str);
     let x = a.textPosition && Number.isFinite(a.textPosition[0]) ? r[0] + a.textPosition[0] : xOf(w);
     if (comb) {
-      // One character per cell, from the first cell.
-      w = (boxW / a.maxLen!) * Array.from(str).length;
-      x = r[0];
+      // One character per cell, from the cell the value starts in.
+      const cell = boxW / a.maxLen!;
+      w = cell * Array.from(str).length;
+      x = r[0] + cell * combStart(a, str, cell);
     }
     // A value longer than the box scrolls in the viewer: keep its text, but inside the box.
     w = Math.min(w, Math.max(1, r[2] - x));

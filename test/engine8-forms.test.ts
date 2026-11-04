@@ -46,3 +46,32 @@ test('R3-01 control: a number printed in a running header is still ignored and c
   assert.deepEqual(listed(r), []);
   assert.equal(r.ignored.furniture, 3);
 });
+
+test('R3-05: a comb value is located on the cells it is drawn in (right-aligned, padded, centred)', async () => {
+  // Annual income statement: 9-cell comb fields at x 383–545 (18 pt cells).
+  // Right-aligned by the appearance (/Q 2, as Acrobat draws it), and
+  // right-aligned by leading spaces ("    45320", pypdf fill).
+  for (const id of ['right', 'padded']) {
+    const r = await run(`R3-05-${id}-before`, `R3-05-${id}-after`);
+    assert.deepEqual(listed(r), ['Number changed: 45230 → 45320 (form field)', 'Number changed: 1250 → 1520 (form field)'], id);
+    r.changes.forEach((c, k) => {
+      for (const s of [c.old, c.new]) {
+        const q = s.rects[0].rect;
+        // 5 digits in cells 4–8 (x 455–545), 4 digits in cells 5–8 (x 473–545).
+        assert.ok(Math.abs(q.x - [455, 473][k]) < 1 && Math.abs(q.x + q.w - 545) < 1, `${id} ${JSON.stringify(q)}`);
+      }
+    });
+  }
+  // Customs declaration: centred comb fields (/Q 1), values only in /V, drawn by the viewer.
+  const r = await run('R3-05-centred-before', 'R3-05-centred-after');
+  assert.deepEqual(listed(r), ['Number changed: 847130 → 847150 (form field)', 'Number changed: 2450 → 2540 (form field)']);
+  // 6 of 10 cells from x 345 (cells 2–7), 4 of 8 cells from x 385 (cells 2–5); 20 pt cells.
+  const cells = [
+    [385, 505],
+    [425, 505],
+  ];
+  r.changes.forEach((c, k) => {
+    const q = c.new.rects[0].rect;
+    assert.ok(Math.abs(q.x - cells[k][0]) < 1 && Math.abs(q.x + q.w - cells[k][1]) < 1, JSON.stringify(q));
+  });
+});
