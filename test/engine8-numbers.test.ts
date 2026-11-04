@@ -78,6 +78,20 @@ test('R2-09: in a percentage range or ratio ("10%-20%", "10%/12%") the second fi
   assert.equal(excerpt(second).before, 'in the band 15%-');
 });
 
+test('T2N7: the sign of the second figure of a ratio ("+5%/-3%") stays with that figure', async () => {
+  // Verifier counter-probe (synthetic; Chromium), copied to test/fixtures/probe8-T2N7-*: "+5%/-3%" → "+5%/-4%".
+  const r = await run('T2N7-before', 'T2N7-after');
+  const l = listed(r);
+  assert.ok(l.includes('Number changed: -3% → -4% (-1 pp)'), l.join(' | '));
+  assert.ok(!l.includes('Number changed: 3% → 4% (+1 pp)'), l.join(' | '));
+  assert.equal(excerpt(r.changes.find((c) => c.numeric?.from === '-3%')!).before, '2026 list: +5%/');
+  // The other shapes in the same probe keep their reading.
+  for (const d of ['Number changed: −2% → −3% (-1 pp)', 'Number changed: S$1,200 → S$1,250 (+4.2%)', 'Number changed: -20°C → -25°C (+25%)'])
+    assert.ok(l.includes(d), `${d} in ${l.join(' | ')}`);
+  // A dash between two figures is still the range's, not a sign.
+  assert.deepEqual(text(['The band is 10%-20% of the fee.'], ['The band is 10%-25% of the fee.']), ['Number changed: 20% → 25% (+5 pp)']);
+});
+
 test('R2-V01: an en-dash range of percentages is two number changes (Chromium, LibreOffice)', async () => {
   const r = await run('R2-V01-before', 'R2-V01-after');
   assert.deepEqual(listed(r), [

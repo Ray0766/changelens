@@ -533,6 +533,19 @@ function textChange(ctx: Ctx, h: Hunk): Change {
     let preN =
       before && UNIT.test(before.text) && !unitAfterFigure(A, h.a0 - 1) && !delToks[0].spaceBefore && !insToks[0].spaceBefore && before.line === delToks[0].line && B[h.b0 - 1]?.text === before.text ? 1 : 0;
     if (preN && /^[$¥₩]$/.test(before.text) && glued(A, h.a0 - 2) && /^\p{Lu}{1,3}$/u.test(A[h.a0 - 2].text) && B[h.b0 - 2]?.text === A[h.a0 - 2].text && glued(B, h.b0 - 2)) preN = 2;
+    // The sign of a figure written after the slash or dash of a ratio or
+    // range ("+5%/-3%"), which the tokenizer leaves apart: part of the figure.
+    if (
+      !preN &&
+      before &&
+      /^[-−+]$/.test(before.text) &&
+      B[h.b0 - 1]?.text === before.text &&
+      glued(A, h.a0 - 1) &&
+      glued(B, h.b0 - 1) &&
+      rangeMark(A, h.a0 - 2) &&
+      rangeMark(B, h.b0 - 2)
+    )
+      preN = 1;
     const sameAfter = !!after && afterB?.text === after.text && after.line === A[h.a1 - 1].line && afterB.line === B[h.b1 - 1].line;
     let postN = 0;
     let post = '';
