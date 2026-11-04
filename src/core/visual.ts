@@ -429,27 +429,45 @@ function slantHeld(P: Prepared, inks: SlantInk[], x0: number, y0: number, x1: nu
   const h = y1 - y0;
   const n = w * h;
   const ink = new Uint8Array(n);
+  const d = P.r.data;
   for (let y = y0; y < y1; y++)
     for (let x = x0; x < x1; x++) {
-      const v = rgb(P.r, y * P.r.width + x);
-      if (inks.some((k) => v.every((c, j) => Math.abs(c - k.colour[j]) <= k.tol))) ink[(y - y0) * w + x - x0] = 1;
+      const q = (y * P.r.width + x) * 4;
+      const a = d[q + 3] / 255;
+      const pw = 255 * (1 - a);
+      const r = d[q] * a + pw;
+      const g = d[q + 1] * a + pw;
+      const b = d[q + 2] * a + pw;
+      for (const k of inks)
+        if (Math.abs(r - k.colour[0]) <= k.tol && Math.abs(g - k.colour[1]) <= k.tol && Math.abs(b - k.colour[2]) <= k.tol) {
+          ink[(y - y0) * w + x - x0] = 1;
+          break;
+        }
     }
-  // Square dilation and erosion by r pixels (separable).
+  // Square dilation (v = 1) or erosion (v = 0) by r pixels: separable, with
+  // a running count of the pixels equal to v in the window.
   const grow = (src: Uint8Array, r: number, v: number) => {
     const tmp = new Uint8Array(n);
     const out = new Uint8Array(n);
-    for (let j = 0; j < h; j++)
+    for (let j = 0; j < h; j++) {
+      const row = j * w;
+      let c = 0;
+      for (let u = 0; u < Math.min(w, r); u++) if (src[row + u] === v) c++;
       for (let i = 0; i < w; i++) {
-        let hit = 0;
-        for (let u = Math.max(0, i - r); u <= Math.min(w - 1, i + r) && !hit; u++) if (src[j * w + u] === v) hit = 1;
-        tmp[j * w + i] = hit ? v : 1 - v;
+        if (i + r < w && src[row + i + r] === v) c++;
+        if (i - r - 1 >= 0 && src[row + i - r - 1] === v) c--;
+        tmp[row + i] = c > 0 ? v : 1 - v;
       }
-    for (let j = 0; j < h; j++)
-      for (let i = 0; i < w; i++) {
-        let hit = 0;
-        for (let u = Math.max(0, j - r); u <= Math.min(h - 1, j + r) && !hit; u++) if (tmp[u * w + i] === v) hit = 1;
-        out[j * w + i] = hit ? v : 1 - v;
+    }
+    for (let i = 0; i < w; i++) {
+      let c = 0;
+      for (let u = 0; u < Math.min(h, r); u++) if (tmp[u * w + i] === v) c++;
+      for (let j = 0; j < h; j++) {
+        if (j + r < h && tmp[(j + r) * w + i] === v) c++;
+        if (j - r - 1 >= 0 && tmp[(j - r - 1) * w + i] === v) c--;
+        out[j * w + i] = c > 0 ? v : 1 - v;
       }
+    }
     return out;
   };
   // Grown from the inside of the letters only (ink whose neighbours are
@@ -2587,9 +2605,17 @@ function compareAligned(
   // the other page shows at the mapped place (see apartFrom). A tick drawn
   // between a watermark's letters, or a few points beyond a stamp's frame,
   // which the frame's region took in.
+  const offSeen = new Map<string, Rect | null>();
   const offInk = (r: Rect, side: 'old' | 'new'): Rect | null => {
     const ks = inks[side];
     if (!ks.length) return null;
+    const key = `${side}:${r.x}:${r.y}:${r.w}:${r.h}`;
+    if (offSeen.has(key)) return offSeen.get(key)!;
+    const v = offInkOf(r, side, ks);
+    offSeen.set(key, v);
+    return v;
+  };
+  const offInkOf = (r: Rect, side: 'old' | 'new', ks: SlantInk[]): Rect | null => {
     const [S, O] = side === 'old' ? [A, B] : [B, A];
     const s = S.r.scale;
     const x0 = Math.max(0, Math.floor(r.x * s));
