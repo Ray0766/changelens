@@ -124,3 +124,17 @@ test('N4: a mark in the band of an added watermark, or just beyond a stamp frame
   const added = await run('probe8-R5-V02-before.pdf', 'probe8-N4-b-wmt.pdf');
   assert.deepEqual(graphics(added), [], list(added.changes).join(' | '));
 });
+
+test('N5: a tick on the row of an added stamp, and a red cell under a watermark, are placed where they are', { skip }, async () => {
+  // A tick at (76, 200) on the row of a PAID stamp added at the right.
+  // Before: one "Graphic or image changed" from the tick to the stamp,
+  // 440 pt wide (the row's regions were merged, then compared).
+  const r = await run('probe8-R5-08-stamp-before.pdf', 'probe8-R5-08-stamp-tick.pdf');
+  const tick = graphics(r).find((c) => hits(c, 'new', 1, 82, 204));
+  assert.ok(tick, list(r.changes).join(' | '));
+  assert.ok(tick.new.rects.every((q) => q.rect.w < 30), JSON.stringify(tick.new.rects));
+  // A cell filled red under the DRAFT watermark: the whole cell, 388–536 pt.
+  // Before: only the part outside the letters' band, from 476 pt.
+  const cell = await run('probe8-R5-08-wm-before.pdf', 'probe8-R5-08-wm-cell.pdf');
+  assert.ok(graphics(cell).some((c) => hits(c, 'new', 1, 400, 238) && hits(c, 'new', 1, 520, 238)), JSON.stringify(graphics(cell).map((c) => c.new.rects)));
+});

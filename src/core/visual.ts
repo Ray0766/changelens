@@ -2672,7 +2672,17 @@ function compareAligned(
       return true;
     };
     const out: Rect[] = [];
-    for (let found of rects) {
+    // A region that took in, along its row, both text set at an angle (a
+    // stamp and its frame) and something far from it (a tick at the other
+    // end of the row): its parts are judged one by one.
+    const raw = side === 'old' ? fwdDiff.real : bwdDiff.real;
+    const angledShapes = [...along[side], ...rows[side].flatMap((x) => x.angled ?? [])];
+    const parts = (r: Rect) => {
+      if (!real || !inks[side].length || !angledShapes.some((f) => intersects(f.box, r))) return [r];
+      const own = cluster(raw.filter((q) => coveredShare(q, [r]) >= 0.99), src.r.width / src.r.scale, 18, false);
+      return own.length > 1 ? own : [r];
+    };
+    for (let found of rects.flatMap(parts)) {
       if (coveredShare(found, explained) >= 0.6) continue;
       // Along the letters of text set at an angle, or in a stamp's band (see
       // rowBands): only what they do not explain is left.
@@ -3147,10 +3157,11 @@ function furnitureRows(result: CompareResult, side: 'old' | 'new', page: number,
 }
 
 /** Merge difference regions that are close together (e.g. the borders of one table). */
-function cluster(rects: Rect[], pageWidth: number, gap = 18): Rect[] {
+function cluster(rects: Rect[], pageWidth: number, gap = 18, band = true): Rect[] {
   const out = rects.map((r) => ({ ...r }));
   // Same horizontal band (e.g. several column borders of one table).
   const sameBand = (a: Rect, b: Rect) => {
+    if (!band) return false;
     const overlap = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
     const hgap = Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w);
     return overlap > 0.6 * Math.min(a.h, b.h) && hgap < 0.6 * pageWidth;
