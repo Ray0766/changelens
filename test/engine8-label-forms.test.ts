@@ -112,3 +112,10 @@ test('a contents page number after a leader gets no percentage; other line-end f
   }
   assert.deepEqual(listed(compare(line('a', 'Spare filters in stock: 1'), line('b', 'Spare filters in stock: 2'))), ['Number changed: 1 → 2 (+100%)']);
 });
+
+test('an annex clause label ("A.3") renumbered is listed without a percentage (R1-10, part)', () => {
+  const line = (name: string, str: string): DocText => ({ name, pages: [{ index: 0, width: 595, height: 842, runs: [{ str, x: 56, y: 71, w: str.length * 5, h: 11, baseline: 80, fontSize: 10, font: 'Body', family: 'sans-serif', eol: true, angle: 0 }] }] });
+  assert.deepEqual(listed(compare(line('a', 'A.3 Data is backed up daily.'), line('b', 'A.4 Data is backed up daily.'))), ['Number changed: 3 → 4']);
+  // A figure in running text keeps its percentage.
+  assert.deepEqual(listed(compare(line('a', 'Keep 3 copies of each backup.'), line('b', 'Keep 4 copies of each backup.'))), ['Number changed: 3 → 4 (+33%)']);
+});

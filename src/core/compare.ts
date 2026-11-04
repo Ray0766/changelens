@@ -539,8 +539,9 @@ const REFERENCE_WORD =
 
 /**
  * T[s, e) is a number that names something rather than measuring it: a
- * cross-reference ("clause 4.4", "[12]", "第 4.4 条"), a page number after
- * the leader of a contents line, a figure written with a leading zero
+ * cross-reference ("clause 4.4", "[12]", "第 4.4 条"), an annex clause label
+ * ("A.3" at the start of a line), a page number after the leader of a
+ * contents line, a figure written with a leading zero
  * ("09.00", "007") or the digits typed into a comb field. Such a change
  * gets no percentage.
  */
@@ -556,6 +557,8 @@ function referenceNumber(T: Token[], s: number, e: number): boolean {
   // The word, also when abbreviated with a full stop ("No. 12", "Art. 5").
   const word = before?.text === '.' && !before.spaceBefore ? T[s - 2] : before;
   if (sameLine(word) && REFERENCE_WORD.test(word!.text)) return true;
+  // An annex clause label written together at the start of a line ("A.3").
+  if (word !== before && sameLine(word) && /^\p{Lu}$/u.test(word!.text) && !t.spaceBefore && (s - 2 === 0 || T[s - 3].line !== t.line)) return true;
   if (sameLine(after) && /^[条款项章节]$/.test(after!.text)) return true;
   // A page number at the end of a contents line, after a leader ("Change control ........ 2").
   const dot = (k: number) => k >= 0 && T[k].text === '.' && sameLine(T[k]);
