@@ -75,3 +75,30 @@ test('full-width labels changed by hand are listed, without a percentage (R1-08 
   const byHand = old.map(([l, t], k): [string, string] => [k === 2 ? '４．' : l, t]);
   assert.deepEqual(listed(compare(items('a', old), items('b', byHand))), ['Number changed: ３ → ４']);
 });
+
+test('single-line clauses set without paragraph spacing are read as a column of labels (R1-14)', async () => {
+  // Chromium, LibreOffice (Word numbering, space after 0) and reportlab: 5.3 (6.3) inserted.
+  for (const [id, first] of [['r1-14-p19', '5.3'], ['r1-14-q10', '5.3'], ['r1-14-w14', '6.3']]) {
+    const r = await probe(id);
+    assert.equal(r.changes.length, 1, `${id}: ${JSON.stringify(listed(r))}`);
+    assert.ok(r.changes[0].new.text.startsWith(`${first} `), r.changes[0].new.text);
+    assert.ok(r.ignored.renumbered >= 5, `${id}: ${r.ignored.renumbered}`);
+    assert.ok(!r.changes.some((c) => c.numeric), id);
+  }
+  // Control: one clause wraps onto a hanging line.
+  const w = await probe('r1-14-p19w');
+  assert.equal(w.changes.length, 1, JSON.stringify(listed(w)));
+});
+
+test('single-line clauses renumbered by hand are listed, without a percentage (R1-14 control)', () => {
+  // One block: the lines are 13 pt apart, with no paragraph spacing.
+  const runs: TextRun[] = [];
+  const run = (str: string, x: number, y: number, eol = false): TextRun => ({ str, x, y: y - 9, w: str.length * 5, h: 11, baseline: y, fontSize: 10, font: 'Body', family: 'sans-serif', eol, angle: 0 });
+  const doc = (name: string, labels: string[]): DocText => {
+    runs.length = 0;
+    labels.forEach((l, k) => runs.push(run(l, 56, 80 + 13 * k), run(P[k], 100, 80 + 13 * k, true)));
+    return { name, pages: [{ index: 0, width: 595, height: 842, runs: [...runs] }] };
+  };
+  const r = compare(doc('a', ['5.1', '5.2', '5.3', '5.4']), doc('b', ['5.1', '5.2', '5.4', '5.5']));
+  assert.deepEqual(listed(r), ['Number changed: 5.3 → 5.4', 'Number changed: 5.4 → 5.5']);
+});

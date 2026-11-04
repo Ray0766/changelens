@@ -1639,8 +1639,9 @@ const clauseLevels = (levels: string[]) => !levels.some((p) => Number(p) === 0) 
  * - "4." "4)" "4、": a bare integer followed by that mark (as before).
  * - "8.4", "8.4.1", "8.4." (the mark is part of the label): a multi-level
  *   clause number followed by a gap (a tab, at least half an em) and either
- *   starting its paragraph or hanging (the paragraph's other lines start
- *   where the text after the label starts).
+ *   starting its paragraph, hanging (the paragraph's other lines start
+ *   where the text after the label starts), or standing in a column of
+ *   such numbers (single-line clauses without paragraph spacing).
  * Full-width digits and marks ("１．") count as their ASCII forms.
  *   A wrapped line that happens to start with a figure ("8.4 percent") is
  *   neither, so it stays an ordinary number. Clause numbers have no level
@@ -1689,7 +1690,32 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
     }
     return false;
   };
-  if (!blockStart && !hanging()) return null;
+  /**
+   * A column of clause numbers: the nearest line above or below in the same
+   * block that starts with a number (up to 3 lines away) starts with a
+   * clause number of the same depth at the same x, its text where this
+   * line's text starts. Single-line clauses set without paragraph spacing
+   * share one block and do not hang.
+   */
+  const column = () => {
+    if (!after) return false;
+    for (const dir of [-1, 1]) {
+      for (let j = t.line + dir; Math.abs(j - t.line) <= 3; j += dir) {
+        const l = doc.lines[j];
+        if (!l || l.block !== t.block) break;
+        const u = doc.tokens[l.start];
+        if (l.end <= l.start || u.kind !== 'number') continue;
+        const um = /^(\d{1,3}(?:\.\d{1,3}){1,4})\.?$/.exec(u.text.normalize('NFKC'));
+        if (!um || um[1].split('.').length !== levels.length || Math.abs(u.rects[0].x - t.rects[0].x) > 1.5) break;
+        const v = l.start + 1 < l.end ? doc.tokens[l.start + 1] : undefined;
+        const w = v && !v.spaceBefore && /^[.)、]$/.test(v.text.normalize('NFKC')) ? (l.start + 2 < l.end ? doc.tokens[l.start + 2] : undefined) : v;
+        if (w && Math.abs(w.rects[0].x - after.rects[0].x) < 1.5) return true;
+        break;
+      }
+    }
+    return false;
+  };
+  if (!blockStart && !hanging() && !column()) return null;
   return { parts: levels.map(Number), style: 'list', line: t.line, len };
 }
 
