@@ -125,7 +125,8 @@ test('row numbers that do not follow a consistent run are listed', () => {
   const b = numbered(ITEMS);
   b[3][0] = '7';
   const r = compareDocs(buildDocModel(table('a', numbered(ITEMS))), buildDocModel(table('b', b)));
-  assert.deepEqual(text(r), ['Number changed: 4 → 7 (+75%)']);
+  // A row number names its row: no percentage (fix round 8, second pass).
+  assert.deepEqual(text(r), ['Number changed: 4 → 7']);
   // A column of figures that all went up by one, with no row added: listed.
   const qty = (n: number) => ITEMS.map((row, k) => [String(n + k), ...row]);
   const q = compareDocs(buildDocModel(table('a', qty(10))), buildDocModel(table('b', qty(11))));
