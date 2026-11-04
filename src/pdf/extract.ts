@@ -218,6 +218,37 @@ const FIELD_METRICS: Record<string, [number, number]> = {
   monospace: [0.833, -0.3],
 };
 
+/** The standard fonts by the resource names Acrobat gives them in a form's default resources. */
+const STANDARD_FORM_FONTS: Record<string, string> = {
+  Helv: 'Helvetica',
+  HeBo: 'Helvetica-Bold',
+  HeOb: 'Helvetica-Oblique',
+  HeBO: 'Helvetica-BoldOblique',
+  TiRo: 'Times-Roman',
+  TiBo: 'Times-Bold',
+  TiIt: 'Times-Italic',
+  TiBI: 'Times-BoldItalic',
+  Cour: 'Courier',
+  CoBo: 'Courier-Bold',
+  CoOb: 'Courier-Oblique',
+  CoBO: 'Courier-BoldOblique',
+  Symb: 'Symbol',
+  ZaDb: 'ZapfDingbats',
+};
+const STANDARD_FONTS = new Set(Object.values(STANDARD_FORM_FONTS));
+
+/**
+ * The font of a field's value, from the font resource named in its default
+ * appearance: a standard font by its usual resource name ("Helv", "TiRo")
+ * or its own name, else unknown (''). Any other name ("F1", "F3") is only
+ * the key of a font in the form's resources, which PDF.js does not resolve
+ * here, and re-saving a form may rename it: it says nothing about the face.
+ */
+function fieldFont(name: string | undefined): string {
+  if (!name) return '';
+  return STANDARD_FORM_FONTS[name] ?? (STANDARD_FONTS.has(name) ? name : '');
+}
+
 /** Families of the standard form fonts ("Helv", "TiRo", "Cour", or a font resource name). */
 function fieldFamily(name: string | undefined): string {
   const s = (name ?? '').toLowerCase();
@@ -349,7 +380,7 @@ function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[]):
   // page text set in it (Helvetica, Times and Courier are drawn with the
   // Liberation fonts): a value burned into the page has the same box.
   const [ascent, descent] = FIELD_METRICS[family];
-  const font = a.defaultAppearanceData?.fontName || 'form field';
+  const font = fieldFont(a.defaultAppearanceData?.fontName);
   const boxW = r[2] - r[0];
   const boxH = r[3] - r[1];
   const multi = !!a.multiLine || (a.fieldType === 'Ch' && !a.combo) || lines.length > 1;

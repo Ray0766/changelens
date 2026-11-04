@@ -4,11 +4,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openPdf } from '../src/node/pdf.ts';
-import { extractText } from '../src/pdf/extract.ts';
+import { extractText, fieldRuns, placeFieldRuns, type WidgetData } from '../src/pdf/extract.ts';
 import { buildDocModel } from '../src/core/tokenize.ts';
 import { compareDocs } from '../src/core/compare.ts';
 import { describeChange } from '../src/core/describe.ts';
-import type { CompareResult } from '../src/core/types.ts';
+import type { CompareResult, TextRun } from '../src/core/types.ts';
 
 const fixtures = new URL('./fixtures/', import.meta.url).pathname;
 async function run(before: string, after: string): Promise<CompareResult> {
@@ -119,4 +119,32 @@ test('R3-04: a longer field value inside its widget does not stick out into the 
   // Change of address form (reportlab): the value ends at x 519 in a box to x 545.
   r = await run('R3-04-rl-before', 'R3-04-rl-after');
   assert.deepEqual(listed(r), ['Rewrote 12 words (form field)']);
+});
+
+test('R3-09: a form font renamed in the resources is no font change; a standard form font is named', async () => {
+  // Expense claim (reportlab): only the /DR key and the widgets' /DA change, /Helv → /F0;
+  // the appearance streams are byte for byte the same.
+  assert.deepEqual(listed(await run('R3-09-before', 'R3-09-renamed')), []);
+  // LibreOffice export without and with form fields: the field values are
+  // drawn in Times ("TiRo", a real change of face); "F3" is the key of a
+  // font of the form's own resources and says nothing about its face.
+  const r = await run('R3-02-lo-plain', 'R3-02-lo-fields');
+  assert.deepEqual(listed(r), [
+    '“Lisbon” font LiberationSans → Times-Roman',
+    '“2 1,250.00 2,500.00” font LiberationSans → Times-Roman',
+    '“1 340.00 340.00” font LiberationSans → Times-Roman',
+    '“1 180.00 180.00” font LiberationSans → Times-Roman',
+  ]);
+});
+
+test('R3-09 control: a field set in another standard font is a font change', () => {
+  const VT = [1, 0, 0, -1, 0, 841.89];
+  const label: TextRun = { str: 'Amount', x: 56, y: 150, w: 40, h: 11, baseline: 159, fontSize: 10, font: 'Helvetica', family: 'sans-serif', eol: true, angle: 0 };
+  const doc = (fontName: string) => {
+    const w: WidgetData = { subtype: 'Widget', fieldType: 'Tx', rect: [235, 841.89 - 164, 535, 841.89 - 146], fieldValue: '1,250.00', defaultAppearanceData: { fontSize: 10, fontName } };
+    return buildDocModel({ name: 'x', pages: [{ index: 0, width: 595.28, height: 841.89, runs: placeFieldRuns([label], fieldRuns([w], VT, [label]).runs) }] });
+  };
+  assert.deepEqual(listed(compareDocs(doc('Helv'), doc('TiRo'))), ['“1,250.00” font Helvetica → Times-Roman']);
+  assert.deepEqual(listed(compareDocs(doc('Helv'), doc('HeBo'))), ['“1,250.00” now bold']);
+  assert.deepEqual(listed(compareDocs(doc('F1'), doc('F2'))), []);
 });

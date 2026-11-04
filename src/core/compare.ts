@@ -1559,13 +1559,16 @@ function formatDiff(a: Token, b: Token): FormatDetail | null {
   const sa = styleOf(a.font);
   const sb = styleOf(b.font);
   const d: FormatDetail = {};
-  if (sa.bold !== sb.bold) sa.bold ? (d.boldRemoved = true) : (d.boldAdded = true);
-  if (sa.italic !== sb.italic) sa.italic ? (d.italicRemoved = true) : (d.italicAdded = true);
+  // A form field value whose font is not known (named only by a resource
+  // key, see fieldFont in extract.ts) has no face to compare, only its size.
+  const faces = !(a.field && !a.font) && !(b.field && !b.font);
+  if (faces && sa.bold !== sb.bold) sa.bold ? (d.boldRemoved = true) : (d.boldAdded = true);
+  if (faces && sa.italic !== sb.italic) sa.italic ? (d.italicRemoved = true) : (d.italicAdded = true);
   if (Math.abs(a.size - b.size) > Math.max(0.3, 0.08 * Math.max(a.size, b.size))) {
     d.sizeFrom = Math.round(a.size * 10) / 10;
     d.sizeTo = Math.round(b.size * 10) / 10;
   }
-  if (sa.family && sb.family && sa.family !== sb.family) {
+  if (faces && sa.family && sb.family && sa.family !== sb.family) {
     d.fontFrom = a.font;
     d.fontTo = b.font;
   }
