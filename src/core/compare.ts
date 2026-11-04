@@ -435,6 +435,12 @@ function textChange(ctx: Ctx, h: Hunk): Change {
     const to = pre + newSide.text + post;
     oldSide.text = from;
     newSide.text = to;
+    // The unit is now shown as part of the figure, so the context around it
+    // starts after it: "1.50% → 1.05%" then "of the …", not "% of the …".
+    if (pre || post) {
+      const b0 = h.b0 - (pre && B[h.b0 - 1]?.text === before.text ? 1 : 0);
+      [change.contextBefore, change.contextAfter] = context(B, b0, h.b1 + (post ? 1 : 0));
+    }
     // A value (for the percentage and sign check) only when each side is one
     // figure: several figures run together would give a meaningless number.
     // Two list labels ("(3)" → "(4)", "3." → "4." at the start of a line)
