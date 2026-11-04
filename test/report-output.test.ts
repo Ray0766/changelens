@@ -164,7 +164,7 @@ test('English counts use singular forms', () => {
   assert.deepEqual(text, [
     'Old version p. 1: 1 character could not be read as text; changes to it may be missed.',
     '1 difference in headers, footers or page numbers is ignored.',
-    '1 list number changed only because items were added or removed above it; it is not listed.',
+    '1 list number changed only because numbered items were added, removed or moved; it is not listed.',
     `1 place where lines or graphics shifted slightly (≤ ${SHIFT_PT} pt) is not listed.`,
     '1 difference only in upper/lower case is ignored.',
   ]);

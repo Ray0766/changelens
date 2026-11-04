@@ -109,7 +109,7 @@ function makeRun(
   str: string,
   ascentRaw: number,
   descentRaw: number,
-  extra: { font: string; family: string; eol: boolean; field?: true },
+  extra: { font: string; family: string; eol: boolean; field?: true; comb?: true },
 ): TextRun {
   const tx = multiply(vt, transform);
   const scale = Math.hypot(vt[0], vt[1]) || 1;
@@ -163,6 +163,7 @@ function makeRun(
     angle,
     ...(rot ? { rot } : {}),
     ...(extra.field ? { field: true as const } : {}),
+    ...(extra.comb ? { comb: true as const } : {}),
   };
 }
 
@@ -261,6 +262,9 @@ export function fieldRuns(annotations: WidgetData[], vt: number[], content: Text
       continue;
     }
     lines = lines.map((l) => cleanText(l).replace(/\s+$/, ''));
+    // A comb field draws one character per cell; PDF.js reads the cells as
+    // separate words ("4 0 2 1 3"). The value is the characters together.
+    if (a.fieldType === 'Tx' && a.comb && (a.maxLen ?? 0) > 0 && lines.length === 1) lines = [combValue(lines[0], a.fieldValue)];
     if (!lines.some((l) => l.trim())) continue;
     // The value is already part of the page content (a form filled and
     // flattened while its widgets were kept): compare it once.
@@ -268,6 +272,13 @@ export function fieldRuns(annotations: WidgetData[], vt: number[], content: Text
     out.runs.push(layoutField(a, lines, r, vt));
   }
   return out;
+}
+
+/** The value of a comb field read as "4 0 2 1 3": the field value when it shows the same characters, else the cells joined. */
+function combValue(shown: string, value: unknown): string {
+  const squash = (s: string) => s.replace(/\s+/g, '');
+  if (typeof value === 'string' && squash(cleanText(value)) === squash(shown)) return cleanText(value).trim();
+  return /^\S(?: \S)*$/.test(shown.trim()) ? squash(shown) : shown;
 }
 
 /** Content text inside the widget's box already reads like the field value. */
@@ -307,15 +318,16 @@ function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[]):
   let visual = lines;
   if (multi && !a.comb) visual = lines.flatMap((l) => wrap(l, avail, advance));
   const runs: TextRun[] = [];
+  const comb = !!a.comb && (a.maxLen ?? 0) > 0;
   const at = (str: string, x: number, baseline: number, w: number, eol: boolean) =>
-    runs.push(makeRun(vt, [fs, 0, 0, fs, x, baseline], w, str, 0.8, -0.2, { font, family, eol, field: true }));
+    runs.push(makeRun(vt, [fs, 0, 0, fs, x, baseline], w, str, 0.8, -0.2, { font, family, eol, field: true, ...(comb ? { comb: true as const } : {}) }));
   const xOf = (w: number) => (align === 1 ? r[0] + (boxW - w) / 2 : align === 2 ? r[2] - pad - w : r[0] + pad);
   if (!multi) {
     const str = visual[0] ?? '';
     let w = advance(str);
     let x = a.textPosition && Number.isFinite(a.textPosition[0]) ? r[0] + a.textPosition[0] : xOf(w);
-    if (a.comb && (a.maxLen ?? 0) > 0) {
-      // One character per cell.
+    if (comb) {
+      // One character per cell, from the first cell.
       w = (boxW / a.maxLen!) * Array.from(str).length;
       x = r[0];
     }
@@ -364,8 +376,9 @@ function wrap(line: string, width: number, advance: (s: string) => number): stri
 
 /**
  * Put each field's runs into the content's reading order: after the content
- * run that ends to its left on the same line (its label), or else after the
- * line of the nearest content above it, or first on the page. The label's
+ * run that ends to its left on the same line (its label), or one that starts
+ * to its left and runs on under the widget, or else after the line of the
+ * nearest content above it, or first on the page. The label's
  * line-break flag moves to the field's last run, so label and value form one
  * line, as they read on the page.
  */
@@ -380,6 +393,10 @@ export function placeFieldRuns(content: TextRun[], fields: TextRun[][]): TextRun
     const size = Math.max(1, f.fontSize);
     let at = -1;
     let bestRight = -Infinity;
+    // A label that runs on under the widget (the widget's fill covers its
+    // end): the same-line run that starts closest to the left of the value.
+    let under = -1;
+    let bestLeft = -Infinity;
     runs.forEach((c, k) => {
       if (f.angle !== 0 || c.angle !== 0 || !c.str.trim()) return;
       if (Math.abs(c.baseline - f.baseline) >= 0.5 * Math.max(size, c.fontSize)) return;
@@ -387,8 +404,12 @@ export function placeFieldRuns(content: TextRun[], fields: TextRun[][]): TextRun
       if (right <= f.x + 0.5 * size && right > bestRight) {
         bestRight = right;
         at = k;
+      } else if (c.x < f.x && right > f.x && c.x > bestLeft) {
+        bestLeft = c.x;
+        under = k;
       }
     });
+    if (at < 0) at = under;
     if (f.angle !== 0) {
       // Rotated text (a page with /Rotate): after the page's content.
       at = runs.length - 1;

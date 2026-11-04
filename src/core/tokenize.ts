@@ -512,6 +512,7 @@ export function buildDocModel(doc: DocText): DocModel {
           spaceBefore: t.spaceBefore,
           furniture: false,
           ...(main.field ? { field: true as const } : {}),
+          ...(main.comb ? { comb: true as const } : {}),
         });
       }
       const line: Line = {

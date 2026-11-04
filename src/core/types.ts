@@ -45,6 +45,8 @@ export interface TextRun {
    * widget's; glyph positions inside it are estimated.
    */
   field?: true;
+  /** (Form fields) A comb field's value: one character per cell (a postcode, an account number). */
+  comb?: true;
 }
 
 export interface PageText {
@@ -114,6 +116,8 @@ export interface Token {
   hyphenParts?: [string, string];
   /** Part of a form field's value (see TextRun.field). */
   field?: true;
+  /** Part of a comb field's value (see TextRun.comb). */
+  comb?: true;
 }
 
 export interface Line {

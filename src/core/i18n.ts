@@ -203,6 +203,7 @@ const en = {
   noticeFieldsUnread: '{side} {pages}: {n} form {n:field|fields} could not be compared as text (password, rotated or unreadable {n:value|values}); {n:it is|they are} compared as images only.',
   noticeFieldsUnreadable: '{side} {pages}: the form fields could not be read; their values are compared as images only.',
   renumberedRedline: 'List number shown as a tracked change: “{text}”',
+  noticeRenumberedItems: '{n} list {n:number|numbers} changed only because numbered items were added, removed or moved; {n:it is|they are} not listed.',
 };
 
 export type MessageKey = keyof typeof en;
@@ -409,6 +410,7 @@ const zh: Record<MessageKey, string> = {
   noticeFieldsUnread: '{side}{pages}有 {n} 个表单字段无法作为文字比较（密码、旋转或无法读取的值），只按图像比较。',
   noticeFieldsUnreadable: '{side}{pages}的表单字段无法读取，字段值只按图像比较。',
   renumberedRedline: '列表编号以修订标记显示：「{text}」',
+  noticeRenumberedItems: '另有 {n} 处列表编号仅因增加、删除或移动了带编号的条目而自动变化，未列入清单。',
 };
 
 const dicts: Record<Lang, Record<MessageKey, string>> = { en, zh };
