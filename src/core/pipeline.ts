@@ -185,7 +185,8 @@ export async function addVisualChanges(
           if (!v) l.all = false;
           else if (!l.at) [l.at, l.by] = [v, copy];
         }
-        if (!looks.marks.all && !looks.fill.all && (!looks.rules.all || (looks.rules.n === 0 && !copies.some((c) => Math.abs(c.dy) <= 2)))) break;
+        // Fill and rules are told by copies at the same place only.
+        if (!looks.marks.all && ((!looks.fill.all && !looks.rules.all) || !copies.some((c) => Math.abs(c.dy) <= 2))) break;
       } catch {
         // Not rendered: the next copy is tried.
       }

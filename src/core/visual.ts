@@ -2368,10 +2368,11 @@ export function rowCopies(result: CompareResult, row: RepeatedRow, max = 4): Row
  *   differs from paper by only 20–40 levels; the same glyph drawn at
  *   another sub-pixel position differs by more, so glyphs are left out).
  * - `rules`: the same along the row's edges, above and below its text (see
- *   RepeatedRow.edges): a rule under one copy recoloured, thickened or
- *   taken off. Only a copy at the same place of its page tells (undefined
- *   otherwise): a program may draw the rule under a table's first header
- *   row unlike the one under its repeated copies.
+ *   RepeatedRow.edges), within 48 levels: a rule under one copy recoloured,
+ *   thickened or taken off.
+ * Fill and rules are only told by a copy at the same place of its page
+ * (undefined otherwise): a program may draw the rules of a table's first
+ * header row unlike those of its repeated copies (a top border).
  * Two copies of one row drawn by the same program match all but a few
  * pixels. `region` is the part of the row's page compared for marks and
  * fill (by default the row itself): the row, and what compareRasters found
@@ -2379,7 +2380,7 @@ export function rowCopies(result: CompareResult, row: RepeatedRow, max = 4): Row
  */
 export interface RowDifference {
   marks: Rect | null;
-  fill: Rect | null;
+  fill: Rect | null | undefined;
   rules: Rect | null | undefined;
 }
 export function rowDiffers(result: CompareResult, row: RepeatedRow, r: Raster, copy: RowCopy, rc: Raster, region: Rect = row.rect): RowDifference {
@@ -2400,10 +2401,11 @@ export function rowDiffers(result: CompareResult, row: RepeatedRow, r: Raster, c
     { x: e.x, y: e.y, w: e.w, h: row.rect.y - e.y },
     { x: e.x, y: row.rect.y + row.rect.h, w: e.w, h: e.y + e.h - row.rect.y - row.rect.h },
   ].filter((q) => q.h > 0.5);
+  const samePlace = Math.abs(copy.dy) <= 2;
   return {
     marks: here(region, 48, true),
-    fill: both(region, 16),
-    rules: Math.abs(copy.dy) > 2 ? undefined : (strips.map((q) => both(q, 48)).find((b) => b) ?? null),
+    fill: samePlace ? both(region, 16) : undefined,
+    rules: samePlace ? (strips.map((q) => both(q, 48)).find((b) => b) ?? null) : undefined,
   };
 }
 
