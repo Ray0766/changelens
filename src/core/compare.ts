@@ -1338,7 +1338,7 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
     map.links.push({ oldPage: o, newPage: n, weight: 0, manual: true });
   }
   const overflow = findOverflow(oldDoc, newDoc, A, B, pairs);
-  foldClipped(changes, overflow, oldDoc, newDoc);
+  foldClipped(changes, overflow, oldDoc, newDoc, newOfOld);
   changes.push(...overflow);
 
   sortAndNumber(changes);
@@ -2213,22 +2213,55 @@ function mergeNearby(changes: Change[], oldDoc: DocModel, newDoc: DocModel): voi
 
 /**
  * Text that only lost its end (or start) at the edge of a page that became
- * narrower ("4,800" → "4,8", "EUR)" → "EU" after a new CropBox): PDF.js
+ * narrower ("4,800" → "4,", "EUR)" → "EU" after a new CropBox): PDF.js
  * leaves out the glyphs outside the visible page, so the text comparison
  * sees an edit, but the figures did not change; the page was cut. Such a
  * replacement is folded into the overflow change ("Content is cut off at
  * the right edge of the page") for that page and edge, which then also
- * shows the uncut wording as its old side; without one it becomes such an
- * overflow change itself. Required: the visible part is a prefix (right
- * edge) or suffix (left edge) of the old text, it ends at the page edge
- * (within 0.6 em), and the page is narrower than the old one (or, at the
- * right edge, the old text runs past the new page's edge). A real edit that
- * shortened a figure exactly at the edge of a page that was also cut there
- * would be shown as cut off, still listed.
+ * shows the uncut wording as its old side and the visible part on its new
+ * side; without one it becomes such an overflow change itself. Required,
+ * as geometric evidence that the page was cut there:
+ * - the visible part is a prefix (right edge) or suffix (left edge) of the
+ *   old text and ends at the page edge (within 0.6 em);
+ * - it stands where the same glyphs stood in the old version, after the
+ *   shift of the matched text around it (the line's matched words, else the
+ *   page's): cut text keeps its glyph positions, a figure re-set or
+ *   re-flowed ("1,000,000" → "1,000" right-aligned) does not;
+ * - the old text reached past the new page's edge at that side: the
+ *   glyphs that are missing lay outside the new page.
+ * Any other replacement stays the edit it is ("Number changed: −4,800.00 →
+ * 4,800.00" at a new left edge that the amount does not reach).
  */
-function foldClipped(changes: Change[], overflow: Change[], oldDoc: DocModel, newDoc: DocModel): void {
+function foldClipped(changes: Change[], overflow: Change[], oldDoc: DocModel, newDoc: DocModel, newOfOld: Int32Array): void {
   const squash = (x: string) => x.replace(/\s+/g, '');
   const folded = new Set<Change>();
+  const median = (v: number[]) => {
+    const s = [...v].sort((x, y) => x - y);
+    return s.length ? s[s.length >> 1] : null;
+  };
+  /** How far the matched text around old token k moved sideways (its line's matched words, else its page's). */
+  const shiftAt = (k: number, newPage: number, from: number, to: number): number | null => {
+    const t = oldDoc.tokens[k];
+    const line = oldDoc.lines[t.line];
+    const dx = (j: number) => {
+      const n = newOfOld[j];
+      if ((j >= from && j < to) || n < 0 || newDoc.tokens[n].page !== newPage) return null;
+      return newDoc.tokens[n].rects[0].x - oldDoc.tokens[j].rects[0].x;
+    };
+    const own: number[] = [];
+    for (let j = line.start; j < line.end; j++) {
+      const d = dx(j);
+      if (d !== null) own.push(d);
+    }
+    if (own.length) return median(own);
+    const page: number[] = [];
+    for (let j = 0; j < oldDoc.tokens.length; j++) {
+      if (oldDoc.tokens[j].page !== t.page || oldDoc.tokens[j].furniture) continue;
+      const d = dx(j);
+      if (d !== null) page.push(d);
+    }
+    return median(page);
+  };
   for (const c of changes) {
     if (c.kind !== 'replace' || c.category !== 'text' || c.inMove !== undefined || c.places) continue;
     if (c.old.pages.length !== 1 || c.new.pages.length !== 1 || c.old.start === undefined || c.new.start === undefined) continue;
@@ -2238,21 +2271,35 @@ function foldClipped(changes: Change[], overflow: Change[], oldDoc: DocModel, ne
     const a = squash(c.old.text);
     const b = squash(c.new.text);
     if (!b || b.length >= a.length) continue;
-    const last = newDoc.tokens[c.new.end! - 1];
     const first = newDoc.tokens[c.new.start];
+    const last = newDoc.tokens[c.new.end! - 1];
+    const oldFirst = oldDoc.tokens[c.old.start];
     const oldLast = oldDoc.tokens[c.old.end! - 1];
+    if (first.line !== last.line || oldFirst.line !== oldLast.line) continue;
     const lr = last.rects[last.rects.length - 1];
     const or = oldLast.rects[oldLast.rects.length - 1];
-    const narrower = op.width > np.width + 1;
+    const dx = shiftAt(c.old.start, c.new.pages[0], c.old.start, c.old.end!);
+    if (dx === null) continue;
     let edge: 'left' | 'right' | null = null;
-    if (a.startsWith(b) && lr.x + lr.w >= np.width - 0.6 * last.size && (narrower || or.x + or.w > np.width + 0.5)) edge = 'right';
-    else if (a.endsWith(b) && first.rects[0].x <= 0.6 * first.size && narrower) edge = 'left';
+    // Right edge: the visible start stays put, the old end lay past the new edge.
+    if (a.startsWith(b) && lr.x + lr.w >= np.width - 0.6 * last.size && Math.abs(first.rects[0].x - (oldFirst.rects[0].x + dx)) <= 1 && or.x + or.w + dx > np.width + 0.5)
+      edge = 'right';
+    // Left edge: the visible end stays put, the old start lay left of the new edge.
+    else if (a.endsWith(b) && first.rects[0].x <= 0.6 * first.size && Math.abs(lr.x + lr.w - (or.x + or.w + dx)) <= 1 && oldFirst.rects[0].x + dx < -0.5)
+      edge = 'left';
     if (!edge) continue;
     const page = c.new.pages[0];
     const o = overflow.find((x) => x.overflow?.edge === edge && x.new.pages[0] === page);
     if (o) {
       const rects = [...o.old.rects, ...c.old.rects];
       o.old = { pages: [...new Set(rects.map((r) => r.page))].sort((x, y) => x - y), rects, text: o.old.text ? `${o.old.text} ${c.old.text}` : c.old.text };
+      const shown = (r: { page: number; rect: Rect }) =>
+        o.new.rects.some((q) => q.page === r.page && q.rect.x < r.rect.x + r.rect.w && r.rect.x < q.rect.x + q.rect.w && q.rect.y < r.rect.y + r.rect.h && r.rect.y < q.rect.y + q.rect.h);
+      const extra = c.new.rects.filter((r) => !shown(r));
+      if (extra.length) {
+        const nrects = [...o.new.rects, ...extra];
+        o.new = { ...o.new, pages: [...new Set(nrects.map((r) => r.page))].sort((x, y) => x - y), rects: nrects, text: o.new.text ? `${o.new.text} ${c.new.text}` : c.new.text };
+      }
       folded.add(c);
       continue;
     }
