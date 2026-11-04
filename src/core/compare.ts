@@ -1454,6 +1454,9 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   const newOfOld = new Int32Array(oldDoc.tokens.length).fill(-1);
   for (const list of [pairs, moved.inPlace]) for (let p = 0; p < list.length; p += 2) newOfOld[A[list[p]].i] = B[list[p + 1]].i;
   const renumbered = extractRenumbering(changes, oldDoc, newDoc, newOfOld);
+  // Text cut by a narrower page, place by place, before equal edits are grouped.
+  const overflow = findOverflow(oldDoc, newDoc, A, B, pairs);
+  foldClipped(changes, overflow, oldDoc, newDoc, newOfOld, include);
   aggregateReplacements(changes);
   if (options.detectFormatting) {
     // The final pairing: relabel may have paired a label and the words after it anew.
@@ -1468,8 +1471,6 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
     map.newToOld[n] = o;
     map.links.push({ oldPage: o, newPage: n, weight: 0, manual: true });
   }
-  const overflow = findOverflow(oldDoc, newDoc, A, B, pairs);
-  foldClipped(changes, overflow, oldDoc, newDoc, newOfOld);
   changes.push(...overflow);
 
   sortAndNumber(changes);
@@ -2625,104 +2626,276 @@ function mergeNearby(changes: Change[], oldDoc: DocModel, newDoc: DocModel): voi
   }
 }
 
+/** Distance along a page's text direction: a box's start and end, the page's extent, and the page edges where its lines end and start. */
+interface TextAxis {
+  span: (r: Rect) => [number, number];
+  extent: number;
+  end: Edge;
+  start: Edge;
+}
+type Edge = 'left' | 'right' | 'top' | 'bottom';
+
+function textAxis(page: { width: number; height: number; textAngle?: number }): TextAxis | null {
+  const { width: W, height: H } = page;
+  switch (page.textAngle ?? 0) {
+    case 0:
+      return { span: (r) => [r.x, r.x + r.w], extent: W, end: 'right', start: 'left' };
+    case 90:
+      return { span: (r) => [r.y, r.y + r.h], extent: H, end: 'bottom', start: 'top' };
+    case -90:
+    case 270:
+      return { span: (r) => [H - r.y - r.h, H - r.y], extent: H, end: 'top', start: 'bottom' };
+    case 180:
+    case -180:
+      return { span: (r) => [W - r.x - r.w, W - r.x], extent: W, end: 'left', start: 'right' };
+    default:
+      return null;
+  }
+}
+
 /**
  * Text that only lost its end (or start) at the edge of a page that became
- * narrower ("4,800" → "4,", "EUR)" → "EU" after a new CropBox): PDF.js
+ * narrower ("4,800" → "4,8", "EUR)" → "EU" after a new CropBox): PDF.js
  * leaves out the glyphs outside the visible page, so the text comparison
  * sees an edit, but the figures did not change; the page was cut. Such a
- * replacement is folded into the overflow change ("Content is cut off at
- * the right edge of the page") for that page and edge, which then also
- * shows the uncut wording as its old side and the visible part on its new
- * side; without one it becomes such an overflow change itself. Required,
- * as geometric evidence that the page was cut there:
- * - the visible part is a prefix (right edge) or suffix (left edge) of the
- *   old text and ends at the page edge (within 0.6 em);
+ * replacement, or a deletion of words that lay wholly outside the new page
+ * (the full stop after a word cut at its last letter, "annex 3." after the
+ * edge), is folded into the overflow change ("Content is cut off at the
+ * right edge of the page") for that page and edge, which then shows the
+ * uncut wording as its old side and the visible part on its new side; one
+ * is made when there is none. A replacement that joins a line end cut at
+ * the right with the next line's start cut at the left is judged per line.
+ * Required, as evidence that the page cut the text there (along the text
+ * direction, so on a turned page at its top or bottom):
+ * - the page lost room at that side: its edge moved inwards relative to
+ *   the matched text (a narrower box, or one shifted);
+ * - the visible part is a prefix (end of a line) or suffix (start of a
+ *   line) of the old text, and its last (first) glyph crosses the edge.
+ *   PDF.js keeps a glyph that starts inside the page, so text cut by the
+ *   page always runs past the edge; text that ends inside it was not cut
+ *   ("1,000,000" → "1,000" 4 pt inside a new right edge, a sign removed at
+ *   a new left edge stays "−4,800.00 → 4,800.00"). (Where lines start on a
+ *   page whose content is turned back against its /Rotate, PDF.js keeps no
+ *   glyph across the edge, so text cut there stays listed as an edit.);
  * - it stands where the same glyphs stood in the old version, after the
- *   shift of the matched text around it (the line's matched words, else the
- *   page's): cut text keeps its glyph positions, a figure re-set or
- *   re-flowed ("1,000,000" → "1,000" right-aligned) does not;
- * - the old text reached past the new page's edge at that side: the
- *   glyphs that are missing lay outside the new page.
- * Any other replacement stays the edit it is ("Number changed: −4,800.00 →
- * 4,800.00" at a new left edge that the amount does not reach).
+ *   shift of the matched word next to it on the line, of the line's matched
+ *   words, or of the page's: cut text keeps its glyph positions, a figure
+ *   re-set or re-flowed ("1,000,000" → "1,000" right-aligned) does not;
+ * - the old text reached past the new edge: the missing glyphs lay outside
+ *   the new page. Deleted words must lie wholly outside it, after the shift
+ *   of the word next to them.
+ * Whole lines deleted from a page whose box lost room at the top or bottom
+ * are folded the same way when they lie wholly outside the new box. Any
+ * other replacement or deletion stays the edit it is.
  */
-function foldClipped(changes: Change[], overflow: Change[], oldDoc: DocModel, newDoc: DocModel, newOfOld: Int32Array): void {
+function foldClipped(changes: Change[], overflow: Change[], oldDoc: DocModel, newDoc: DocModel, newOfOld: Int32Array, include: (t: Token) => boolean): void {
   const squash = (x: string) => x.replace(/\s+/g, '');
   const folded = new Set<Change>();
   const median = (v: number[]) => {
     const s = [...v].sort((x, y) => x - y);
     return s.length ? s[s.length >> 1] : null;
   };
-  /** How far the matched text around old token k moved sideways (its line's matched words, else its page's). */
-  const shiftAt = (k: number, newPage: number, from: number, to: number): number | null => {
-    const t = oldDoc.tokens[k];
-    const line = oldDoc.lines[t.line];
-    const dx = (j: number) => {
-      const n = newOfOld[j];
-      if ((j >= from && j < to) || n < 0 || newDoc.tokens[n].page !== newPage) return null;
-      return newDoc.tokens[n].rects[0].x - oldDoc.tokens[j].rects[0].x;
-    };
+  // Each old page's tokens, and how far its matched text moved on a new page (once per pair of pages).
+  const pageRange = new Map<number, [number, number]>();
+  oldDoc.tokens.forEach((t, k) => {
+    const r = pageRange.get(t.page);
+    if (r) r[1] = k + 1;
+    else pageRange.set(t.page, [k, k + 1]);
+  });
+  const oldAxes = oldDoc.pages.map(textAxis);
+  const newAxes = newDoc.pages.map(textAxis);
+  const axes = (o: number, n: number) => [oldAxes[o], newAxes[n]] as const;
+  /** How far old token j moved along the text direction (and across it, on an upright page) on new page `np`, or null. */
+  const moved = (j: number, np: number, across = false): number | null => {
+    const n = newOfOld[j];
+    if (n < 0 || newDoc.tokens[n].page !== np) return null;
+    const [oa, na] = axes(oldDoc.tokens[j].page, np);
+    if (!oa || !na) return null;
+    if (across) return newDoc.tokens[n].rects[0].y - oldDoc.tokens[j].rects[0].y;
+    return na.span(newDoc.tokens[n].rects[0])[0] - oa.span(oldDoc.tokens[j].rects[0])[0];
+  };
+  const shifts = new Map<string, { along: number; across: number } | null>();
+  const pageShift = (op: number, np: number) => {
+    const key = `${op}:${np}`;
+    if (shifts.has(key)) return shifts.get(key)!;
+    const along: number[] = [];
+    const across: number[] = [];
+    const [s, e] = pageRange.get(op) ?? [0, 0];
+    for (let j = s; j < e; j++) {
+      if (oldDoc.tokens[j].furniture) continue;
+      const d = moved(j, np);
+      if (d === null) continue;
+      along.push(d);
+      across.push(moved(j, np, true)!);
+    }
+    const out = along.length ? { along: median(along)!, across: median(across)! } : null;
+    shifts.set(key, out);
+    return out;
+  };
+  const lineShift = (line: number, np: number, from: number, to: number) => {
+    const l = oldDoc.lines[line];
     const own: number[] = [];
-    for (let j = line.start; j < line.end; j++) {
-      const d = dx(j);
+    for (let j = l.start; j < l.end; j++) {
+      if (j >= from && j < to) continue;
+      const d = moved(j, np);
       if (d !== null) own.push(d);
     }
-    if (own.length) return median(own);
-    const page: number[] = [];
-    for (let j = 0; j < oldDoc.tokens.length; j++) {
-      if (oldDoc.tokens[j].page !== t.page || oldDoc.tokens[j].furniture) continue;
-      const d = dx(j);
-      if (d !== null) page.push(d);
-    }
-    return median(page);
+    return median(own);
   };
+  const lastRect = (t: Token) => t.rects[t.rects.length - 1];
+  const sideOf = (toks: Token[], caret?: Side['caret']): Side =>
+    toks.length
+      ? { pages: [toks[0].page], rects: rectsOf(toks), text: joinTokens(toks), start: toks[0].i, end: toks[toks.length - 1].i + 1 }
+      : { pages: caret ? [caret.page] : [], rects: [], text: '', caret };
+  interface Part {
+    old: Token[];
+    new: Token[];
+    side: 'end' | 'start';
+  }
+
   for (const c of changes) {
-    if (c.kind !== 'replace' || c.category !== 'text' || c.inMove !== undefined || c.places) continue;
-    if (c.old.pages.length !== 1 || c.new.pages.length !== 1 || c.old.start === undefined || c.new.start === undefined) continue;
-    const op = oldDoc.pages[c.old.pages[0]];
-    const np = newDoc.pages[c.new.pages[0]];
-    if (!op || !np || (op.textAngle ?? 0) !== 0 || (np.textAngle ?? 0) !== 0) continue;
-    const a = squash(c.old.text);
-    const b = squash(c.new.text);
-    if (!b || b.length >= a.length) continue;
-    const first = newDoc.tokens[c.new.start];
-    const last = newDoc.tokens[c.new.end! - 1];
-    const oldFirst = oldDoc.tokens[c.old.start];
-    const oldLast = oldDoc.tokens[c.old.end! - 1];
-    if (first.line !== last.line || oldFirst.line !== oldLast.line) continue;
-    const lr = last.rects[last.rects.length - 1];
-    const or = oldLast.rects[oldLast.rects.length - 1];
-    const dx = shiftAt(c.old.start, c.new.pages[0], c.old.start, c.old.end!);
-    if (dx === null) continue;
-    let edge: 'left' | 'right' | null = null;
-    // Right edge: the visible start stays put, the old end lay past the new edge.
-    if (a.startsWith(b) && lr.x + lr.w >= np.width - 0.6 * last.size && Math.abs(first.rects[0].x - (oldFirst.rects[0].x + dx)) <= 1 && or.x + or.w + dx > np.width + 0.5)
-      edge = 'right';
-    // Left edge: the visible end stays put, the old start lay left of the new edge.
-    else if (a.endsWith(b) && first.rects[0].x <= 0.6 * first.size && Math.abs(lr.x + lr.w - (or.x + or.w + dx)) <= 1 && oldFirst.rects[0].x + dx < -0.5)
-      edge = 'left';
-    if (!edge) continue;
-    const page = c.new.pages[0];
-    const o = overflow.find((x) => x.overflow?.edge === edge && x.new.pages[0] === page);
-    if (o) {
-      const rects = [...o.old.rects, ...c.old.rects];
-      o.old = { pages: [...new Set(rects.map((r) => r.page))].sort((x, y) => x - y), rects, text: o.old.text ? `${o.old.text} ${c.old.text}` : c.old.text };
+    if ((c.kind !== 'replace' && c.kind !== 'delete') || c.category !== 'text' || c.inMove !== undefined || c.places) continue;
+    if (c.old.pages.length !== 1 || c.old.start === undefined || c.new.pages.length > 1) continue;
+    const ot = oldDoc.tokens.slice(c.old.start, c.old.end).filter(include);
+    const nt = c.new.start === undefined ? [] : newDoc.tokens.slice(c.new.start, c.new.end).filter(include);
+    if (!ot.length || (c.kind === 'replace') !== (nt.length > 0)) continue;
+    const opage = ot[0].page;
+    // The new page: the replacement's, or for a deletion the page its matched neighbours went to.
+    let found: number | undefined = nt[0]?.page;
+    for (const k of [ot[0].i - 1, ot[ot.length - 1].i + 1]) {
+      if (found !== undefined) break;
+      if (oldDoc.tokens[k]?.page === opage && newOfOld[k] >= 0) found = newDoc.tokens[newOfOld[k]].page;
+    }
+    found ??= c.new.caret?.page;
+    if (found === undefined) continue;
+    const npage: number = found;
+    const op = oldDoc.pages[opage];
+    const np = newDoc.pages[npage];
+    const [oa, na] = axes(opage, npage);
+    if (!op || !np || !oa || !na || (op.textAngle ?? 0) !== (np.textAngle ?? 0)) continue;
+    const shift = pageShift(opage, npage);
+    if (!shift) continue;
+    const L = na.extent;
+    // Cheap first: the page must have lost room at a side (along the lines or, upright, at the top or bottom).
+    const lostEnd = L - shift.along < oa.extent - 0.5;
+    const lostStart = shift.along < -0.5;
+    const lostBottom = np.height - shift.across < op.height - 0.5;
+    const lostTop = shift.across < -0.5;
+    if (!lostEnd && !lostStart && !lostBottom && !lostTop) continue;
+
+    const from = c.old.start;
+    const to = c.old.end!;
+    const pass = (s: Part): boolean => {
+      const o = s.old;
+      const n = s.new;
+      if (!o.length) return !n.length;
+      if (s.side === 'end' ? !lostEnd : !lostStart) return false;
+      if (o.some((t) => t.line !== o[0].line) || n.some((t) => t.line !== n[0].line)) return false;
+      // The matched word next to the part on its line.
+      const k = s.side === 'end' ? o[0].i - 1 : o[o.length - 1].i + 1;
+      const next = k >= 0 && k < oldDoc.tokens.length && oldDoc.tokens[k].line === o[0].line ? moved(k, npage) : null;
+      const line = lineShift(o[0].line, npage, from, to);
+      if (!n.length) {
+        const d = next ?? line ?? shift.along;
+        return s.side === 'end' ? o.every((t) => oa.span(t.rects[0])[0] + d > L - 0.5) : o.every((t) => oa.span(lastRect(t))[1] + d < 0.5);
+      }
+      const a = squash(joinTokens(o));
+      const b = squash(joinTokens(n));
+      if (!b || b.length >= a.length) return false;
+      const refs = [next, line, shift.along].filter((v): v is number => v !== null);
+      const [oStart] = oa.span(o[0].rects[0]);
+      const [, oEnd] = oa.span(lastRect(o[o.length - 1]));
+      const [nStart] = na.span(n[0].rects[0]);
+      const [, nEnd] = na.span(lastRect(n[n.length - 1]));
+      if (s.side === 'end') {
+        if (!a.startsWith(b) || !(nEnd > L - 0.5)) return false;
+        const self = nStart - oStart;
+        return refs.some((r) => Math.abs(self - r) <= 1) && oEnd + self > L + 0.5;
+      }
+      if (!a.endsWith(b) || !(nStart < 0.5)) return false;
+      const self = nEnd - oEnd;
+      return refs.some((r) => Math.abs(self - r) <= 1) && oStart + self < -0.5;
+    };
+
+    // The parts to judge: one line, or a line end and the next line's start.
+    const oLines = [...new Set(ot.map((t) => t.line))];
+    const nLines = [...new Set(nt.map((t) => t.line))];
+    let parts: Part[][] = [];
+    if (oLines.length === 1 && nLines.length <= 1) {
+      parts = [[{ old: ot, new: nt, side: 'end' }], [{ old: ot, new: nt, side: 'start' }]];
+    } else if (oLines.length === 2 && nLines.length <= 2) {
+      const o1 = ot.filter((t) => t.line === oLines[0]);
+      const o2 = ot.filter((t) => t.line === oLines[1]);
+      let n1: Token[] = [];
+      let n2: Token[] = [];
+      if (nLines.length === 2) {
+        n1 = nt.filter((t) => t.line === nLines[0]);
+        n2 = nt.filter((t) => t.line === nLines[1]);
+      } else if (nLines.length === 1) {
+        const prev = newDoc.tokens[c.new.start! - 1];
+        const after = newDoc.tokens[c.new.end!];
+        const onPrev = prev?.line === nLines[0];
+        const onNext = after?.line === nLines[0];
+        if (onPrev === onNext) continue;
+        if (onPrev) n1 = nt;
+        else n2 = nt;
+      }
+      parts = [
+        [
+          { old: o1, new: n1, side: 'end' },
+          { old: o2, new: n2, side: 'start' },
+        ],
+      ];
+    }
+    const passed = parts.find((ps) => ps.every(pass));
+    let cuts: { edge: Edge; old: Token[]; new: Token[] }[] | null = passed ? passed.map((s) => ({ edge: s.side === 'end' ? na.end : na.start, old: s.old, new: s.new })) : null;
+    // Whole lines deleted at the top or bottom of an upright page, with no
+    // compared text beyond them on the page: PDF.js leaves out a glyph whose
+    // baseline lies outside the page, so the baseline must lie past the edge
+    // whatever the font's ascent (between 65 % and 85 % of the box height).
+    if (!cuts && c.kind === 'delete' && (op.textAngle ?? 0) === 0) {
+      const dy = shift.across;
+      const beyond = (k: number, step: 1 | -1) => {
+        for (; k >= 0 && k < oldDoc.tokens.length; k += step) if (include(oldDoc.tokens[k])) return oldDoc.tokens[k].page === opage;
+        return false;
+      };
+      if (lostBottom && !beyond(ot[ot.length - 1].i + 1, 1) && ot.every((t) => t.rects.every((r) => r.y + 0.65 * r.h + dy > np.height + 0.5))) cuts = [{ edge: 'bottom', old: ot, new: [] }];
+      else if (lostTop && !beyond(ot[0].i - 1, -1) && ot.every((t) => t.rects.every((r) => r.y + 0.85 * r.h + dy < -0.5))) cuts = [{ edge: 'top', old: ot, new: [] }];
+    }
+    if (!cuts) continue;
+    for (const cut of cuts) {
+      if (!cut.old.length) continue;
+      let o = overflow.find((x) => x.overflow?.edge === cut.edge && x.new.pages[0] === npage);
+      if (!o) {
+        const caret = c.new.caret ?? (cut.new.length ? undefined : { page: npage, x: 0, y: 0, h: 12 });
+        o = {
+          id: '',
+          kind: 'overflow',
+          category: 'visual',
+          old: { pages: [], rects: [], text: '' },
+          new: sideOf([], caret),
+          overflow: { edge: cut.edge },
+          size: cut.old.length,
+          cjk: false,
+          contextBefore: '',
+          contextAfter: '',
+          order: c.order,
+        };
+        overflow.push(o);
+      }
+      const os = sideOf(cut.old);
+      const ns = sideOf(cut.new);
+      const rects = [...o.old.rects, ...os.rects];
+      o.old = { pages: [...new Set(rects.map((r) => r.page))].sort((x, y) => x - y), rects, text: o.old.text ? `${o.old.text} ${os.text}` : os.text };
       const shown = (r: { page: number; rect: Rect }) =>
         o.new.rects.some((q) => q.page === r.page && q.rect.x < r.rect.x + r.rect.w && r.rect.x < q.rect.x + q.rect.w && q.rect.y < r.rect.y + r.rect.h && r.rect.y < q.rect.y + q.rect.h);
-      const extra = c.new.rects.filter((r) => !shown(r));
+      const extra = ns.rects.filter((r) => !shown(r));
       if (extra.length) {
         const nrects = [...o.new.rects, ...extra];
-        o.new = { ...o.new, pages: [...new Set(nrects.map((r) => r.page))].sort((x, y) => x - y), rects: nrects, text: o.new.text ? `${o.new.text} ${c.new.text}` : c.new.text };
+        o.new = { pages: [...new Set(nrects.map((r) => r.page))].sort((x, y) => x - y), rects: nrects, text: o.new.text ? `${o.new.text} ${ns.text}` : ns.text, start: o.new.start, end: o.new.end };
       }
-      folded.add(c);
-      continue;
     }
-    c.kind = 'overflow';
-    c.category = 'visual';
-    c.overflow = { edge };
-    delete c.numeric;
-    c.contextBefore = '';
-    c.contextAfter = '';
+    folded.add(c);
   }
   if (folded.size) {
     const kept = changes.filter((c) => !folded.has(c));
