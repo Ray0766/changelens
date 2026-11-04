@@ -1154,21 +1154,31 @@ function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, aft
   const movedB = new Set<number>();
   const out: Moves = { moves: [], inner: [], innerOps: [], inPlace: [], rest: [] };
   /**
-   * The passage stands at the same place on the page in both versions (each
-   * word within 2 pt, on pages the page map pairs) and reads the same: it
+   * The passage stands at the same place on the page in both versions and
    * only comes at another point of the content stream, e.g. a repeated
    * table header row written after the rows of the page before, or a
-   * footnote that the alignment passed over. Nothing moved, so nothing is
-   * reported: it is matched text.
+   * footnote that the alignment passed over. Every word the passage diff
+   * matched is on a page the page map pairs, at its old height (within
+   * 2 pt), and, on a line without an edit, at its old place along the line:
+   * an edit may shift the words after it on its own line. Nothing moved, so
+   * no move is reported: the words are matched text, and only the edits
+   * inside the passage are listed.
    */
-  const inPlace = (d: Hunk, ins: Hunk) => {
-    if (d.a1 - d.a0 !== ins.b1 - ins.b0) return false;
-    for (let k = 0; k < d.a1 - d.a0; k++) {
-      const a = ctx.A[d.a0 + k];
-      const b = ctx.B[ins.b0 + k];
-      if (a.key !== b.key || oldToNew[a.page] !== b.page || a.rects.length !== b.rects.length) return false;
+  const inPlace = (d: Hunk, ins: Hunk, matches: Int32Array, ops: DiffOp[]) => {
+    if (!matches.length) return false;
+    const edited = new Set<number>();
+    for (const o of ops) {
+      if (o.type === 'equal') continue;
+      for (let k = o.a0; k < o.a1; k++) edited.add(ctx.A[k].line);
+      for (let k = o.b0; k < o.b1; k++) edited.add(-1 - ctx.B[k].line);
+    }
+    for (let p = 0; p < matches.length; p += 2) {
+      const a = ctx.A[d.a0 + matches[p]];
+      const b = ctx.B[ins.b0 + matches[p + 1]];
+      if (oldToNew[a.page] !== b.page || a.rects.length !== b.rects.length) return false;
+      const along = !edited.has(a.line) && !edited.has(-1 - b.line);
       for (let r = 0; r < a.rects.length; r++)
-        if (Math.abs(a.rects[r].x - b.rects[r].x) > 2 || Math.abs(a.rects[r].y - b.rects[r].y) > 2) return false;
+        if ((along && Math.abs(a.rects[r].x - b.rects[r].x) > 2) || Math.abs(a.rects[r].y - b.rects[r].y) > 2) return false;
     }
     return true;
   };
@@ -1202,9 +1212,10 @@ function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, aft
       .filter((h) => !edgeMark(h))
       .flatMap((h) => splitHunk(ctx, h))
       .map((h) => textChange(ctx, h));
-    if (inPlace(d.h, ins.h)) {
-      for (let k = 0; k < d.h.a1 - d.h.a0; k++) out.inPlace.push(d.h.a0 + k, ins.h.b0 + k);
-      out.innerOps.push({ type: 'equal', a0: d.h.a0, a1: d.h.a1, b0: ins.h.b0, b1: ins.h.b1 });
+    if (inPlace(d.h, ins.h, c.matches, ops)) {
+      for (const o of ops) if (o.type === 'equal') for (let k = 0; k < o.a1 - o.a0; k++) out.inPlace.push(o.a0 + k, o.b0 + k);
+      out.innerOps.push(...ops.filter((o) => o.type === 'equal'));
+      out.inner.push(...edits);
       continue;
     }
     for (const e of edits) e.inMove = '';
