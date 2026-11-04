@@ -539,9 +539,10 @@ const REFERENCE_WORD =
 
 /**
  * T[s, e) is a number that names something rather than measuring it: a
- * cross-reference ("clause 4.4", "[12]", "第 4.4 条"), a figure written
- * with a leading zero ("09.00", "007") or the digits typed into a comb
- * field. Such a change gets no percentage.
+ * cross-reference ("clause 4.4", "[12]", "第 4.4 条"), a page number after
+ * the leader of a contents line, a figure written with a leading zero
+ * ("09.00", "007") or the digits typed into a comb field. Such a change
+ * gets no percentage.
  */
 function referenceNumber(T: Token[], s: number, e: number): boolean {
   if (e - s !== 1) return false;
@@ -556,6 +557,10 @@ function referenceNumber(T: Token[], s: number, e: number): boolean {
   const word = before?.text === '.' && !before.spaceBefore ? T[s - 2] : before;
   if (sameLine(word) && REFERENCE_WORD.test(word!.text)) return true;
   if (sameLine(after) && /^[条款项章节]$/.test(after!.text)) return true;
+  // A page number at the end of a contents line, after a leader ("Change control ........ 2").
+  const dot = (k: number) => k >= 0 && T[k].text === '.' && sameLine(T[k]);
+  const leader = sameLine(before) && (/^([.·…_])\1{2,}$|^…$/.test(before!.text) || (dot(s - 1) && dot(s - 2) && dot(s - 3)));
+  if (!sameLine(after) && leader) return true;
   return sameLine(before) && sameLine(after) && before!.text === '[' && after!.text === ']' && !t.spaceBefore && !after!.spaceBefore;
 }
 

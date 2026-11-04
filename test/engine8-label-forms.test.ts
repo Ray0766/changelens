@@ -102,3 +102,13 @@ test('single-line clauses renumbered by hand are listed, without a percentage (R
   const r = compare(doc('a', ['5.1', '5.2', '5.3', '5.4']), doc('b', ['5.1', '5.2', '5.4', '5.5']));
   assert.deepEqual(listed(r), ['Number changed: 5.3 → 5.4', 'Number changed: 5.4 → 5.5']);
 });
+
+test('a contents page number after a leader gets no percentage; other line-end figures keep theirs (R1-15)', () => {
+  const line = (name: string, str: string): DocText => ({ name, pages: [{ index: 0, width: 595, height: 842, runs: [{ str, x: 56, y: 71, w: str.length * 5, h: 11, baseline: 80, fontSize: 10, font: 'Body', family: 'sans-serif', eol: true, angle: 0 }] }] });
+  // A run of full stops (one token), spaced stops (Chromium dot leaders) and an ellipsis leader.
+  for (const leader of ['..........', '. . . . . .', '…………']) {
+    const r = compare(line('a', `5. Change control ${leader} 1`), line('b', `5. Change control ${leader} 2`));
+    assert.deepEqual(listed(r), ['Number changed: 1 → 2'], leader);
+  }
+  assert.deepEqual(listed(compare(line('a', 'Spare filters in stock: 1'), line('b', 'Spare filters in stock: 2'))), ['Number changed: 1 → 2 (+100%)']);
+});
