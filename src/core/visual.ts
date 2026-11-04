@@ -1441,13 +1441,47 @@ export function compareRasters(
   const oldRects = cluster(fwdDiff.real, ra.width / ra.scale);
   const newRects = cluster(bwdDiff.real, rb.width / rb.scale);
 
+  const appearance: Change[] = [];
+  if (options.appearance !== false) {
+    // Tokens a formatting change already reports — every place of an
+    // aggregated one, found by position as well as by token range.
+    const skip = new Set<number>();
+    const fmtRects: Rect[] = [];
+    for (const c of result.changes) {
+      if (c.kind !== 'format') continue;
+      if (c.new.start !== undefined) for (let i = c.new.start; i < c.new.end!; i++) skip.add(i);
+      for (const r of c.new.rects) if (r.page === newPage) fmtRects.push(r.rect);
+    }
+    const inFormat = (b: Token) => skip.has(b.i) || coveredShare(b.rects[0], fmtRects) >= 0.5;
+    const near = (a: Token, b: Token) => differsNear(fwdDiff, ra, a.rects[0]) || differsNear(bwdDiff, rb, b.rects[0]);
+    // Text drawn over the word that is on one side only (a DRAFT watermark
+    // removed, a stamp added) changes its ink there: that belongs to the
+    // text change, which is reported.
+    const coverOld = overlays(result, 'old', oldPage);
+    const coverNew = overlays(result, 'new', newPage);
+    // A list number shown as a tracked change ("4.3[4.4]" in the reviewer's
+    // colour): its colour is part of that consequence of a renumbering,
+    // which is counted and shown on request.
+    const labels = (side: 'old' | 'new', page: number) => result.minor.filter((c) => c.consequence === 'renumber').flatMap((c) => c[side].rects.filter((r) => r.page === page).map((r) => r.rect));
+    const labelOld = labels('old', oldPage);
+    const labelNew = labels('new', newPage);
+    const under = (a: Token, b: Token) =>
+      covered(a.rects[0], coverOld) >= OVERLAY_SHARE ||
+      covered(b.rects[0], coverNew) >= OVERLAY_SHARE ||
+      coveredShare(a.rects[0], labelOld) >= 0.5 ||
+      coveredShare(b.rects[0], labelNew) >= 0.5;
+    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under));
+  }
+
   // Regions explained by text changes on the same page. Text that moved
   // sideways explains the spot it left and where it went, and a frame or
   // stamp around it only if that moved along with it.
   const positions = result.changes.filter((c) => c.kind === 'position' && c.old.rects.length && c.new.rects.length);
   const zones = (side: 'old' | 'new', page: number) => {
     const out: Rect[] = [];
-    for (const c of result.changes) if (c.category === 'text') for (const r of c[side].rects) if (r.page === page) out.push(expand(r.rect, 9));
+    // Text that is cut off or sticks out (overflow) explains the graphics
+    // around it as well, as text changes do.
+    for (const c of result.changes) if (c.category === 'text' || c.kind === 'overflow') for (const r of c[side].rects) if (r.page === page) out.push(expand(r.rect, 9));
     for (const c of positions) if (c[side].pages[0] === page) for (const r of [...c.old.rects, ...c.new.rects]) out.push(expand(r.rect, 4));
     return out;
   };
@@ -1459,8 +1493,8 @@ export function compareRasters(
     const [src, dst] = side === 'old' ? [A, B] : [B, A];
     return rects.filter((r) => {
       if (coveredShare(r, explained) >= 0.6) return false;
-      // A change bar in the margin beside the lines of a text change.
-      const bar = real ? changeBar(result, side, page, r, src.r.scale) : null;
+      // A change bar in the margin beside the lines of a change.
+      const bar = real ? changeBar(result, side, page, r, src.r.scale, appearance) : null;
       if (bar) {
         bar[side].rects.push({ page, rect: r });
         return false;
@@ -1556,26 +1590,7 @@ export function compareRasters(
     changes.push(minor);
   }
 
-  if (options.appearance !== false) {
-    // Tokens a formatting change already reports — every place of an
-    // aggregated one, found by position as well as by token range.
-    const skip = new Set<number>();
-    const fmtRects: Rect[] = [];
-    for (const c of result.changes) {
-      if (c.kind !== 'format') continue;
-      if (c.new.start !== undefined) for (let i = c.new.start; i < c.new.end!; i++) skip.add(i);
-      for (const r of c.new.rects) if (r.page === newPage) fmtRects.push(r.rect);
-    }
-    const inFormat = (b: Token) => skip.has(b.i) || coveredShare(b.rects[0], fmtRects) >= 0.5;
-    const near = (a: Token, b: Token) => differsNear(fwdDiff, ra, a.rects[0]) || differsNear(bwdDiff, rb, b.rects[0]);
-    // Text drawn over the word that is on one side only (a DRAFT watermark
-    // removed, a stamp added) changes its ink there: that belongs to the
-    // text change, which is reported.
-    const coverOld = overlays(result, 'old', oldPage);
-    const coverNew = overlays(result, 'new', newPage);
-    const under = (a: Token, b: Token) => covered(a.rects[0], coverOld) >= OVERLAY_SHARE || covered(b.rects[0], coverNew) >= OVERLAY_SHARE;
-    changes.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under));
-  }
+  changes.push(...appearance);
   for (const c of changes) foundOn.set(c, `${oldPage}:${newPage}`);
   return changes;
 }
@@ -1588,12 +1603,16 @@ export function compareRasters(
  * those lines (give or take half a line and a cell) and is mostly covered
  * by them. Word
  * and LibreOffice mark the lines of tracked changes so in the margin; any
- * revision bar looks the same. The bar is then shown as part of that change
- * (its region is added to the change's place) instead of as a graphic of its
- * own. A vertical rule deliberately added in the margin next to edited
- * lines is shown with that edit the same way, not as a separate item.
+ * revision bar looks the same. The change may be a text change, one of
+ * `also` (the colour and line changes of the page pair: a tracked deletion
+ * shown struck through) or a consequence (a list number shown as a tracked
+ * change), a listed change before a consequence. The bar is then shown as
+ * part of that change (its region is added to the change's place) instead
+ * of as a graphic of its own. A vertical rule deliberately added in the
+ * margin next to edited lines is shown with that edit the same way, not as
+ * a separate item.
  */
-function changeBar(result: CompareResult, side: 'old' | 'new', page: number, r: Rect, scale: number): Change | null {
+function changeBar(result: CompareResult, side: 'old' | 'new', page: number, r: Rect, scale: number, also: Change[]): Change | null {
   if (r.w > 8 || r.h < 8 || r.h < 2 * r.w) return null;
   const doc = side === 'old' ? result.oldDoc : result.newDoc;
   const level = doc.lines.filter((l) => l.page === page && l.end > l.start && !l.furniture && l.rect.y < r.y + r.h && l.rect.y + l.rect.h > r.y);
@@ -1603,10 +1622,14 @@ function changeBar(result: CompareResult, side: 'old' | 'new', page: number, r: 
   const leftOf = r.x + r.w <= starts + 1 && starts - (r.x + r.w) <= 36;
   const rightOf = r.x >= ends - 1 && r.x - ends <= 36;
   if (!leftOf && !rightOf) return null;
+  // Text changes, the colour or line changes of this page pair (a tracked
+  // deletion shown struck through), and consequences such as a list number
+  // shown as a tracked change; a listed change is preferred to a consequence
+  // that covers the bar as well.
+  const hosts = [...result.changes.filter((c) => c.category === 'text' && c.kind !== 'position'), ...also, ...result.minor.filter((c) => c.consequence)];
   let best: Change | null = null;
   let bestCover = 0;
-  for (const c of result.changes) {
-    if (c.category !== 'text' || c.kind === 'position') continue;
+  for (const c of hosts) {
     const rs = c[side].rects.filter((q) => q.page === page && q.rect.y < r.y + r.h && q.rect.y + q.rect.h > r.y).map((q) => q.rect);
     if (!rs.length) continue;
     const top = Math.min(...rs.map((q) => q.y));
@@ -1616,9 +1639,9 @@ function changeBar(result: CompareResult, side: 'old' | 'new', page: number, r: 
     const slack = CELL / scale + 0.5 * Math.max(...rs.map((q) => q.h));
     if (r.y < top - slack || r.y + r.h > bottom + slack) continue;
     const cover = (Math.min(bottom, r.y + r.h) - Math.max(top, r.y)) / r.h;
-    if (cover > bestCover) [best, bestCover] = [c, cover];
+    if (cover >= 0.7 && (!best || (best.minor && !c.minor) || (!!best.minor === !!c.minor && cover > bestCover))) [best, bestCover] = [c, cover];
   }
-  return bestCover >= 0.7 ? best : null;
+  return best;
 }
 
 /**

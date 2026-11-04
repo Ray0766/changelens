@@ -15,6 +15,10 @@
 //     most pages (so it is a running header); the new version adds a
 //     paragraph at the start, and the rows at the foot of page 1 go to the
 //     top of page 2, under the repeated header
+//   row5-before.pdf / row5-after.pdf — a price list whose rows are ruled and
+//     whose group heading rows are shaded across the table; the new version
+//     adds a group ("Valves") with its shaded heading row and one item row
+//     at the end of the table, above a closing paragraph
 //   cjk5-before.pdf / cjk5-after.pdf — Chinese and Japanese paragraphs and a
 //     small table, pushed down by a line added at the top; one Chinese word
 //     struck through (<s>), nothing else changes
@@ -73,6 +77,21 @@ const thead = (after) =>
   `<h2>1 Introduction</h2><p>${intro} Each zone profile lists the assets, their age and their condition grade.</p>${after ? `<p>${added.slice(0, -1)}, with a short summary of the schemes completed.</p>` : ''}` +
   [0, 1, 2, 3, 4].map((k) => `<h2>${k + 2} Zone group ${k + 1}</h2><p>Zone group ${k + 1} is supplied from two treatment works. The assets below are inspected every year and their condition is graded from 1 (very good) to 5 (very poor).</p>${theadTable(k)}`).join('');
 
+// A price list with shaded group heading rows.
+const rowCss = `table{width:100%;border-collapse:collapse;font-size:9.5pt} td{padding:3pt 4pt;border-bottom:1px solid #d0d7de} td.n{text-align:right} tr.g td{background:#e3ecf6;font-family:'Liberation Sans';font-weight:bold;font-size:9pt}`;
+const groups = [
+  ['Pumps', [['PMP-1010', 'Pump body, cast iron', '312.00'], ['PMP-1020', 'Impeller, DN100', '148.50'], ['PMP-1030', 'Shaft seal kit', '42.80']]],
+  ['Motors', [['MOT-3010', 'Motor, 7.5 kW', '890.00'], ['MOT-3020', 'Motor, 11 kW', '1,140.00'], ['MOT-3030', 'Terminal box', '36.40']]],
+  ['Valves', [['VLV-2010', 'Gate valve, DN150', '265.00']]],
+];
+const rows = (after) =>
+  `<p>Spare parts price list. Prices are in EUR and exclude VAT.</p><table>` +
+  groups
+    .filter(([g]) => after || g !== 'Valves')
+    .map(([g, items]) => `<tr class="g"><td colspan="3">${g}</td></tr>` + items.map(([a, b, c]) => `<tr><td>${a}</td><td>${b}</td><td class="n">${c}</td></tr>`).join(''))
+    .join('') +
+  '</table><p>Prices are valid until the end of June. Orders above EUR 5,000 are delivered free of charge to any site in the region.</p>';
+
 // --------------------------------------------------------------------- CJK
 const cjkCss = `body{font-family:'WenQuanYi Zen Hei','IPAGothic';font-size:10.5pt;line-height:1.6} table{border-collapse:collapse;font-size:8.5pt;margin:0 0 8pt} td{border-top:0.75pt solid #555;border-bottom:0.75pt solid #555;padding:1.5pt 4pt} .ja{font-family:'IPAGothic'}`;
 const cjk = (after) =>
@@ -120,6 +139,8 @@ const docs = {
   'table5-rule-after.pdf': html(tables(true, true), tableCss('#dde7f0')),
   'thead5-before.pdf': html(thead(false), theadCss),
   'thead5-after.pdf': html(thead(true), theadCss),
+  'row5-before.pdf': html(rows(false), rowCss),
+  'row5-after.pdf': html(rows(true), rowCss),
   'cjk5-before.pdf': html(cjk(false), cjkCss),
   'cjk5-after.pdf': html(cjk(true), cjkCss),
   'mark5-before.pdf': html(mark(false)),

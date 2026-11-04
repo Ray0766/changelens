@@ -96,11 +96,14 @@ test('header bands and table rules re-drawn after a re-flow are not graphic chan
   }
 });
 
-test('a group heading row that went to the next page takes its shading along (spare parts, round 4)', { skip }, async () => {
-  const r = await holdout('holdout4-e-xlsx-spare-parts-prices');
-  assert.deepEqual(list(graphics(visual(r))), '');
-  const motors = r.changes.find((c) => c.kind === 'insert' && c.new.text === 'Motors');
-  assert.ok(motors && motors.new.rects.some((x) => x.rect.w > 400), JSON.stringify(motors?.new.rects));
+test('the shading of a table row added with its text goes with that insertion', { skip }, async () => {
+  // Before: the shaded heading row of the added group was also listed as
+  // "Graphic or image added".
+  const r = await fixture('row5-before.pdf', 'row5-after.pdf');
+  assert.deepEqual(list(r.changes), 'Added “Valves VLV-2010 Gate valve, DN150 265.00”');
+  assert.ok(r.changes[0].new.rects.some((x) => x.rect.w > 400), JSON.stringify(r.changes[0].new.rects));
+  // Round 4: the shaded "Motors" group row that went to the next page.
+  assert.deepEqual(list(graphics(visual(await holdout('holdout4-e-xlsx-spare-parts-prices')))), '');
 });
 
 test('CJK characters and figures that only moved are not taken for struck or underlined (round 4)', { skip }, async () => {
@@ -164,16 +167,24 @@ test('a highlight and a recoloured deletion that wrap are one change each; a cha
   // The bar left of the inserted sentence is part of the insertion.
   const ins = r.changes.find((c) => c.kind === 'insert');
   assert.ok(ins && ins.new.rects.some((x) => x.rect.w <= 8 && x.rect.x + x.rect.w < 50), JSON.stringify(ins?.new.rects));
-  // Round 4: the change bar of the tracked insertion (Word via LibreOffice).
+  // Round 4 (Word via LibreOffice): the change bars of the tracked insertion
+  // and of the tracked deletion shown struck through in blue; the list
+  // numbers shown as tracked changes ("[4.3]", "4.3[4.4]") are consequences
+  // of the renumbering, so their colour is not a change of its own.
   const red = await holdoutText('holdout4-e-docx-retention-redline');
-  assert.deepEqual(list(graphics(await onPair(red, 1, 1))), '');
+  const p1 = await onPair(red, 1, 1);
+  assert.deepEqual(list(graphics(p1)), '');
+  assert.equal(formats(p1).length, 1, list(p1));
+  assert.ok(formats(p1)[0].new.text.startsWith('Paper records'), formats(p1)[0].new.text);
+  assert.ok(formats(p1)[0].new.rects.some((x) => x.rect.w <= 8 && x.rect.x < 62), JSON.stringify(formats(p1)[0].new.rects));
 });
 
 test('a page turned by /Rotate is one page change, without a graphic change or overflow of its own (round 4)', { skip }, async () => {
   const r = await holdout('holdout4-g-crop-rotate');
   const p2 = r.changes.filter((c) => c.category === 'visual' && (c.new.pages.includes(1) || c.old.pages.includes(1)));
   assert.deepEqual(list(p2), 'Page size changed: 595 × 842 pt → 842 × 595 pt');
-  // The cropped page 4 is still compared and reported.
-  assert.ok(r.changes.some((c) => c.pageChange === 'resized' && c.new.pages.includes(3)));
-  assert.ok(r.changes.some((c) => c.kind === 'overflow' && c.new.pages.includes(3)));
+  // The cropped page 4 is still compared and reported; the table rules cut
+  // off with the text go with the overflow item.
+  const p4 = r.changes.filter((c) => c.category === 'visual' && (c.new.pages.includes(3) || c.old.pages.includes(3)));
+  assert.deepEqual(list(p4).split(' | ').sort(), ['Content is cut off at the right edge of the page', 'Page size changed: 595 × 842 pt → 555 × 842 pt']);
 });
