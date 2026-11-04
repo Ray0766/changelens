@@ -103,3 +103,25 @@ test('R2-10: the excerpt keeps the words just before a change, with the currency
     ['…je Schadensereignis beträgt EUR', '…liability extension amount to USD'],
   );
 });
+
+test('R2-06: a changed total beside lines deleted from the same block is a number change and a deletion', async () => {
+  // "Total payable 1,800.00" → "1,880.00"; the bank and payment lines after it, in the same block, deleted.
+  const r = await run('R2-06-before', 'R2-06-after');
+  assert.deepEqual(listed(r), ['Number changed: 1,800.00 → 1,880.00 (+4.4%)', 'Deleted 17 words']);
+  assert.match(r.changes[1].old.text, /^Bank: Example Savings/);
+  // The same lines left out by a higher bottom edge of the page box are cut off.
+  const crop = await run('R2-07-bottom-before', 'R2-06-crop');
+  assert.deepEqual(listed(crop), ['Number changed: 1,800.00 → 1,880.00 (+4.4%)', 'Content is cut off at the bottom of the page']);
+  // Chromium: the total in a table row, the note in the next block element.
+  const chr = await run('R2-06-chr-before', 'R2-06-chr-after');
+  assert.deepEqual(listed(chr), ['Number changed: 1,800.00 → 1,880.00 (+4.4%)', 'Deleted 17 words']);
+  assert.deepEqual(listed(await run('R2-06-chr-before', 'R2-06-chr-total')), ['Number changed: 1,800.00 → 1,880.00 (+4.4%)']);
+  // A cap with words after it on the same line.
+  const cap = await run('R2-06-cap-before', 'R2-06-cap-after');
+  assert.deepEqual(listed(cap), ['Number changed: 2,500,000 → 3,000,000 (+20%)', 'Deleted “per claim and in aggregate”']);
+});
+
+test('R2-06 control: a figure replaced by words, or words by a figure, stays one change', () => {
+  assert.deepEqual(text(['Payment is due within 30 days of delivery.'], ['Payment is due within four weeks of delivery.']), ['Changed “30 days” → “four weeks”']);
+  assert.deepEqual(text(['The fee is 1,200 per year.'], ['The fee is 1,250 per year.']), ['Number changed: 1,200 → 1,250 (+4.2%)']);
+});

@@ -297,8 +297,49 @@ function splitNumbers(ctx: Ctx, h: Hunk): Hunk[] {
   return out;
 }
 
+/**
+ * A figure changed next to words added or removed in the same block: "Total
+ * payable 1,800.00" now "1,880.00", and the two payment lines after it in
+ * the same block deleted. The figure is its own number change (with its
+ * percentage and sign check) and the words a deletion (or insertion), not
+ * one "rewrote 18 words". Only when one side is a single figure and the
+ * other starts (or ends) with a single figure and has at least one word
+ * besides it.
+ */
+function splitFigure(ctx: Ctx, h: Hunk): Hunk[] {
+  const { A, B } = ctx;
+  if (h.a1 === h.a0 || h.b1 === h.b0) return [h];
+  const figures = (T: Token[], s: number, e: number) => T.slice(s, e).filter(hasDigit).length;
+  const figure = (T: Token[], s: number, e: number) => e > s && figures(T, s, e) === 1 && isNumericPhrase(T.slice(s, e).map((t) => t.text));
+  const aOne = figure(A, h.a0, h.a1);
+  const bOne = figure(B, h.b0, h.b1);
+  if (aOne === bOne) return [h];
+  const [T, s, e] = aOne ? [B, h.b0, h.b1] : [A, h.a0, h.a1];
+  const word = (t: Token) => t.kind === 'word' || t.kind === 'cjk';
+  // The longest run of one figure at the start (or end), without separators after (before) it.
+  let p = s;
+  while (p < e && figure(T, s, p + 1)) p++;
+  while (p > s && T[p - 1].kind === 'punct' && !UNIT.test(T[p - 1].text)) p--;
+  let q = e;
+  while (q > s && figure(T, q - 1, e)) q--;
+  while (q < e && T[q].kind === 'punct' && !UNIT.test(T[q].text) && !hasDigit(T[q])) q++;
+  const rest = (from: number, to: number) => T.slice(from, to).some(word);
+  if (p > s && figure(T, s, p) && rest(p, e)) {
+    return aOne
+      ? [{ a0: h.a0, a1: h.a1, b0: s, b1: p }, { a0: h.a1, a1: h.a1, b0: p, b1: e }]
+      : [{ a0: s, a1: p, b0: h.b0, b1: h.b1 }, { a0: p, a1: e, b0: h.b1, b1: h.b1 }];
+  }
+  if (q < e && figure(T, q, e) && rest(s, q)) {
+    return aOne
+      ? [{ a0: h.a0, a1: h.a0, b0: s, b1: q }, { a0: h.a0, a1: h.a1, b0: q, b1: e }]
+      : [{ a0: s, a1: q, b0: h.b0, b1: h.b0 }, { a0: q, a1: e, b0: h.b0, b1: h.b1 }];
+  }
+  return [h];
+}
+
 function splitHunk(ctx: Ctx, h: Hunk): Hunk[] {
   return splitAtBlocks(ctx, h)
+    .flatMap((p) => splitFigure(ctx, p))
     .flatMap((p) => splitNumbers(ctx, p))
     .filter((p) => !sameText(ctx, p));
 }
