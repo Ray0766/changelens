@@ -695,6 +695,19 @@ function slideToBoundaries(ops: DiffOp[], A: Token[], B: Token[]): void {
 
 // ------------------------------------------------------------ relabel ---
 
+/** The line-start labels in T[s, e) of the kind and role of label `like` (document token k). */
+function itemsIn(doc: DocModel, T: Token[], s: number, e: number, like: Label, k: number): number {
+  const box = labelBox(doc, k, like);
+  const parent = like.parts.slice(0, -1).join('.');
+  let n = 0;
+  for (let j = s; j < e; j++) {
+    if (doc.lines[T[j].line].start !== T[j].i) continue;
+    const l = labelAt(doc, T[j].i);
+    if (l && l.style === like.style && l.parts.length === like.parts.length && l.parts.slice(0, -1).join('.') === parent && sameRole(labelBox(doc, T[j].i, l), box)) n++;
+  }
+  return n;
+}
+
 /**
  * A clause inserted into a numbered list ("4.3 New clause." before the old
  * 4.3, which becomes 4.4) is often aligned so that the old label "4.3"
@@ -712,19 +725,6 @@ function slideToBoundaries(ops: DiffOp[], A: Token[], B: Token[]): void {
  * step inserted at the end of a step list does not take the label of the
  * heading after it. The pairing of the other words is unchanged.
  */
-/** The line-start labels in T[s, e) of the kind and role of label `like` (document token k). */
-function itemsIn(doc: DocModel, T: Token[], s: number, e: number, like: Label, k: number): number {
-  const box = labelBox(doc, k, like);
-  const parent = like.parts.slice(0, -1).join('.');
-  let n = 0;
-  for (let j = s; j < e; j++) {
-    if (doc.lines[T[j].line].start !== T[j].i) continue;
-    const l = labelAt(doc, T[j].i);
-    if (l && l.style === like.style && l.parts.length === like.parts.length && l.parts.slice(0, -1).join('.') === parent && sameRole(labelBox(doc, T[j].i, l), box)) n++;
-  }
-  return n;
-}
-
 function relabel(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: Hunk[]; pairs: Int32Array; labels: Set<Hunk> } {
   const { A, B, oldDoc, newDoc } = ctx;
   const toB = new Int32Array(A.length).fill(-1);
@@ -1664,15 +1664,16 @@ const clauseLevels = (levels: string[]) => !levels.some((p) => Number(p) === 0) 
  *   clause number followed by a gap (a tab, at least half an em) and either
  *   starting its paragraph, hanging (the paragraph's other lines start
  *   where the text after the label starts), or standing in a column of
- *   such numbers (single-line clauses without paragraph spacing).
- * Full-width digits and marks ("１．") count as their ASCII forms.
- *   A wrapped line that happens to start with a figure ("8.4 percent") is
- *   neither, so it stays an ordinary number. Clause numbers have no level
- *   0 and no leading zero in the first level (see clauseLevels): "09.00",
- *   "12.00" and "0.8" in a table's first cell are times and a measure.
+ *   such numbers (single-line clauses without paragraph spacing). A
+ *   wrapped line that happens to start with a figure ("8.4 percent") is
+ *   none of these, so it stays an ordinary number. Clause numbers have no
+ *   level 0 and no leading zero in the first level (see clauseLevels):
+ *   "09.00", "12.00" and "0.8" in a table's first cell are times and a
+ *   measure.
  * - "7": a bare integer that starts a paragraph (a table row) and stands in
  *   a cell of its own (the next text is at least an em away, or there is
  *   none).
+ * Full-width digits and marks ("１．") count as their ASCII forms.
  * Whether a label is part of a numbered list is decided by its neighbours
  * (see numberedRun).
  */
@@ -1911,15 +1912,15 @@ const REDLINE_LABEL = /^(?:(\d{1,3}(?:\.\d{1,3})*)\.?)?\[(\d{1,3}(?:\.\d{1,3})*)
  * a label that changed without it is listed.
  * - List, clause and row labels ("4." → "5.", "8.4" → "8.5", a table's row
  *   number "7" → "8"): one level changed, and
- *   (1) the label numbers on from 1 (or, for "N." items, from the first
- *       label of the list, when the list starts at the same number in both
- *       versions: paragraphs 12.–19. that continue another part's
- *       numbering) among its siblings (the labels of the
- *       same level under the same parent, in the same role: headings and the
- *       steps under them, or an outer and a nested list, are not siblings;
- *       see sameRole) in both versions, with no gap and no repeated number
- *       (see numberedRun): times, dates, quantities and isolated figures do
- *       not;
+ *   (1) the label numbers on from 1 among its siblings in both versions,
+ *       with no gap and no repeated number (see numberedRun): times,
+ *       dates, quantities and isolated figures do not. Siblings are the
+ *       labels of the same level under the same parent, in the same role
+ *       (see sameRole): headings and the steps under them, or an outer and
+ *       a nested list, are not siblings. A list of "N." items may also
+ *       start at its first label, when it starts at the same number in
+ *       both versions (paragraphs 12.–19. that continue another part's
+ *       numbering);
  *   (2) the shift equals the number of siblings above it that are in the
  *       new version only (added, or moved there) minus those in the old
  *       version only (removed, or moved away). A sibling counts only when
@@ -1944,6 +1945,8 @@ const REDLINE_LABEL = /^(?:(\d{1,3}(?:\.\d{1,3})*)\.?)?\[(\d{1,3}(?:\.\d{1,3})*)
  *   PDF exported with changes shown): brackets and numbers inserted around
  *   a line-start label, the bracketed number of the same shape as the label
  *   (one level apart by at most 3: "2.5[1]", a footnote marker on a value,
+ *   is an edit), with the label kept from the other version as evidence
+ *   (see redlineEvidence: "3" → "3[1]", a footnote marker on a row number,
  *   is an edit).
  * A cross-reference in running text is always listed.
  */
