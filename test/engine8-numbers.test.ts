@@ -125,3 +125,39 @@ test('R2-06 control: a figure replaced by words, or words by a figure, stays one
   assert.deepEqual(text(['Payment is due within 30 days of delivery.'], ['Payment is due within four weeks of delivery.']), ['Changed “30 days” → “four weeks”']);
   assert.deepEqual(text(['The fee is 1,200 per year.'], ['The fee is 1,250 per year.']), ['Number changed: 1,200 → 1,250 (+4.2%)']);
 });
+
+test('T2N3: a figure replaced by words that start or end with another figure stays one change', async () => {
+  // Verifier counter-probes (synthetic; Chromium and reportlab), copied to test/fixtures/probe8-T2N3-*.
+  // The new figure is a year, a schedule, a count or another unit, not the old quantity revised.
+  const words = [
+    'Changed “500” → “waived until 2027”',
+    'Changed “1,000,000” → “as set out in Schedule 3”',
+    'Changed “24” → “2 years”',
+    'Changed “400” → “2 instalments of 200”',
+    'Number changed: 1,250.00 → 1,300.00 (+4%)',
+  ];
+  assert.deepEqual(listed(await run('T2N3-table-before', 'T2N3-table-words')), words);
+  // Control: the same table with figures revised.
+  assert.deepEqual(listed(await run('T2N3-table-before', 'T2N3-table-figures')), [
+    'Number changed: 500 → 750 (+50%)',
+    'Number changed: 1,000,000 → 2,000,000 (+100%)',
+    'Number changed: 24 → 36 (+50%)',
+    'Number changed: 400 → 450 (+13%)',
+    'Number changed: 1,250.00 → 1,300.00 (+4%)',
+  ]);
+  const clauses = listed(await run('T2N3-clauses-before', 'T2N3-clauses-after'));
+  for (const c of ['Changed “500” → “waived until 2027”', 'Changed “1,000,000” → “the amount set out in Schedule 3”', 'Changed “24” → “2 years”', 'Changed “400” → “2 instalments of 200”'])
+    assert.ok(clauses.includes(c), clauses.join(' | '));
+  assert.ok(!clauses.some((c) => c.startsWith('Number changed')), clauses.join(' | '));
+  assert.deepEqual(listed(await run('T2N3-lines-before', 'T2N3-lines-after')), [
+    'Added “% until handover”',
+    'Changed “30” → “3 months”',
+    'Changed “25,000” → “per Annex 4”',
+    'Number changed: 40.00 → 45.00 (+13%)',
+  ]);
+  // A figure wrapped onto the next line after new words is not in its old slot.
+  const wrapped = text(['Annual fee: 500.'], ['Annual fee: waived until', '2027.']);
+  assert.ok(wrapped.includes('Changed “500” → “waived until 2027”') && !wrapped.some((c) => c.startsWith('Number')), wrapped.join(' | '));
+  // A plain count or term followed by a unit stays one change too.
+  assert.deepEqual(text(['The minimum term is 12.'], ['The minimum term is 24 months.']), ['Changed “12” → “24 months”']);
+});
