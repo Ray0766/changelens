@@ -1565,6 +1565,8 @@ interface Label {
   /** 'list': "4." / "4)" / "8.4" set apart from its text; 'cell': a bare row number in a table's first column. */
   style: 'list' | 'cell';
   line: number;
+  /** Tokens the label takes: 2 when a mark is written onto the number ("4." → "4" + "."). */
+  len: number;
 }
 
 /**
@@ -1595,8 +1597,8 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
   const gap = next ? next.rects[0].x - (r.x + r.w) : Infinity;
   const blockStart = k === 0 || doc.tokens[k - 1].block !== t.block;
   if (/^\d{1,3}$/.test(t.text)) {
-    if (next && !next.spaceBefore && /^[.)、．]$/.test(next.text)) return { parts: [Number(t.text)], style: 'list', line: t.line };
-    if (blockStart && gap >= t.size) return { parts: [Number(t.text)], style: 'cell', line: t.line };
+    if (next && !next.spaceBefore && /^[.)、．]$/.test(next.text)) return { parts: [Number(t.text)], style: 'list', line: t.line, len: 2 };
+    if (blockStart && gap >= t.size) return { parts: [Number(t.text)], style: 'cell', line: t.line, len: 1 };
     return null;
   }
   const m = /^(\d{1,3}(?:\.\d{1,3}){1,4})\.?$/.exec(t.text);
@@ -1613,7 +1615,7 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
     return false;
   };
   if (!blockStart && !hanging()) return null;
-  return { parts: levels.map(Number), style: 'list', line: t.line };
+  return { parts: levels.map(Number), style: 'list', line: t.line, len: 1 };
 }
 
 /**
@@ -1640,6 +1642,7 @@ interface Sibling {
   /** Document token index of the label. */
   tok: number;
   label: Label;
+  box: LabelBox;
   /** The siblings, this one included, in reading order. */
   list: Sibling[];
   index: number;
@@ -1661,27 +1664,69 @@ function rowNumberAt(doc: DocModel, k: number): Label | null {
   const next = k + 1 < line.end ? doc.tokens[k + 1] : undefined;
   const r = t.rects[t.rects.length - 1];
   if (next && next.rects[0].x - (r.x + r.w) < t.size) return null;
-  return { parts: [Number(t.text)], style: 'cell', line: t.line };
+  return { parts: [Number(t.text)], style: 'cell', line: t.line, len: 1 };
+}
+
+/** Where a label stands on its page: its left and right edge (the mark included) and its font size. */
+interface LabelBox {
+  x0: number;
+  x1: number;
+  size: number;
+}
+
+function labelBox(doc: DocModel, k: number, label: Label): LabelBox {
+  const t = doc.tokens[k];
+  const last = doc.tokens[k + label.len - 1];
+  const r = last.rects[last.rects.length - 1];
+  return { x0: t.rects[0].x, x1: r.x + r.w, size: t.size };
+}
+
+/**
+ * Two labels in the same role: set at the same size, and in the same column
+ * (the same left edge, right edge or centre, within 2 pt: typed labels,
+ * right-aligned markers "9." / "10.", centred row numbers). Headings and the
+ * steps under them, an outer list and the list nested in one of its items,
+ * a table's row numbers and the figures in another of its columns, and a
+ * figure that a wrapped line starts with in the text column are different
+ * lists even when their labels look alike.
+ */
+function sameRole(p: LabelBox, q: LabelBox): boolean {
+  if (Math.abs(p.size - q.size) > 0.06 * Math.max(p.size, q.size)) return false;
+  return Math.abs(p.x0 - q.x0) <= 2 || Math.abs(p.x1 - q.x1) <= 2 || Math.abs(p.x0 + p.x1 - q.x0 - q.x1) <= 4;
 }
 
 /**
  * The line-start labels of a document (running headers and footers left
  * out), each in the list of its siblings: labels of the same style with the
  * same number of levels under the same parent ("4.1", "4.2", "4.3" under
- * clause 4; "1.", "2.", "3." at the top level; a table's row numbers).
+ * clause 4; "1.", "2.", "3." at the top level; a table's row numbers), in
+ * the same role (see sameRole). A label joins the most recent list whose
+ * last label is in its role.
  */
 function labelSequences(doc: DocModel): { at: Map<number, Sibling>; all: Sibling[] } {
   const at = new Map<number, Sibling>();
   const all: Sibling[] = [];
-  const lists = new Map<string, Sibling[]>();
+  const lists = new Map<string, Sibling[][]>();
   for (const line of doc.lines) {
     if (line.furniture || line.end <= line.start) continue;
     const label = labelAt(doc, line.start) ?? rowNumberAt(doc, line.start);
     if (!label) continue;
     const key = `${label.style}|${label.parts.length}|${label.parts.slice(0, -1).join('.')}`;
-    let list = lists.get(key);
-    if (!list) lists.set(key, (list = []));
-    const s: Sibling = { tok: line.start, label, list, index: list.length, pos: all.length };
+    const box = labelBox(doc, line.start, label);
+    let groups = lists.get(key);
+    if (!groups) lists.set(key, (groups = []));
+    // The most recent lists; a few are enough.
+    let list: Sibling[] | undefined;
+    let best = -1;
+    for (let g = groups.length - 1; g >= Math.max(0, groups.length - 32); g--) {
+      const last = groups[g][groups[g].length - 1];
+      if (last.pos > best && sameRole(last.box, box)) {
+        list = groups[g];
+        best = last.pos;
+      }
+    }
+    if (!list) groups.push((list = []));
+    const s: Sibling = { tok: line.start, label, box, list, index: list.length, pos: all.length };
     list.push(s);
     at.set(line.start, s);
     all.push(s);
@@ -1736,9 +1781,11 @@ const REDLINE_LABEL = /^(?:(\d{1,3}(?:\.\d{1,3})*)\.?)?\[(\d{1,3}(?:\.\d{1,3})*)
  * - List, clause and row labels ("4." → "5.", "8.4" → "8.5", a table's row
  *   number "7" → "8"): one level changed, by at most 3, and
  *   (1) the label numbers on from 1 among its siblings (the labels of the
- *       same level under the same parent) in both versions, with no gap and
- *       no repeated number (see numberedRun): times, dates, quantities and
- *       isolated figures do not;
+ *       same level under the same parent, in the same role: headings and the
+ *       steps under them, or an outer and a nested list, are not siblings;
+ *       see sameRole) in both versions, with no gap and no repeated number
+ *       (see numberedRun): times, dates, quantities and isolated figures do
+ *       not;
  *   (2) the shift equals the number of siblings above it that are in the
  *       new version only (added, or moved there) minus those in the old
  *       version only (removed, or moved away). A sibling counts only when
@@ -1896,7 +1943,7 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     const parse = (s: string): Label | null => {
       const levels = s.split('.');
       if (levels[0] === '0' || levels.some((p) => p.length > 1 && p[0] === '0')) return null;
-      return { parts: levels.map(Number), style: 'list', line };
+      return { parts: levels.map(Number), style: 'list', line, len: 1 };
     };
     const inner = parse(m[2]);
     if (!inner) return false;
