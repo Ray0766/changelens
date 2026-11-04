@@ -18,7 +18,7 @@ import { cleanupSemantic, intern, matchSequences, opsFromMatches, type DiffOp, t
 import { mergeLineRects } from './geometry.ts';
 import { SUFFIX, decimalMark, isNumericPhrase, parseNumber } from './numbers.ts';
 import { findOverflow } from './overflow.ts';
-import { syncFurniture } from './furniture.ts';
+import { printedText, syncFurniture } from './furniture.ts';
 
 
 function weight(t: Token): number {
@@ -2714,10 +2714,14 @@ function coverageOf(doc: DocModel): Coverage {
   };
 }
 
-/** Number of differing header/footer lines (shown as "ignored", not hidden silently). */
+/**
+ * Number of differing header/footer lines (shown as "ignored", not hidden
+ * silently). Form field values on those lines are compared as text, so they
+ * are left out here.
+ */
 function furnitureDifferences(a: DocModel, b: DocModel): number {
-  const la = a.lines.filter((l) => l.furniture).map((l) => l.text);
-  const lb = b.lines.filter((l) => l.furniture).map((l) => l.text);
+  const la = a.lines.filter((l) => l.furniture).map((l) => printedText(l, a.tokens));
+  const lb = b.lines.filter((l) => l.furniture).map((l) => printedText(l, b.tokens));
   const [ka, kb] = intern(la, lb);
   // A changed line is a deletion plus an insertion: count it once.
   let n = 0;

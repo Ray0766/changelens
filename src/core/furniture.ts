@@ -46,9 +46,35 @@ export function isPageNumberText(text: string): boolean {
   return false;
 }
 
-/** Zone plus digit-insensitive text: lines that repeat page after page share it. */
-function signature(line: Line): string | null {
-  return line.zone ? line.zone + ':' + line.text.toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, '') : null;
+/**
+ * The line's printed text, without the values of form fields set on it. A
+ * field value is data typed into the form (a policy number, a name, initials
+ * in the footer of every page), never part of a running header: the label
+ * beside it can repeat on every page, its value is compared like body text.
+ */
+export function printedText(line: Line, tokens: Token[]): string {
+  let field = false;
+  for (let t = line.start; t < line.end && !field; t++) field = !!tokens[t].field;
+  if (!field) return line.text;
+  let s = '';
+  for (let t = line.start; t < line.end; t++) {
+    const k = tokens[t];
+    if (!k.field) s += (s && k.spaceBefore ? ' ' : '') + k.text;
+  }
+  return s;
+}
+
+/** Zone plus digit-insensitive printed text: lines that repeat page after page share it. */
+function signature(line: Line, tokens: Token[]): string | null {
+  if (!line.zone) return null;
+  const text = printedText(line, tokens).toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, '');
+  return text ? line.zone + ':' + text : null;
+}
+
+/** Flag a line as furniture: its printed tokens, not the form field values on it. */
+function markFurniture(line: Line, tokens: Token[]): void {
+  line.furniture = true;
+  for (let t = line.start; t < line.end; t++) if (!tokens[t].field) tokens[t].furniture = true;
 }
 
 /**
@@ -57,7 +83,7 @@ function signature(line: Line): string | null {
  * comparison.
  *
  * A line counts as furniture when it lies in the top or bottom margin zone and
- *  - its digit-insensitive text repeats in the same zone on at least half of
+ *  - its digit-insensitive printed text (form field values left out) repeats in the same zone on at least half of
  *    the pages (minimum two), with identical text or numbers that follow the
  *    page number, or
  *  - it looks like a page number ("3", "Page 3 of 10", "第 3 页 / 共 10 页")
@@ -67,8 +93,9 @@ function signature(line: Line): string | null {
 export function detectFurniture(doc: DocText, lines: Line[], tokens: Token[]): void {
   const n = doc.pages.length;
   const groups = new Map<string, Line[]>();
+  const printed = lines.map((line) => printedText(line, tokens));
   const sigs: (string | null)[] = lines.map((line) => {
-    const sig = signature(line);
+    const sig = signature(line, tokens);
     if (!sig) return null;
     let g = groups.get(sig);
     if (!g) groups.set(sig, (g = []));
@@ -81,7 +108,7 @@ export function detectFurniture(doc: DocText, lines: Line[], tokens: Token[]): v
     const pages = new Set(group.map((l) => l.page));
     if (n < 2 || pages.size < minPages) continue;
     // Identical text on many pages: a running header/footer.
-    if (group.every((l) => l.text === group[0].text) || tracksPageNumber(group)) furnitureSig.add(sig);
+    if (group.every((l) => printed[l.id] === printed[group[0].id]) || tracksPageNumber(group.map((l) => ({ page: l.page, text: printed[l.id] })))) furnitureSig.add(sig);
   }
   const blocks = new Map<number, number[]>();
   lines.forEach((l, k) => {
@@ -103,10 +130,7 @@ export function detectFurniture(doc: DocText, lines: Line[], tokens: Token[]): v
   for (const sig of body) furnitureSig.delete(sig);
   lines.forEach((line, k) => {
     if (!sigs[k]) return;
-    if (repeated(k) || (isPageNumberText(line.text) && apart(k))) {
-      line.furniture = true;
-      for (let t = line.start; t < line.end; t++) tokens[t].furniture = true;
-    }
+    if (repeated(k) || (isPageNumberText(printed[k]) && apart(k))) markFurniture(line, tokens);
   });
 }
 
@@ -115,7 +139,7 @@ export function detectFurniture(doc: DocText, lines: Line[], tokens: Token[]): v
  * the numbers that differ follow the page number (e.g. "Report · 3",
  * "Report · 4"), and the other numbers stay the same.
  */
-function tracksPageNumber(group: Line[]): boolean {
+function tracksPageNumber(group: { page: number; text: string }[]): boolean {
   const nums = group.map((l) => (l.text.match(/\d+/g) ?? []).map(Number));
   const len = nums[0].length;
   if (len === 0 || nums.some((a) => a.length !== len)) return false;
@@ -141,16 +165,13 @@ export function syncFurniture(a: DocModel, b: DocModel): void {
   for (const d of [a, b])
     for (const l of d.lines) {
       if (!l.furniture) continue;
-      const sig = signature(l);
+      const sig = signature(l, d.tokens);
       if (sig) sigs.add(sig);
     }
   for (const d of [a, b])
     for (const l of d.lines) {
       if (l.furniture) continue;
-      const sig = signature(l);
-      if (sig && sigs.has(sig)) {
-        l.furniture = true;
-        for (let t = l.start; t < l.end; t++) d.tokens[t].furniture = true;
-      }
+      const sig = signature(l, d.tokens);
+      if (sig && sigs.has(sig)) markFurniture(l, d.tokens);
     }
 }
