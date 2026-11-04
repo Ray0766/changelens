@@ -1,8 +1,8 @@
 // Evaluation: ChangeLens vs. two baselines on the synthetic corpus in
 // eval/cases (plus the pairs listed in eval/extra-cases.json). Run:
 //   node eval/run.ts [--json out.json] [--cases a,b*] [--exclude c*] [--blind] [--verbose]
-//                    [--strict-snippets] [--strict-carets] [--items items.json]
-//                    [--rescore items.json]
+//                    [--strict-snippets] [--strict-carets] [--registered-rules]
+//                    [--items items.json] [--rescore items.json]
 //                    [--dir <folder of cases>]   (default eval/cases)
 //
 // Case selection: every case is scored except those marked `"blind": true`
@@ -18,6 +18,7 @@
 //   held-out-1  first held-out round (engine author), since used for fixes
 //   held-out-2  second held-out round (independent authors), since used for fixes
 //   held-out-3  third held-out round (independent authors), since used for fixes
+//   held-out-4  fourth held-out round (independent authors), since used for fixes
 // Any other set name is reported under that name; a blind case without a
 // set under "blind". With --blind, the cases not marked blind are also
 // summed on their own, so the default selection's totals stay visible.
@@ -26,8 +27,10 @@
 // such a file again (with the truth of the selected cases and the rules
 // given) without running the engine. A blind round's single run can so be
 // scored under a rule decided later, separately from later engine changes.
-// test/fixtures/holdout3-recorded-items.json holds the items of the
-// recorded blind run of round 3.
+// test/fixtures/holdout3-recorded-items.json and holdout4-recorded-items.json
+// hold the items of the recorded blind runs of rounds 3 and 4 (the latter
+// is eval/results-holdout4-blind-items.json with the header/footer lines
+// that the rules decided after round 4 need).
 //
 // Baselines
 //  - text-lines: text extracted per line (headers/footers included, as
@@ -49,7 +52,15 @@
 //              rule of the recorded blind runs). A truth item without text
 //              must be on its page and overlap its region (oldRect/newRect:
 //              [x, y, w, h] in PDF points, top-left origin; a region given
-//              for a text item must be overlapped too). Text line diff: a
+//              for a text item must be overlapped too). A side where the
+//              change has no region (the old side of an added stamp, the
+//              new side of a deletion) is not checked, but the side it has
+//              must overlap. A replace whose new text is the old text with
+//              something inserted (每年 → 每半年) is also met by an insertion
+//              of that something at that place, the context showing both
+//              texts (a deletion likewise). An overflow truth with a region
+//              is matched by page and region only: cut-off text is partly
+//              missing from the text layer. Text line diff: a
 //              hunk contains the text, or (context rule) the hunk lies inside it
 //              and it lies inside the line before + hunk + line after. Pixel
 //              page diff: any region on the expected page (a generous rule
@@ -66,6 +77,24 @@
 //              explains at most `maxItems` items (default 1), so a change
 //              reported in pieces, or twice, counts as noise.
 //  - items:    everything a reviewer has to read.
+// A header/footer truth item that ChangeLens does not report (headers and
+// footers are ignored by default and counted in a notice) is found when it
+// is disclosed: its old text lies in an old header/footer line and its new
+// text in a new one, on its pages, and these lines differ — the lines the
+// notice counts.
+//
+// Rules decided after a blind round was run are kept apart, so that the
+// recorded run can be reproduced:
+//  - --registered-rules: as registered for round 4 (b5cee6f; engine frozen
+//    at 6cd041b), without the rules decided after its run: regions on both
+//    sides the truth gives, kinds exactly, overflow by text, and a header/
+//    footer truth disclosed only when one change of a comparison with
+//    headers and footers included holds its texts. Its run: 104 / 104 / 175.
+//  - --strict-snippets --strict-carets: the rules of the blind runs of
+//    rounds 1–3 (round 3: 55 / 54 / 38; round 4 rescored: 88 / 87 / 191).
+//    Either flag also implies --registered-rules: the later rules were
+//    decided on top of the context rule and boundary carets, and a strict
+//    flag is there to reproduce a recorded run.
 // Expected pages are explicit (oldPage/newPage) or the single page whose body
 // text contains the snippet; a snippet on no page or on several is an error.
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -80,7 +109,26 @@ import { addVisualChanges } from '../src/core/pipeline.ts';
 import { intern, matchSequences, opsFromMatches } from '../src/core/diff.ts';
 import type { DocModel } from '../src/core/types.ts';
 import type { Raster } from '../src/core/visual.ts';
-import { changeItem, changeLensMatch, expectedPages, furnitureDisclosure, recordCase, rescoreCase, score, textMatch, validate, type CaseMeta, type Item, type RecordedCase, type Score, type Scored, type SnippetRule, type Truth } from './score.ts';
+import {
+  changeItem,
+  changeLensMatch,
+  disclosureUnder,
+  expectedPages,
+  furnitureDisclosure,
+  furnitureRuns,
+  recordCase,
+  rescoreCase,
+  score,
+  textMatch,
+  validate,
+  type CaseMeta,
+  type Item,
+  type RecordedCase,
+  type Rules,
+  type Score,
+  type Scored,
+  type Truth,
+} from './score.ts';
 
 const root = new URL('.', import.meta.url).pathname;
 
@@ -159,12 +207,6 @@ function pixelRegions(ra: Raster | null, rb: Raster | null): number {
   return regions;
 }
 
-interface Rules {
-  snippets: SnippetRule;
-  /** Whether a caret at a page boundary also counts for the page across the boundary. */
-  boundaryCarets: boolean;
-}
-
 async function evalCase(id: string, before: string, after: string, truth: Truth[], rules: Rules) {
   const pa = await openPdf(before);
   const pb = await openPdf(after);
@@ -177,9 +219,9 @@ async function evalCase(id: string, before: string, after: string, truth: Truth[
   await addVisualChanges(r, (p) => renderPage(pa, p, 1.5), (p) => renderPage(pb, p, 1.5));
   const clMs = performance.now() - t0;
   const items = r.changes.map((c) => (rules.boundaryCarets ? changeItem(c, a, b) : changeItem(c)));
-  const disclosed = furnitureDisclosure(r, a, b);
-  const cl = score(id, truth, items, a, b, (t, it) => changeLensMatch(t, it, rules.snippets), disclosed);
-  if (recorded) recorded[id] = recordCase(id, truth, r.changes, a, b, disclosed);
+  const cl = score(id, truth, items, a, b, (t, it) => changeLensMatch(t, it, rules), disclosureUnder(rules, r, a, b));
+  // Recorded for both disclosure rules: the registered flags and the lines.
+  if (recorded) recorded[id] = recordCase(id, truth, r.changes, a, b, furnitureDisclosure(r, a, b), furnitureRuns(r, a, b));
 
   // Text baseline.
   t0 = performance.now();
@@ -228,6 +270,7 @@ const { values: args } = parseArgs({
     verbose: { type: 'boolean' },
     'strict-snippets': { type: 'boolean' },
     'strict-carets': { type: 'boolean' },
+    'registered-rules': { type: 'boolean' },
     items: { type: 'string' },
     rescore: { type: 'string' },
   },
@@ -235,11 +278,13 @@ const { values: args } = parseArgs({
 // --items: also write the ChangeLens items of each case, so that this run can
 // be scored again later (--rescore) under other rules, without the engine.
 const recorded: Record<string, RecordedCase> | null = args.items ? {} : null;
-const rules: Rules = { snippets: args['strict-snippets'] ? 'strict' : 'context', boundaryCarets: !args['strict-carets'] };
+const strictFlag = args['strict-snippets'] || args['strict-carets'];
+const rules: Rules = { snippets: args['strict-snippets'] ? 'strict' : 'context', boundaryCarets: !args['strict-carets'], afterRound4: !args['registered-rules'] && !strictFlag };
 const rulesLine =
   `Rules: snippets ${rules.snippets === 'strict' ? 'strict (--strict-snippets)' : 'with context (default)'}; ` +
-  `carets ${rules.boundaryCarets ? 'at a page boundary count for both pages (default)' : 'count on their own page only (--strict-carets)'}. ` +
-  'The recorded blind runs used --strict-snippets --strict-carets.';
+  `carets ${rules.boundaryCarets ? 'at a page boundary count for both pages (default)' : 'count on their own page only (--strict-carets)'}; ` +
+  `rules decided after round 4 (one-sided regions, part of a replace, overflow by region, header/footer lines) ${rules.afterRound4 ? 'on (default)' : args['registered-rules'] ? 'off (--registered-rules)' : 'off (implied by a strict flag)'}. ` +
+  'Blind runs: rounds 1–3 used --strict-snippets --strict-carets, round 4 --registered-rules.';
 const patterns = (s?: string) => (s ? s.split(',').map((p) => new RegExp('^' + p.trim().replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$')) : null);
 const only = patterns(args.cases);
 const skip = patterns(args.exclude);
@@ -250,6 +295,7 @@ const SETS: Record<string, string> = {
   'held-out-1': 'Held-out round 1 (since used for fixes)',
   'held-out-2': 'Held-out round 2 (since used for fixes)',
   'held-out-3': 'Held-out round 3 (since used for fixes)',
+  'held-out-4': 'Held-out round 4 (since used for fixes)',
   extra: 'Extra pairs (demos, LibreOffice)',
   blind: 'Blind cases without a set (first run)',
 };
@@ -301,12 +347,21 @@ if (args.rescore) {
   const sum = { found: 0, located: 0, separate: 0, total: 0, extra: 0, items: 0 };
   let table = '| Case | Truth | ChangeLens found / located / extra (separate) |\n|---|---|---|\n';
   const lost: string[] = [];
+  const perCase: Record<string, { changelens: Omit<Scored, 'misses'>; misses: Scored['misses'] }> = {};
   for (const { id, meta } of todo) {
     if (!rec[id]) continue;
-    const sc = rescoreCase(meta.truth, rec[id], rules);
+    let sc: Scored;
+    try {
+      sc = rescoreCase(meta.truth, rec[id], rules);
+    } catch (e) {
+      console.error(`${id} in ${args.rescore}: ${(e as Error).message}.`);
+      process.exit(1);
+    }
     for (const k of Object.keys(sum) as (keyof typeof sum)[]) sum[k] += sc[k];
     table += `| ${id} | ${sc.total} | ${sc.found} / ${sc.located} / ${sc.extra} (${sc.separate}) |\n`;
     lost.push(...sc.misses.map((m) => `${id} #${m.truth} ${m.text}: ${m.why}`));
+    const { misses, ...counts } = sc;
+    perCase[id] = { changelens: counts, misses };
   }
   if (!todo.some((c) => rec[c.id])) {
     console.error(`No selected case is in ${args.rescore} (blind cases need --blind).`);
@@ -315,7 +370,7 @@ if (args.rescore) {
   table += `| **Total** | ${sum.total} | **${sum.found} / ${sum.located} / ${sum.extra} (${sum.separate})** |\n`;
   console.log(`Rescored the items recorded in ${args.rescore}.\n\n${table}\n${rulesLine}`);
   if (lost.length) console.log('ChangeLens misses:\n  ' + lost.join('\n  '));
-  if (args.json) writeFileSync(args.json, JSON.stringify({ rules, totals: { changelens: sum } }, null, 2));
+  if (args.json) writeFileSync(args.json, JSON.stringify({ rules, results: perCase, totals: { changelens: sum } }, null, 2));
   process.exit(0);
 }
 if (!todo.length && !blindSkipped) {
