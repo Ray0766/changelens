@@ -9,8 +9,8 @@ node eval/run.ts --json eval/results.json
 ```
 
 - `node eval/run.ts` scores every case that is not marked blind: 31 pairs, 117 truth items.
-- Add `--blind` to include the blind round-3 set, and `--cases 'holdout3-*'` to score only that set.
-- `--strict-snippets --strict-carets` applies the rules the blind runs were recorded with (see Scoring).
+- Add `--blind` to include the cases marked blind (rounds 3 and 4), and `--cases 'holdout3-*'` or `--cases 'holdout4-*'` to score only one set.
+- `--strict-snippets --strict-carets` applies the rules the round 1–3 blind runs were recorded with, and `--registered-rules` the rules registered for round 4 (see Scoring).
 - `--rescore <items.json>` scores saved items without running the engine. This reproduces the recorded round-3 run exactly:
 
   ```bash
@@ -28,7 +28,8 @@ All documents are **synthetic**, written for this test. Each case has a `truth.j
 
 Producers:
 - the first 29 pairs: headless Chromium, plus one LibreOffice 24.2 pair;
-- round 3: Chromium, LibreOffice Writer and Impress 24.2, and reportlab 5.
+- round 3: Chromium, LibreOffice Writer and Impress 24.2, and reportlab 5;
+- round 4: Word, Excel and PowerPoint files (python-docx, openpyxl, python-pptx) rendered by LibreOffice 24.2, Chromium, reportlab, and PDFs assembled or post-processed with pypdf 6.
 
 | Case | What was changed |
 |---|---|
@@ -48,6 +49,7 @@ Producers:
 | holdout-* (4) | **held-out round 1**: written by the engine's author after tuning, run once before any further change (see below) |
 | holdout2-a-* (6), holdout2-b-* (6) | **held-out round 2**: written by two *independent* authors who did not read the engine, the tests or earlier results (`eval/make-holdout2-{a,b}.mjs`); run once (see below) |
 | holdout3-c-* (6), holdout3-d-* (6) | **held-out round 3**: two more independent authors, business/legal documents and producer variety (`eval/make-holdout3-{c,d}.mjs`, brief in `eval/holdout3-brief.md`); run once (see below). Marked `"blind": true`, so `npm test` does not score them |
+| holdout4-e-* (6), holdout4-f-* (6), holdout4-g-* (6) | **held-out round 4**: three more independent authors, Office files, long and Japanese/Traditional Chinese documents, PDFs assembled with pypdf (`eval/make-holdout4-{e,f,g}.mjs`, brief in `eval/holdout4-brief.md`); rules registered before one recorded run (see below), since used for fixes. Also marked blind |
 
 ## Methods compared
 
@@ -67,6 +69,13 @@ Producers:
 - **separate**: the largest one-to-one assignment of items to truth items, i.e. found as an item of its own.
 - **extra**: reported items that no truth item explains. This is what a reviewer reads for nothing. A truth item explains at most `maxItems` items (default 1).
 - **Snippet rule**: a snippet also matches when the reported changed text lies inside it, and it lies inside what the reader sees around that change. For ChangeLens that is the excerpt's context; for the line diff, the lines around the hunk. This way `For 7 → For 6` matches a reported `7 → 6` in "For 7 Against 2". The rule was added after the blind round-3 run (see below). `--strict-snippets` restores plain containment, which the recorded blind runs used.
+- **Rules decided after the round-4 run** (on by default, off with `--registered-rules` or either strict flag). The round-4 analysis found correct reports that the registered rules did not credit:
+  - **one-sided regions**: a side where the change has no region (the old side of an added stamp) is not checked against the truth's region there; the other side must still overlap;
+  - **part of a replace**: `每年 → 每半年` is met by an insertion of `半` when the excerpt shows both texts around it, and likewise for a deletion;
+  - **overflow by region**: an overflow truth with a region is matched by page and region, because the cut-off text is partly missing from the text layer;
+  - **header/footer lines**: a header or footer edit counts as disclosed when its texts lie in header/footer lines that differ, decided line by line, and not only when one hunk holds them.
+
+  Re-scored from the recorded round-4 items, these rules alone move ChangeLens from 104 / 104 / 175 to 114 / 114 / 168. They change no number of the other sets.
 
 These rules replaced a greedy one-to-one scorer on 2026-11-03 (see [DECISIONS D10](DECISIONS.md)). Under the old rule the baselines got too little credit. On the original 17 pairs:
 - text line diff: 29 / 60 before, 42 / 60 now;
@@ -136,7 +145,63 @@ With the strict rules, rescored from the same run's items, ChangeLens is 88 / 87
 
 **What this shows.** ChangeLens reported 116 of the 119 edits, 115 of them with the right kind on the right pages. The only edits it missed are the three form field values, and it missed them silently. But on long, re-paginated and CJK-heavy documents it lists far more noise than on earlier rounds: 59 extra items in the 85-page plan, 33 in the 41-page trilingual manual, 32 in the Chinese/English annex. That noise is what a reviewer would have to read.
 
-**Status.** The per-item analysis, with examples, causes in the code and fix ideas, is in [`eval/results-holdout4-analysis.md`](../eval/results-holdout4-analysis.md). It is agent-written working material; the paths in it point to scratch folders that are not kept. No fix has been made yet. Once fixes are made, this set is no longer held out.
+**Analysis file.** The per-item analysis, with examples, causes in the code and fix ideas, is in [`eval/results-holdout4-analysis.md`](../eval/results-holdout4-analysis.md). It is agent-written working material; the paths in it point to scratch folders that are not kept.
+
+#### Round 4 after fix rounds 5 and 6 (no longer held out)
+
+**Fix round 5** (commits `00517e0` to `82aa23a`) took the causes in this order:
+1. **Form fields.** AcroForm text and choice field values are drawn by widget annotations, which PDF.js `getTextContent()` does not return. They are now read with `page.getAnnotations()` and compared as text, marked "(form field)". Check boxes, radio buttons and signatures stay visual. Password fields, rotated widgets and values that cannot be read as text are counted in a warning notice and compared only as images.
+2. **Header bands.** The fill and rules of a table row belong to that row's change, or to a header row repeated at a page top only because a page break moved. They are no longer separate graphic items.
+3. **Renumbering.** Multi-level clause numbers, a column of row numbers, and tracked-change displays of labels (`4.3[4.4]`) are recognised. A shift explained by an added, removed or moved numbered item is hidden but counted.
+4. **Appearance checks.** Strike, underline, colour and weight compare a glyph with itself in the other version, resampled at the sub-pixel position it moved to. CJK strokes no longer read as lines.
+5. **Scorer.** The four rules above, kept apart from the registered ones.
+
+**Adversarial probes.** These rules hide things, so three probe authors then built about 80 PDF pairs with real edits placed next to each suppressed pattern. Independent verifiers re-ran each one.
+- 17 defects of medium or high severity were confirmed, 8 of them high. In each, a real edit was hidden as a consequence, or folded into another change. Examples:
+  - labels renumbered by hand, with nothing added or removed, counted as automatic renumbering;
+  - times and dates (`09.00`) taken for clause numbers;
+  - amounts re-set beside a narrower CropBox folded into the "cut off" item;
+  - strikes on 二 and 三 missed after a re-flow;
+  - a word struck through or recoloured under a removed DRAFT watermark or an added PAID stamp.
+- 7 defects of low severity were confirmed as well, mostly labels and noise.
+- In the other probes the rule held: the edit was listed and the noise stayed hidden.
+
+**Fix round 6** (commits `8a43eb8` to `1d349b6`) made each suppression need positive evidence that the item is a consequence of something already listed. A missing counter-example is no longer enough. For example:
+- a renumbered label is hidden only when numbered siblings at the same level were added, removed or moved, and the shift equals their net count;
+- cut-off text is folded only when the old text reached past the new edge and the visible glyphs kept their place;
+- a word under a removed watermark is compared outside the watermark's ink.
+
+All 17 are fixed. Each has a regression test built from the probe PDF (`test/engine6-*`, `test/visual6-probes.test.ts`), and the probes' controls are kept as tests, so the noise they cover stays hidden.
+
+| Round 4, same 18 cases | ChangeLens | Text line diff | Pixel page diff |
+|---|---|---|---|
+| Recorded run (`6cd041b`), registered rules | 104 / 104 / 175 (104) | 89 / 89 / 263 (81) | 117 / 97 / 404 (109) |
+| Recorded run, strict rules | 88 / 87 / 191 (88) | — | — |
+| Recorded run, rules decided after the run | 114 / 114 / 168 (114) | — | — |
+| Current engine, strict rules | 93 / 92 / 26 (93) | — | — |
+| Current engine, registered rules | 109 / 109 / 10 (109) | 92 / 92 / 263 (83) | 117 / 97 / 404 (109) |
+| Current engine, current rules | 118 / 118 / 4 (118) | 92 / 92 / 263 (83) | 117 / 97 / 404 (109) |
+
+**This is not a blind result.** The engine was fixed with these cases in view, and the scorer rules were decided after seeing the run. The 9 edits that only the later rules credit are of the kinds the analysis classified as scorer issues:
+- 3 header or footer edits, disclosed in differing header/footer lines but not in one hunk;
+- 4 one-sided regions: an added stamp annotation and a sticky-note icon, an added signature image, the removed watermark;
+- "每年 → 每半年" reported as "Added 半";
+- the overflow of a cropped page.
+
+The text line diff rose from 89 to 92 because its extraction now also reads form field values, as poppler's `pdftotext` does.
+
+What remains:
+- **1 miss**, a correct report. "10% → 5%" in clause 3.3 of the supply annex is listed on the right page. Its excerpt shows six characters after the figure (作为质量保证), while the truth snippet runs to 金.
+- **4 extra items:**
+  - **Supply annex, 2 items.** The cell counter row moved across a page break and took the repeated header cell along: "35 → 金额Amount 36", plus a deleted row that starts with 金额Amount. This is noise and a misleading description.
+  - **85-page plan, 1 item.** "“alternative sources” moved 6 mm to the right" (p. 60). The risk register's columns were re-sized by the browser when row R-16 was added, so this is a consequence, not an edit.
+  - **Watermark case, 1 item.** The second "Deleted “DRAFT”" (p. 2) is correct, but the truth item names page 1 only.
+
+Known limits that the probes left open are listed in [`docs/PROGRESS.md`](PROGRESS.md):
+- a 3/2 dash on a 0.75 pt rule;
+- a fill removed from one copy of a repeated header row;
+- a turned page with fewer than 3 matched words;
+- times without a leading zero, which get a percentage (`12.00 → 13.00 (+8.3%)`).
 
 ### Held-out round 3: independent authors, other producers, first run
 
@@ -258,7 +323,17 @@ Measured with `node eval/perf.ts`, which generates the 24 → 24 page pair itsel
 **The visual stage got slower in the review round.** Same machine, same demo pair:
 - 3.3–3.7 s at commit 158e537;
 - 4.9–5.1 s after the first fix round;
-- 5.4–5.7 s now.
+- 5.4–5.7 s at the end of that round.
+
+**Fix rounds 5 and 6, A/B on one machine.** On 2026-11-04 the session ran on a different VM: 4-core Intel Xeon @ 2.80 GHz, Node 22.23. Absolute times there are about twice those above, also for the old code, so the two machines are not comparable. Runs alternated between `5398f2b` (before fix round 5) and `a722e40`:
+
+| Pair | `5398f2b` | `a722e40` |
+|---|---|---|
+| Demo, text + visual, 3 runs | 9.8–10.9 s · 314–329 MB | 10.4–11.6 s · 320–334 MB |
+| 24 → 24 pages, text only, median of 3 | 1.5 s · 195 MB | 1.5 s · 198 MB |
+| 24 → 24 pages, text + visual, median of 3 | 21.1 s · 343 MB | 23.0 s · 366 MB |
+
+The checks added in fix rounds 5 and 6 cost about 5–10 % in the visual stage, and nothing measurable in the text stage.
 
 The extra time comes from the checks that were added for missed changes: strikethrough and underline, faint fills and hairlines, ink balance for shifts, and re-checking regions against neighbouring pages. Most of the time is spent in the per-pixel comparison (`unmatched`, 23 %), the 3 × 3 min/max planes (13 %) and the blur (10 %). Text comparison takes about 0.6 s of the total.
 
@@ -273,15 +348,17 @@ The browser app runs the same pipeline; it was not timed separately.
 
 - **The corpus is small and synthetic.**
   - Most cases were written by the same author as the engine and used for tuning.
-  - Three first runs exist:
+  - Four first runs exist:
     - four cases by the engine's author: 7 / 9 found, 5 extra;
     - twelve cases by two independent authors: 49 / 53 found, 9 extra;
-    - twelve more by two other independent authors: 55 / 73 found, 38 extra, fewer found than the text line diff (57).
-  - All three sets have since been used for fixes, so the next claim needs new held-out cases.
+    - twelve more by two other independent authors: 55 / 73 found, 38 extra, fewer found than the text line diff (57);
+    - eighteen by three other independent authors, with rules registered before the run: 104 / 119 found, 175 extra.
+  - All four sets have since been used for fixes, so the next claim needs new held-out cases.
+- **The probes are not independent evidence.** The round-6 probes were written knowing the rules they attack, and the fixes were tested on them. They show that those cases work, not that over-suppression is gone.
 - **The round-3 analysis matters as much as the number.**
   - Most misses there were correct changes whose reported text was narrower than the truth snippet. The rule now credits them, but it was added after the run.
   - The real defects and noise it exposed were fixed only for the kinds of documents in that set.
-- **Producers.** Tested: Chromium, LibreOffice Writer and Impress (24.2), reportlab. Untested: Word, InDesign, LaTeX, scanned, encrypted, vertical CJK writing, and documents of more than about 150 pages.
+- **Producers.** Tested: Chromium, LibreOffice Writer, Calc and Impress (24.2, also from .docx/.xlsx/.pptx files), reportlab, and PDFs assembled with pypdf. Untested: Microsoft Office's own PDF export, InDesign, LaTeX, encrypted files, XFA forms, vertical CJK writing, and documents of more than about 150 pages. A scanned page (one round-4 case) is compared only as an image and named as a page without text; there is no OCR.
   - Rotated pages and simple two-column layouts are only covered by synthetic tests and one round-3 case.
 - **Baselines.** The pixel baseline emulates diff-pdf's idea; it is not diff-pdf. Neither Acrobat nor Draftable was compared.
 - **Scope of the result.** Passing this corpus proves this corpus. It does not prove correct behaviour on arbitrary PDFs, and the tool's output is not a professional review.

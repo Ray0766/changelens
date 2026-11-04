@@ -51,11 +51,12 @@ ChangeLens is built for the person who has to **review** the changes: a lawyer c
 | Formatting and position | Bold, italic, size and font changes of unchanged text (one entry when a font is replaced everywhere); unchanged lines that moved sideways |
 | Graphics and colour | Pixel comparison of charts, images, lines, shading and text colour, with text masked out and each region aligned to where its text moved; strikethrough and underline added or removed; pages without text paired by position and look, or reported as added or removed; page size or orientation changes |
 | Overflow | Text cut off at the page edge, or sticking out into the margin |
-| Nothing hidden silently | Counts of ignored header/footer differences, minor shifts, renumbered list items and table header rows repeated at a page top (with **Show**); pages without a text layer, pages not compared visually, unreadable glyphs, pages that are mostly new |
+| Form fields | Values of PDF text and choice fields are compared as text and marked "(form field)"; check boxes and radio buttons are compared as graphics |
+| Nothing hidden silently | Counts of ignored header/footer differences, minor shifts, renumbered list items and table header rows repeated at a page top (with **Show**); pages without a text layer, pages not compared visually, unreadable glyphs, form fields that could not be read as text, pages that are mostly new |
 | Manual page pairing | Pair an old page with a new page by hand (page map or keyboard form) when automatic pairing is not possible, e.g. a chart page after an inserted page |
 | Review | Mark each change as OK or needing attention and add notes; progress is saved locally |
 | Export | HTML report (crops, review notes, file SHA-256, method and settings) and JSON |
-| Languages | English and 简体中文 UI and reports; Chinese and Japanese text is compared character by character, Korean word by word (only Chinese is in the PDF test set; Japanese and Korean have unit tests only) |
+| Languages | English and 简体中文 UI and reports; Chinese and Japanese text is compared character by character, Korean word by word (Chinese and Japanese are in the PDF test set; Korean has unit tests only) |
 
 ## Using it
 
@@ -139,7 +140,9 @@ In round 3, ChangeLens found fewer edits than the text line diff. Most of those 
 
 These were fixed afterwards.
 
-In round 4, ChangeLens reported 116 of 119 edits, and the scorer credited 104 of them. It missed the three values of PDF form fields, which it does not read, and it did not say so. Its main weakness was noise: 154 extra items on long, re-paginated and CJK documents. These were table header bands and rules that came and went with page breaks, automatically renumbered lists and clauses, and colour, strike or underline wrongly reported on glyphs that only moved. Details: [EVALUATION.md](docs/EVALUATION.md). These are not fixed yet.
+In round 4, ChangeLens reported 116 of 119 edits, and the scorer credited 104 of them. It missed the three values of PDF form fields, which it did not read then, and it did not say so. Its main weakness was noise: 154 extra items on long, re-paginated and CJK documents. These were table header bands and rules that came and went with page breaks, automatically renumbered lists and clauses, and colour, strike or underline wrongly reported on glyphs that only moved.
+
+These causes were fixed afterwards. Form field values are now compared. The new rules that hide noise were then probed adversarially, with real edits placed next to each hidden pattern. That found 17 cases of medium or high severity where a real edit was hidden. They were fixed too, so that a rule now hides an item only with evidence that it follows from a listed change. On the same 18 cases ChangeLens now finds 118 of 119 edits with 4 extra items. That is not a blind result. Details: [EVALUATION.md](docs/EVALUATION.md#round-4-after-fix-rounds-5-and-6-no-longer-held-out).
 
 On all 31 pairs that are not blind (117 edits), ChangeLens finds and places every edit with no extra item:
 
@@ -149,7 +152,7 @@ On all 31 pairs that are not blind (117 edits), ChangeLens finds and places ever
 | Text line diff | 89 / 117 | 89 / 117 | 56 |
 | Page-by-page pixel diff | 117 / 117 | 106 / 117 | 117 |
 
-The pixel diff "finds" an edit when it marks any region on the right page, without saying what changed. That table and the re-scored round 3 (73 / 73 found, 1 extra) describe sets that were used for fixes, so they are not evidence of how ChangeLens does on new documents. They describe this test set, not PDFs in general.
+The pixel diff "finds" an edit when it marks any region on the right page, without saying what changed. That table and the re-scored rounds 3 (73 / 73 found, 1 extra) and 4 (118 / 119 found, 4 extra) describe sets that were used for fixes, so they are not evidence of how ChangeLens does on new documents. They describe this test set, not PDFs in general.
 
 ## How it works
 
@@ -164,16 +167,18 @@ Everything in `src/core` is plain TypeScript without DOM or Node dependencies, s
 
 ## Scope and limitations
 
-This first version focuses on **text-based PDFs**. It has been tested with PDFs produced by Chromium (browser "Print to PDF") and LibreOffice. Other producers (Word, InDesign, LaTeX…) should work in the same way but are **untested**.
+This first version focuses on **text-based PDFs**. It has been tested with PDFs produced by Chromium (browser "Print to PDF"), LibreOffice (also Word, Excel and PowerPoint files rendered by LibreOffice) and reportlab, and with PDFs assembled with pypdf. Other producers (Microsoft Word's own PDF export, InDesign, LaTeX…) should work in the same way but are **untested**.
 
 - **Scanned PDFs** (images of text) have no text layer and are not supported. ChangeLens says which pages have no text; OCR is on the roadmap.
 - **Reading order** comes from the PDF content stream. This is right for typical generated documents. Producers that write text out of order can produce noisy diffs.
 - **Word boxes** are estimated from the width of each text run, so highlights may be off by a few points with unusual fonts.
 - **Fonts without a bold face.** When a font has no bold variant, PDF generators fake bold by stroking the glyphs. The visual check catches this only if the weight change is strong enough.
 - **Small shifts.** Lines or graphics that move by 4 pt or less are listed only after **Show**.
+- **Form fields.** Values of text and choice fields are compared as text. Check boxes and radio buttons are compared only as graphics. Password fields, rotated fields and values that cannot be read as text are counted in a notice and compared only as images.
+- **Renumbering.** A list or clause number is hidden as automatic renumbering only when numbered items at the same level were added, removed or moved above it. A column of figures that starts at 1 and counts up by one can still be taken for row numbers.
 - **Sub- and superscript.** A change only of script form ("CO2" → "CO₂", a raised "rd") is not reported.
 - **Pages without text** (a chart, a scanned page) are paired automatically only from the pages around them. When that is not possible, ChangeLens says so, and you can pair the pages by hand: **Pair pages** in the page map, or `--pair OLD:NEW` in the CLI.
-- **Speed.** On a 4-core Xeon VM (2.1 GHz), 8 → 9 pages take about 0.6 s for text and 5.5 s with the visual check; 24 pages take 0.8 s and about 12 s (see [EVALUATION.md](docs/EVALUATION.md#performance)). The visual stage can be switched off with `--no-visual` or in Settings.
+- **Speed.** On a 4-core Xeon VM (2.1 GHz), 8 → 9 pages take about 0.6 s for text and 5.5 s with the visual check; 24 pages take 0.8 s and about 12 s. Fix rounds 5 and 6 later added about 5–10 % to the visual stage, measured A/B on another VM (see [EVALUATION.md](docs/EVALUATION.md#performance)). The visual stage can be switched off with `--no-visual` or in Settings.
 - **Very large pages.** Pages are rendered within a pixel budget. Pages larger than about 2A0 are not compared visually, and a notice names them.
 - **Faint graphics.** Fills lighter than about #f9f9f9 (fewer than 6 levels from white) and hairlines fainter than about 12 levels are not detected. Faint graphics are only checked between matched lines of text.
 

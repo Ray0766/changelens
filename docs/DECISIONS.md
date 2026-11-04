@@ -126,3 +126,35 @@ Each reference was viewed as a real screenshot or as source text.
   - This was decided **after** seeing the blind result. So the recorded numbers are kept and reproducible with `--strict-snippets --strict-carets`, and every table shows which rules it uses.
   - Rejected: changing the truth files. They are the independent authors' record.
 - **Cost**: the added visual checks make the visual stage about 60 % slower (EVALUATION, Performance). That is accepted for now, because the checks remove misses (strikethrough, pages without text, light fills) without adding noise on the corpus. Speeding up the per-pixel loop is open work.
+
+## D11 · After blind round 4: read form fields, and hide only with evidence (2026-11-04)
+
+**Form field values.**
+- **Decision**: read AcroForm text and choice field values from the widget annotations, and compare them as page text marked "(form field)". The calls are PDF.js `page.getAnnotations({ intent: 'display' })` and the widget data fields `fieldValue`, `comb`, `maxLen` and `password`, checked in the installed `pdfjs-dist` 6.4.299 (`types/src/display/api.d.ts` and the legacy worker build). Check boxes, radio buttons and signatures stay with the visual comparison. Values that cannot be read as text are counted in a notice: password fields, rotated widgets, and pages whose annotations fail to load.
+- **Why**: round 4 missed all three form field edits, silently. `getTextContent()` does not return widget values. Poppler's `pdftotext` does print them, checked on `holdout4-g-form-values`, so a reviewer comparing text would see them.
+- **Alternatives**:
+  - Rejected: comparing fields only as images, as in the round-4 run. A changed value then reads "Graphic or image changed", without the old and new text.
+  - Rejected: only a notice that the PDF has form fields. It discloses, but it does not compare.
+- **Limits**:
+  - A value that is also printed in the page content is not added twice.
+  - Comb fields are read as one value.
+  - XFA forms are untested.
+
+**Suppression needs positive evidence.**
+- **Decision**: a rule may hide or fold an item only when something already listed explains it. Examples:
+  - numbered siblings were added, removed or moved, and their net count equals the shift;
+  - the old text reached past a narrower page edge, and the visible glyphs kept their place;
+  - an overlay's own ink accounts for the pixels that differ around a word.
+
+  A missing counter-example is not enough.
+- **Why**: fix round 5 took round 4 from 168 extra items to 4 (current scorer rules), but adversarial probes then showed 17 medium or high cases where a real edit was hidden as a consequence. Examples: labels renumbered by hand, times read as clause numbers, an amount edit folded into a cut-off item, strikes under a removed watermark.
+- **How it was checked**:
+  - About 80 probe PDF pairs (synthetic, by three probe authors), each re-run by an independent verifier.
+  - Every confirmed medium or high probe is now a regression test asserting what the reviewer must see, next to its control.
+  - The evals did not move: 117 / 117 / 0, 73 / 73 / 1, and 118 / 118 / 4.
+- **Rejected alternative**: removing the round-5 rules. The noise would come back, and noise is what made round 4 hard to review.
+- **Limits**: the probes were written knowing the rules, by the same kind of agent that wrote the fixes. They show that these cases work, not that the class of problem is gone. A fifth blind set is the next independent check.
+
+**Scorer rules decided after the run.**
+- **Decision**: four rules credit correct reports that the registered rules missed (EVALUATION, Scoring). They are on by default and off with `--registered-rules`. Every round-4 table says which rules it uses.
+- **Rejected**: editing the round-4 truth files. They are the independent authors' record.

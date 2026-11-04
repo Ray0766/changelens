@@ -2,6 +2,41 @@
 
 Short running notes for whoever continues (people or agents). Newest first.
 
+## 2026-11-04 (fix rounds 5 and 6, after blind round 4)
+
+- **Fix round 5** (`00517e0`..`82aa23a`), in the agreed order:
+  1. form field values read and compared;
+  2. header bands and row rules belong to their row's change;
+  3. renumbering generalised;
+  4. appearance checks compare a glyph with itself;
+  5. four scorer rules decided after the run, off with `--registered-rules`.
+- **Adversarial probes** of those rules: about 80 PDF pairs with real edits next to each hidden pattern, each re-checked by a verifier. 17 medium/high defects were confirmed, where a real edit was hidden or folded (8 high). Working files are in the session scratchpad, not in the repository.
+- **Fix round 6** (`8a43eb8`..`1d349b6`): a suppression now needs positive evidence. All 17 are fixed, with tests from the probe PDFs (`test/engine6-*`, `test/visual6-probes.test.ts`, fixtures `test/fixtures/probe6-*`).
+- **Also fixed**: the context after a figure that absorbed its unit repeated the unit ("1.50% → 1.05% % of …").
+- **Now**:
+  - 31 non-blind pairs: 117 / 117 / 0;
+  - round 3: 73 / 73 / 1;
+  - round 4: 118 / 118 / 4 with the current rules, 109 / 109 / 10 with the registered ones.
+
+  Rounds 3 and 4 are no longer held out.
+- **Open, as facts**:
+  - Probes not fixed:
+    - V05: a 3/2 dash on a 0.75 pt rule is missed;
+    - N16: a move is attributed to the other block;
+    - N18: bracketed reference labels are not recognised;
+    - N10: a row number listed after a hand edit broke the run gets a percentage (`6 → 7 (+17%)`).
+  - Visual limits:
+    - a fill or rule removed from one copy of a repeated header row is not detected;
+    - a word fully under an opaque overlay is not checked, and no notice says so;
+    - a turned page with fewer than 3 matched words folds everything into the page-size item.
+  - Numbering limits:
+    - times without a leading zero get a percentage (`12.00 → 13.00 (+8.3%)`);
+    - a column of figures that starts at 1 and steps by one can be taken for row numbers.
+- **Next**:
+  - a fifth blind set, written before any further tuning, with Word/InDesign/LaTeX producers;
+  - the per-pixel speed of the visual stage;
+  - a notice for words that could not be checked under an overlay.
+
 ## 2026-11-03 (blind round 4)
 
 - **What was run**: 18 cases (119 edits) by three new independent authors (`eval/make-holdout4-{e,f,g}.mjs`, brief `eval/holdout4-brief.md`): Office files via LibreOffice, long and Japanese/Traditional Chinese documents, and PDFs assembled with pypdf. The rules were registered before the run (`b5cee6f`); the engine was frozen at `6cd041b`; the run was recorded once (`7c1a078`).
