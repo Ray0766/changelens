@@ -199,6 +199,10 @@ const en = {
   noticeNoFormat: 'Changes in bold, italic, font size and font were not compared.',
   pageAddedBlank: 'Blank page added (no text, images or drawings)',
   pageRemovedBlank: 'Blank page removed (no text, images or drawings)',
+  inFormField: '{text} (form field)',
+  noticeFieldsUnread: '{side} {pages}: {n} form {n:field|fields} could not be compared as text (password, rotated or unreadable {n:value|values}); {n:it is|they are} compared as images only.',
+  noticeFieldsUnreadable: '{side} {pages}: the form fields could not be read; their values are compared as images only.',
+  renumberedRedline: 'List number shown as a tracked change: “{text}”',
 };
 
 export type MessageKey = keyof typeof en;
@@ -401,6 +405,10 @@ const zh: Record<MessageKey, string> = {
   noticeNoFormat: '未比较加粗、斜体、字号和字体的变化。',
   pageAddedBlank: '新增了一页空白页（没有文字、图片或图形）',
   pageRemovedBlank: '删除了一页空白页（没有文字、图片或图形）',
+  inFormField: '{text}（表单字段）',
+  noticeFieldsUnread: '{side}{pages}有 {n} 个表单字段无法作为文字比较（密码、旋转或无法读取的值），只按图像比较。',
+  noticeFieldsUnreadable: '{side}{pages}的表单字段无法读取，字段值只按图像比较。',
+  renumberedRedline: '列表编号以修订标记显示：「{text}」',
 };
 
 const dicts: Record<Lang, Record<MessageKey, string>> = { en, zh };

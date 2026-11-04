@@ -14,19 +14,29 @@ import { kindLabel } from '../src/core/describe.ts';
 import { t } from '../src/core/i18n.ts';
 import type { Change } from '../src/core/types.ts';
 import {
+  CURRENT_RULES,
+  REGISTERED_ROUND4_RULES,
+  STRICT_RULES,
   caretPages,
   changeItem,
   changeLensMatch,
   coversInContext,
+  disclosureUnder,
   expectedPages,
   furnitureDisclosure,
+  furnitureLinesDisclosed,
+  furnitureRuns,
+  oneInsertion,
   rescoreCase,
   score,
+  spansGap,
   textMatch,
   validate,
   type CaseMeta,
   type Item,
+  type MatchRules,
   type RecordedCase,
+  type Rules,
   type Truth,
 } from '../eval/score.ts';
 import { makeDoc, model } from './helpers.ts';
@@ -209,7 +219,7 @@ test('context rule: a change narrower than the truth snippet counts when the exc
   const seven = snippetItem('replace', 'Resolution 1: For', '7', '6', 'Against 0 Abstain 2', num);
   assert.equal(score('t', [vote], [seven], a, a, changeLensMatch).found, 1);
   // The rule of the recorded blind runs: the reported text must contain the snippet.
-  assert.equal(score('t', [vote], [seven], a, a, (t, it) => changeLensMatch(t, it, 'strict')).found, 0);
+  assert.equal(score('t', [vote], [seven], a, a, (t, it) => changeLensMatch(t, it, STRICT_RULES)).found, 0);
   // The snippet is found only in the context, next to another change (the
   // second 7 → 6 of "For 7 Against 7"): it does not count.
   const against = snippetItem('replace', 'Resolution 1: For 6 Against', '7', '6', 'Abstain 0', num);
@@ -286,11 +296,11 @@ test('recorded blind run of round 3: the strict rules reproduce it exactly; the 
   assert.deepEqual(Object.keys(rec).sort(), Object.keys(asRun.results).sort());
   const truth = (id: string) => (JSON.parse(readFileSync(new URL(`../eval/cases/${id}/truth.json`, import.meta.url), 'utf8')) as CaseMeta).truth;
   const keys = ['found', 'located', 'separate', 'total', 'extra', 'items'] as const;
-  const totals = (snippets: 'strict' | 'context', boundaryCarets: boolean) => {
+  const totals = (snippets: 'strict' | 'context', boundaryCarets: boolean, afterRound4 = false) => {
     const sum = Object.fromEntries(keys.map((k) => [k, 0])) as Record<(typeof keys)[number], number>;
     for (const id of Object.keys(rec)) {
-      const s = rescoreCase(truth(id), rec[id], { snippets, boundaryCarets });
-      if (snippets === 'strict' && !boundaryCarets) assert.deepEqual(Object.fromEntries(keys.map((k) => [k, s[k]])), Object.fromEntries(keys.map((k) => [k, asRun.results[id].changelens[k]])), id);
+      const s = rescoreCase(truth(id), rec[id], { snippets, boundaryCarets, afterRound4 });
+      if (snippets === 'strict' && !boundaryCarets && !afterRound4) assert.deepEqual(Object.fromEntries(keys.map((k) => [k, s[k]])), Object.fromEntries(keys.map((k) => [k, asRun.results[id].changelens[k]])), id);
       for (const k of keys) sum[k] += s[k];
     }
     return [sum.found, sum.located, sum.extra, sum.separate];
@@ -301,4 +311,188 @@ test('recorded blind run of round 3: the strict rules reproduce it exactly; the 
   assert.deepEqual(totals('context', false), [68, 67, 25, 68]);
   assert.deepEqual(totals('strict', true), [55, 55, 38, 55]);
   assert.deepEqual(totals('context', true), [68, 68, 25, 68]);
+  // The rules decided after round 4 change nothing in round 3. Its recording
+  // holds the header/footer lines they need, computed afterwards with the
+  // engine of that run (622d2db): the three header/footer items it disclosed
+  // under the registered rule are disclosed by their lines too.
+  assert.deepEqual(totals('context', true, true), [68, 68, 25, 68]);
+  const byHunk = Object.entries(rec).flatMap(([id, c]) => c.disclosed.flatMap((d, k) => (d ? [`${id} #${k + 1}`] : [])));
+  const byLines = Object.entries(rec).flatMap(([id, c]) => truth(id).flatMap((t, k) => (furnitureLinesDisclosed(t, c.exp[k], c.furniture!) ? [`${id} #${k + 1}`] : [])));
+  assert.deepEqual(byHunk, ['holdout3-c-en-interim-financials #1', 'holdout3-c-en-supply-agreement-move #1', 'holdout3-c-zh-purchase-contract-reflow #1']);
+  assert.deepEqual(byLines, byHunk);
+});
+
+// ------------------------------------------------- rules decided in round 4 --
+// Decided after the blind run of round 4 (eval/results-holdout4-analysis.md,
+// the items classified scorer-or-truth), so they are off in the registered
+// rules (--registered-rules) and in the strict rules of the earlier runs.
+
+const under = (rules: MatchRules) => (t: Truth, it: Item) => changeLensMatch(t, it, rules);
+
+test('one-sided regions: an added stamp or tick, or a deletion, is matched by the side it has', () => {
+  const a = model(makeDoc('a', pagesOf(2)));
+  // The truth author gives the same rect on both sides for "added here".
+  const stamp: Truth = { type: 'graphic', oldPage: 1, newPage: 1, oldRect: [417.3, 22, 138, 42], newRect: [417.3, 22, 138, 42] };
+  const added = change('graphic', side(null), side(1, '', { x: 416, y: 20, w: 140, h: 44 }));
+  let s = score('t', [stamp], [added], a, a, under(CURRENT_RULES));
+  assert.deepEqual([s.found, s.located, s.extra], [1, 1, 0]);
+  // As registered for round 4: a rect is needed on every side the truth gives one.
+  s = score('t', [stamp], [added], a, a, under(REGISTERED_ROUND4_RULES));
+  assert.deepEqual([s.found, s.extra], [0, 1]);
+  // A removed graphic likewise.
+  const removed = change('graphic', side(1, '', { x: 416, y: 20, w: 140, h: 44 }), side(null));
+  assert.equal(score('t', [stamp], [removed], a, a, under(CURRENT_RULES)).found, 1);
+  // The side it has must overlap the truth's rect on that side.
+  const elsewhere = change('graphic', side(null), side(1, '', { x: 56, y: 400, w: 40, h: 40 }));
+  assert.equal(score('t', [stamp], [elsewhere], a, a, under(CURRENT_RULES)).found, 0);
+  // A change with rects on both sides must still overlap on both.
+  const both = change('graphic', side(1, '', { x: 56, y: 400, w: 40, h: 40 }), side(1, '', { x: 416, y: 20, w: 140, h: 44 }));
+  assert.equal(score('t', [stamp], [both], a, a, under(CURRENT_RULES)).found, 0);
+  // A truth with a rect on one side only needs a rect on that side.
+  const onlyNew: Truth = { type: 'graphic', oldPage: 1, newPage: 1, newRect: [417.3, 22, 138, 42] };
+  assert.equal(score('t', [onlyNew], [removed], a, a, under(CURRENT_RULES)).found, 0);
+  // A deleted watermark: the new side of a deletion is a caret, without a rect.
+  const watermark: Truth = { type: 'delete', old: 'DRAFT', oldPage: 1, newPage: 1, oldRect: [103.5, 221.5, 373.5, 395.5], newRect: [103.5, 221.5, 373.5, 395.5] };
+  const body = a.tokens.filter((tk) => tk.page === 1 && !tk.furniture)[0].rects[0];
+  const deleted = change('delete', side(1, 'DRAFT', { x: 75.5, y: 199, w: 446, h: 446 }), { pages: [1], rects: [], text: '', caret: { page: 1, x: body.x, y: body.y, h: body.h } } as ReturnType<typeof side>);
+  assert.equal(score('t', [watermark], [deleted], a, a, under(CURRENT_RULES)).found, 1);
+  assert.equal(score('t', [watermark], [deleted], a, a, under(REGISTERED_ROUND4_RULES)).found, 0);
+});
+
+test('part of a replace: 每年 → 每半年 is met by "Added 半" where the context shows both texts', () => {
+  const a = model(makeDoc('a', pagesOf(1)));
+  const often: Truth = { type: 'replace', old: '每年', new: '每半年', oldPage: 1, newPage: 1 };
+  const half = snippetItem('insert', '全設備依法每', '', '半', '年辦理一次檢');
+  let s = score('t', [often], [half], a, a, under(CURRENT_RULES));
+  assert.deepEqual([s.found, s.located, s.separate, s.extra], [1, 1, 1, 0]);
+  assert.equal(score('t', [often], [half], a, a, under(REGISTERED_ROUND4_RULES)).found, 0);
+  // It reads the context, so the strict snippet rule does not have it.
+  assert.equal(score('t', [often], [half], a, a, under({ snippets: 'strict', afterRound4: true })).found, 0);
+  // The same insertion at another place: the context does not show the old text.
+  assert.equal(score('t', [often], [snippetItem('insert', '本會每', '', '半', '月召開')], a, a, under(CURRENT_RULES)).found, 0);
+  // An insertion that also replaced some of the old text: the context alone does not show it.
+  assert.equal(score('t', [often], [snippetItem('insert', '全設備依法', '', '每半', '年辦理')], a, a, under(CURRENT_RULES)).found, 0);
+  // English, with spaces between the context and the insertion.
+  const english: Truth = { type: 'replace', old: 'every year', new: 'every half year', oldPage: 1, newPage: 1 };
+  assert.equal(score('t', [english], [snippetItem('insert', 'The lifts are inspected every', '', 'half', 'year by the')], a, a, under(CURRENT_RULES)).found, 1);
+  // A deletion meets a replace whose old text is its new text with something inserted.
+  const less: Truth = { type: 'replace', old: '每半年', new: '每年', oldPage: 1, newPage: 1 };
+  assert.equal(score('t', [less], [snippetItem('delete', '全設備依法每', '半', '', '年辦理一次檢')], a, a, under(CURRENT_RULES)).found, 1);
+  // …but not one whose new text is longer, and an insertion does not meet that one.
+  assert.equal(score('t', [often], [snippetItem('delete', '全設備依法每', '半', '', '年辦理一次檢')], a, a, under(CURRENT_RULES)).found, 0);
+  assert.equal(score('t', [less], [half], a, a, under(CURRENT_RULES)).found, 0);
+  // A replace of one word by another is not "something inserted".
+  const city: Truth = { type: 'replace', old: 'Hamburg', new: 'Bremen', oldPage: 1, newPage: 1 };
+  assert.equal(score('t', [city], [snippetItem('insert', 'delivered to', '', 'Bremen', 'Hamburg')], a, a, under(CURRENT_RULES)).found, 0);
+  assert.deepEqual([oneInsertion('每年', '每半年'), oneInsertion('年', '半年'), oneInsertion('每年', '每年'), oneInsertion('Hamburg', 'Bremen')], [true, true, false, false]);
+  assert.deepEqual([spansGap('每年', '依法每', '年辦理'), spansGap('每年', '依法', '每年'), spansGap('每年', '每年依法', '辦理'), spansGap('每年', '', '')], [true, true, false, false]);
+});
+
+test('overflow by region: content cut off at a page edge is matched by place, not by the text it lost', () => {
+  const a = model(makeDoc('a', pagesOf(1)));
+  // "Budget (EUR)" in the truth; the cut version's text layer holds only "Budget (EU".
+  const cut: Truth = { type: 'overflow', old: 'Budget (EUR)', new: 'Budget (EUR)', oldPage: 1, newPage: 1, maxItems: 5, oldRect: [511, 142.9, 58.1, 75], newRect: [511, 142.9, 44.3, 75] };
+  const edge = change('overflow', side(null), side(1, 'EU 4,8 2,3 6,9 3,1', { x: 544.9, y: 144.4, w: 10.4, h: 71.6 }));
+  let s = score('t', [cut], [edge], a, a, under(CURRENT_RULES));
+  assert.deepEqual([s.found, s.located, s.extra], [1, 1, 0]);
+  assert.equal(score('t', [cut], [edge], a, a, under(REGISTERED_ROUND4_RULES)).found, 0);
+  // Outside the region, or not an overflow, it is not.
+  assert.equal(score('t', [cut], [change('overflow', side(null), side(1, 'EU', { x: 56, y: 600, w: 10, h: 10 }))], a, a, under(CURRENT_RULES)).found, 0);
+  assert.equal(score('t', [cut], [change('replace', side(1, 'EUR)', { x: 540, y: 144.4, w: 20, h: 10 }), side(1, 'EU', { x: 540, y: 144.4, w: 15, h: 10 }))], a, a, under(CURRENT_RULES)).found, 0);
+  // Without a region the text is still compared.
+  const noRegion: Truth = { type: 'overflow', old: 'Budget (EUR)', new: 'Budget (EUR)', oldPage: 1, newPage: 1 };
+  s = score('t', [noRegion], [edge], a, a, under(CURRENT_RULES));
+  assert.equal(s.found, 0);
+});
+
+test('header/footer lines: a footer edit split into hunks at an unchanged "·" is disclosed; text outside the differing lines is not', () => {
+  const head = (status: string, page = (_p: number) => status) => ({ header: (p: number) => `${page(p)} · Synthetic sample · Page ${p}` });
+  const v31 = 'Version 3.1 · Approved 14 May 2025';
+  const v32 = 'Version 3.2 · Draft with tracked changes · 12 October 2026';
+  const t: Truth = { type: 'furniture', old: v31, new: v32, oldPage: 1, newPage: 1, maxItems: 3 };
+  const a = model(makeDoc('a', pagesOf(3), head(v31)));
+  const b = model(makeDoc('b', pagesOf(3), head(v32)));
+  const r = compareDocs(a, b);
+  assert.deepEqual([r.changes.length, r.ignored.furniture], [0, 3]);
+  // The lines are those the notice counts.
+  const runs = furnitureRuns(r, a, b);
+  assert.equal(runs.reduce((n, run) => n + Math.max(run.old.length, run.new.length), 0), r.ignored.furniture);
+  const found = (truth: Truth, rules: Rules, x = a, y = b, res = r) => score('t', [truth], [], x, y, under(rules), disclosureUnder(rules, res, x, y)).found;
+  assert.equal(found(t, CURRENT_RULES), 1);
+  // As registered for round 4: no one hunk of the comparison with headers and footers holds the text.
+  const hunks = compareDocs(a, b, { ...r.options, ignoreFurniture: false }).changes;
+  assert.ok(hunks.length >= 2 && !hunks.some((c) => textMatch(t, changeItem(c))));
+  assert.equal(found(t, REGISTERED_ROUND4_RULES), 0);
+  // Still strict: the old text must lie in a line that differs, on its pages…
+  assert.equal(found({ type: 'furniture', old: 'Synthetic sample', new: 'Draft with tracked changes', oldPage: 1, newPage: 1 }, CURRENT_RULES), 1);
+  assert.equal(found({ type: 'furniture', old: 'Version 3.1', new: 'Version 3.0', oldPage: 1, newPage: 1 }, CURRENT_RULES), 0);
+  // …and not when only the page count of a header differs, although both texts are in both lines.
+  const pageCount = (p: number, n: number) => `${v31} · Page ${p} of ${n}`;
+  const a2 = model(makeDoc('a', pagesOf(3), { header: pageCount }));
+  const b2 = model(makeDoc('b', [...pagesOf(3), words(9)], { header: pageCount }));
+  const r2 = compareDocs(a2, b2);
+  assert.ok(r2.ignored.furniture > 0);
+  assert.equal(found({ type: 'furniture', old: 'Approved 14 May 2025', new: 'Approved 14 May 2025 ·', oldPage: 1, newPage: 1 }, CURRENT_RULES, a2, b2, r2), 0);
+  // Changed from page 3 on: a truth on page 1 is not disclosed, one on page 3 is.
+  const a4 = model(makeDoc('a', pagesOf(4), head(v31)));
+  const b4 = model(makeDoc('b', pagesOf(4), head(v31, (p) => (p >= 3 ? v32 : v31))));
+  const r4 = compareDocs(a4, b4);
+  assert.deepEqual([r4.changes.length, r4.ignored.furniture], [0, 2]);
+  assert.equal(found(t, CURRENT_RULES, a4, b4, r4), 0);
+  assert.equal(found({ ...t, oldPage: 3, newPage: 3 }, CURRENT_RULES, a4, b4, r4), 1);
+});
+
+test('recorded blind run of round 4: the registered rules reproduce it exactly, the strict rules its strict rescore; the later rules are scored apart', () => {
+  // The fixture is the recorded items (eval/results-holdout4-blind-items.json)
+  // with the header/footer lines that differ, computed afterwards with the
+  // engine of that run (src unchanged since 6cd041b at the time).
+  const rec = JSON.parse(readFileSync(new URL('./fixtures/holdout4-recorded-items.json', import.meta.url), 'utf8')) as Record<string, RecordedCase>;
+  const official = JSON.parse(readFileSync(new URL('../eval/results-holdout4-blind-items.json', import.meta.url), 'utf8')) as Record<string, RecordedCase>;
+  assert.deepEqual(Object.keys(rec), Object.keys(official));
+  for (const [id, { furniture, ...rest }] of Object.entries(rec)) {
+    assert.deepEqual(rest, official[id], id);
+    assert.ok(Array.isArray(furniture), id);
+  }
+  const asRun = JSON.parse(readFileSync(new URL('../eval/results-holdout4-blind.json', import.meta.url), 'utf8')) as { results: Record<string, { changelens: Record<string, number> }> };
+  // The strict rescore as recorded: | case | truth | found / located / extra (separate) |
+  const strictTxt = readFileSync(new URL('../eval/results-holdout4-blind-strict.txt', import.meta.url), 'utf8');
+  const asStrict = Object.fromEntries([...strictTxt.matchAll(/^\| (holdout4-\S+) \| (\d+) \| (\d+) \/ (\d+) \/ (\d+) \((\d+)\) \|$/gm)].map((m) => [m[1], [3, 4, 5, 6].map((i) => Number(m[i]))]));
+  assert.equal(Object.keys(asStrict).length, Object.keys(rec).length);
+  const truth = (id: string) => (JSON.parse(readFileSync(new URL(`../eval/cases/${id}/truth.json`, import.meta.url), 'utf8')) as CaseMeta).truth;
+  const keys = ['found', 'located', 'separate', 'total', 'extra', 'items'] as const;
+  const totals = (rules: Rules) => {
+    const sum = [0, 0, 0, 0];
+    for (const id of Object.keys(rec)) {
+      const s = rescoreCase(truth(id), rec[id], rules);
+      if (rules === REGISTERED_ROUND4_RULES) assert.deepEqual(Object.fromEntries(keys.map((k) => [k, s[k]])), Object.fromEntries(keys.map((k) => [k, asRun.results[id].changelens[k]])), id);
+      if (rules === STRICT_RULES) assert.deepEqual([s.found, s.located, s.extra, s.separate], asStrict[id], id);
+      [s.found, s.located, s.extra, s.separate].forEach((v, i) => (sum[i] += v));
+    }
+    return sum;
+  };
+  // As recorded (eval/results-holdout4-blind.txt and -strict.txt).
+  assert.deepEqual(totals(REGISTERED_ROUND4_RULES), [104, 104, 175, 104]);
+  assert.deepEqual(totals(STRICT_RULES), [88, 87, 191, 88]);
+  // Decided after that run: 10 of the 11 misses and 7 of the 13 extra items
+  // classified scorer-or-truth are credited; the engine is the same.
+  assert.deepEqual(totals(CURRENT_RULES), [114, 114, 168, 114]);
+  // The recording without the header/footer lines is not scored with the later rules.
+  const id = 'holdout4-e-docx-retention-redline';
+  assert.throws(() => rescoreCase(truth(id), official[id], CURRENT_RULES), /header\/footer lines/);
+  assert.equal(rescoreCase(truth(id), official[id], REGISTERED_ROUND4_RULES).found, 6);
+});
+
+test('run.ts --rescore: --registered-rules and the strict flags reproduce the recorded round 4, the default applies the later rules', () => {
+  const run = (...args: string[]) => spawnSync(process.execPath, [new URL('../eval/run.ts', import.meta.url).pathname, '--cases', 'holdout4-*', '--blind', '--rescore', ...args], { encoding: 'utf8' });
+  const total = (out: string) => /\| \*\*Total\*\* \| 119 \| \*\*(.+?)\*\* \|/.exec(out)?.[1];
+  const fixture = new URL('./fixtures/holdout4-recorded-items.json', import.meta.url).pathname;
+  const official = new URL('../eval/results-holdout4-blind-items.json', import.meta.url).pathname;
+  assert.equal(total(run(fixture).stdout), '114 / 114 / 168 (114)');
+  assert.equal(total(run(fixture, '--registered-rules').stdout), '104 / 104 / 175 (104)');
+  assert.equal(total(run(fixture, '--strict-snippets', '--strict-carets').stdout), '88 / 87 / 191 (88)');
+  assert.equal(total(run(official, '--registered-rules').stdout), '104 / 104 / 175 (104)');
+  const refused = run(official);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /holdout4-e-docx-retention-redline .*header\/footer lines/);
+  assert.match(run(fixture, '--strict-carets').stdout, /rules decided after round 4 .* off \(implied by a strict flag\)/);
 });
