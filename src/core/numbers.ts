@@ -87,7 +87,7 @@ export function decimalMark(text: string): ',' | '.' | null {
  */
 export const SUFFIX = /^(?:k|m|mn|bn|tn|p|万|亿)$/i;
 
-const NUMERIC_PUNCT = /^[$€£¥₹₩%‰+\-−.,;:/()]$/;
+const NUMERIC_PUNCT = /^[$€£¥₹₩%‰+\-−–‒.,;:/()]$/;
 const CURRENCY_WORDS = /^(usd|eur|gbp|cny|rmb|jpy|元|万|亿|円|k|m|mn|bn)$/i;
 
 /** True when every token is a number, currency sign or unit (full-width forms included). */

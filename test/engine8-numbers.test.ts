@@ -47,6 +47,52 @@ test('R7-01 control: cross-references keep no percentage, also after "as per" or
   assert.deepEqual(text(['See No. 12 in the register.'], ['See No. 14 in the register.']), ['Number changed: 12 → 14']);
 });
 
+test('R2-09: in a percentage range or ratio ("10%-20%", "10%/12%") the second figure keeps its sign and its own percent sign', async () => {
+  const r = await run('R2-09-before', 'R2-09-after');
+  const l = listed(r);
+  for (const d of [
+    'Number changed: 10% → 15% (+5 pp)',
+    'Number changed: 20% → 25% (+5 pp)',
+    'Number changed: 12% → 18% (+6 pp)',
+    'Number changed: 3% → 5% (+2 pp)',
+    'Number changed: 6% → 8% (+2 pp)',
+  ])
+    assert.ok(l.includes(d), `${d} in ${JSON.stringify(l)}`);
+  assert.ok(!l.some((d) => d.includes('%-') || d.includes('%/')), JSON.stringify(l));
+  // The range's dash is context, not part of either figure.
+  const second = r.changes.find((c) => c.numeric?.from === '20%')!;
+  assert.equal(excerpt(second).before, 'in the band 15%-');
+});
+
+test('R2-V01: an en-dash range of percentages is two number changes (Chromium, LibreOffice)', async () => {
+  const r = await run('R2-V01-before', 'R2-V01-after');
+  assert.deepEqual(listed(r), [
+    'Number changed: 10% → 15% (+5 pp)',
+    'Number changed: 20% → 25% (+5 pp)',
+    'Number changed: 2% → 3% (+1 pp)',
+    'Number changed: 4% → 5% (+1 pp)',
+    'Number changed: 5–10 → 7–15',
+  ]);
+  const lo = await run('R2-V01-lo-before', 'R2-V01-lo-after');
+  const l = listed(lo);
+  assert.ok(l.includes('Number changed: 10% → 15% (+5 pp)') && l.includes('Number changed: 20% → 25% (+5 pp)'), JSON.stringify(l));
+  // Control: ranges without a percent sign stay one number change without a value.
+  assert.ok(l.includes('Number changed: 5-10 → 7-15') && l.includes('Number changed: 2027-2029 → 2028-2030'), JSON.stringify(l));
+});
+
+test('R2-11: a currency code written onto its sign ("HK$") and a degree scale ("°C") are part of the figure', async () => {
+  const r = await run('R2-09-before', 'R2-09-after');
+  const hk = r.changes.find((c) => c.numeric?.from.includes('12,000'))!;
+  assert.equal(describeChange('en', hk), 'Number changed: HK$12,000 → HK$12,500 (+4.2%)');
+  assert.equal(excerpt(hk).before, 'for the Hong Kong office is');
+  const temp = r.changes.find((c) => c.numeric?.from.startsWith('25'))!;
+  assert.equal(describeChange('en', temp), 'Number changed: 25°C → 30°C (+20%)');
+  assert.equal(excerpt(temp).after, 'or below until they are tested');
+  // A range of temperatures (LibreOffice).
+  const lo = await run('R2-V01-lo-before', 'R2-V01-lo-after');
+  assert.ok(listed(lo).includes('Number changed: 2-8°C → 4-10°C'), JSON.stringify(listed(lo)));
+});
+
 test('R2-10: the excerpt keeps the words just before a change, with the currency', async () => {
   const r = await run('R2-09-before', 'R2-09-after');
   const eur = r.changes.find((c) => c.numeric?.from === '12.500,00')!;

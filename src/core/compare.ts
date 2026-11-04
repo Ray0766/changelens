@@ -244,6 +244,13 @@ function carriesOn(ctx: Ctx, h: Hunk, whole: 'a' | 'b'): boolean {
 // Any decimal digit, full-width ones included ("１２，０００").
 const hasDigit = (t: Token) => /\p{Nd}/u.test(t.text);
 
+/** T[k] is a percent, per-mille or degree sign written onto the figure before it ("10%", "25°"). */
+const unitAfterFigure = (T: Token[], k: number) => k > 0 && /^[%‰°]$/.test(T[k].text) && !T[k].spaceBefore && hasDigit(T[k - 1]) && T[k - 1].line === T[k].line;
+
+/** T[k] is the dash or slash of a range or ratio, written between two figures ("10%-20%", "3–5", "10%/12%"). */
+const rangeMark = (T: Token[], k: number) =>
+  k > 0 && /^[-–‒/]$/.test(T[k].text) && !T[k].spaceBefore && !T[k + 1]?.spaceBefore && T[k - 1].line === T[k].line && (hasDigit(T[k - 1]) || unitAfterFigure(T, k - 1));
+
 /**
  * Several revised figures in a row ("10 500" → "50 100") become one change
  * per figure when both sides hold the same number of figures, so each gets
@@ -254,14 +261,15 @@ function splitNumbers(ctx: Ctx, h: Hunk): Hunk[] {
   const da = A.slice(h.a0, h.a1);
   const db = B.slice(h.b0, h.b1);
   if (!da.length || !db.length || !isNumericPhrase(da.map((t) => t.text)) || !isNumericPhrase(db.map((t) => t.text))) return [h];
-  // Where each figure starts, including a currency sign written onto it.
+  // Where each figure starts, including a currency sign written onto it,
+  // but not the percent or degree sign of the figure before it ("10%-20%").
   const starts = (T: Token[], s: number, e: number) => {
     const out: number[] = [];
     for (let k = s; k < e; k++) {
       if (!hasDigit(T[k])) continue;
       let at = k;
       const floor = out.length ? out[out.length - 1] + 1 : s;
-      while (at > floor && !T[at].spaceBefore && !hasDigit(T[at - 1])) at--;
+      while (at > floor && !T[at].spaceBefore && !hasDigit(T[at - 1]) && !unitAfterFigure(T, at - 1)) at--;
       out.push(out.length ? at : s);
     }
     return out;
@@ -276,6 +284,12 @@ function splitNumbers(ctx: Ctx, h: Hunk): Hunk[] {
     while (p.a1 - 1 > p.a0 && p.b1 - 1 > p.b0 && A[p.a1 - 1].kind === 'punct' && !UNIT.test(A[p.a1 - 1].text) && A[p.a1 - 1].key === B[p.b1 - 1].key) {
       p.a1--;
       p.b1--;
+    }
+    // So is the dash or slash of a range or ratio written onto the figure
+    // before it ("10%-20%", "10%–20%", "10%/12%"): not a minus sign.
+    if (k > 0 && p.a1 - p.a0 > 1 && p.b1 - p.b0 > 1 && rangeMark(A, p.a0) && A[p.a0].key === B[p.b0].key) {
+      p.a0++;
+      p.b0++;
     }
     const same = p.a1 - p.a0 === p.b1 - p.b0 && A.slice(p.a0, p.a1).every((t, j) => t.key === B[p.b0 + j].key);
     if (!same) out.push(p);
@@ -424,24 +438,36 @@ function textChange(ctx: Ctx, h: Hunk): Change {
     // number ("4%" → "8%", "€62.40"), so the description keeps its meaning.
     // Likewise a magnitude ("−£7.4m"), and a percent sign set after a space
     // ("12,5 %", the German and French style).
+    // A percent or degree sign is a prefix only where it does not end the
+    // figure before it ("%20" in Turkish, not the "%" of "10%-20%"); a
+    // currency sign may carry a letter code written onto it ("HK$", "US$"),
+    // a degree sign its scale ("°C").
     const before = A[h.a0 - 1];
     const after = A[h.a1];
     const afterB = B[h.b1];
-    const pre = before && UNIT.test(before.text) && !delToks[0].spaceBefore && !insToks[0].spaceBefore && before.line === delToks[0].line ? before.text : '';
+    const glued = (T: Token[], k: number) => !!T[k] && !!T[k + 1] && !T[k + 1].spaceBefore && T[k].line === T[k + 1].line;
+    let preN =
+      before && UNIT.test(before.text) && !unitAfterFigure(A, h.a0 - 1) && !delToks[0].spaceBefore && !insToks[0].spaceBefore && before.line === delToks[0].line && B[h.b0 - 1]?.text === before.text ? 1 : 0;
+    if (preN && /^[$¥₩]$/.test(before.text) && glued(A, h.a0 - 2) && /^\p{Lu}{1,3}$/u.test(A[h.a0 - 2].text) && B[h.b0 - 2]?.text === A[h.a0 - 2].text && glued(B, h.b0 - 2)) preN = 2;
     const sameAfter = !!after && afterB?.text === after.text && after.line === A[h.a1 - 1].line && afterB.line === B[h.b1 - 1].line;
+    let postN = 0;
     let post = '';
-    if (sameAfter && !after.spaceBefore && !afterB.spaceBefore && (UNIT.test(after.text) || SUFFIX.test(after.text))) post = after.text;
-    else if (sameAfter && after.spaceBefore && afterB.spaceBefore && /^[%‰]$/.test(after.text)) post = ' ' + after.text;
+    if (sameAfter && !after.spaceBefore && !afterB.spaceBefore && (UNIT.test(after.text) || SUFFIX.test(after.text))) {
+      postN = 1;
+      if (after.text === '°' && glued(A, h.a1) && /^[CFK]$/.test(A[h.a1 + 1].text) && B[h.b1 + 1]?.text === A[h.a1 + 1].text && glued(B, h.b1)) postN = 2;
+      post = A.slice(h.a1, h.a1 + postN).map((t) => t.text).join('');
+    } else if (sameAfter && after.spaceBefore && afterB.spaceBefore && /^[%‰]$/.test(after.text)) {
+      postN = 1;
+      post = ' ' + after.text;
+    }
+    const pre = A.slice(h.a0 - preN, h.a0).map((t) => t.text).join('');
     const from = pre + oldSide.text + post;
     const to = pre + newSide.text + post;
     oldSide.text = from;
     newSide.text = to;
     // The unit is now shown as part of the figure, so the context around it
     // starts after it: "1.50% → 1.05%" then "of the …", not "% of the …".
-    if (pre || post) {
-      const b0 = h.b0 - (pre && B[h.b0 - 1]?.text === before.text ? 1 : 0);
-      [change.contextBefore, change.contextAfter] = context(B, b0, h.b1 + (post ? 1 : 0));
-    }
+    if (pre || post) [change.contextBefore, change.contextAfter] = context(B, h.b0 - preN, h.b1 + postN);
     // A value (for the percentage and sign check) only when each side is one
     // figure: several figures run together would give a meaningless number.
     // Two list labels ("(3)" → "(4)", "3." → "4." at the start of a line)
