@@ -245,3 +245,17 @@ test('T2N2: a figure shortened at the end of a line set flush right on a right-c
   assert.deepEqual(listed(c), [RIGHT]);
   assert.equal(c.changes[0].old.text, '-');
 });
+
+test('T2N4: a line deleted at the bottom of a page printed to fit shorter paper is a deletion, not cut off', async () => {
+  // An A4 notice re-issued on Letter, scaled to fit (glyphs 11 → 10.3 pt): kept, the last line stands at y 751, inside the page.
+  for (const [before, deleted, kept] of [
+    ['T2N4-chr-before', 'T2N4-chr-deleted', 'T2N4-chr-kept'],
+    ['T2N4-fit-before', 'T2N4-fit-deleted', 'T2N4-fit-kept'],
+  ]) {
+    const r = await run(before, deleted);
+    assert.deepEqual(listed(r), ['Deleted a paragraph'], before);
+    assert.match(r.changes[0].old.text, /^This notice is served without prejudice/);
+    // Control: the same re-issue with the line kept lists nothing.
+    assert.deepEqual(listed(await run(before, kept)), [], kept);
+  }
+});

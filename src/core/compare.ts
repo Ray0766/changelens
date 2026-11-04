@@ -2788,8 +2788,10 @@ function textAxis(page: { width: number; height: number; textAngle?: number }): 
  *   the new page. Deleted words must lie wholly outside it, after the same
  *   shift; at a line start the text after them must also keep its place.
  * Whole lines deleted from a page whose box lost room at the top or bottom
- * are folded the same way when they lie wholly outside the new box. Any
- * other replacement or deletion stays the edit it is.
+ * are folded the same way when they lie wholly outside the new box and most
+ * of the page's matched text moved by its one shift. Nothing is folded on a
+ * page whose glyphs changed size (printed to fit other paper). Any other
+ * replacement or deletion stays the edit it is.
  */
 function foldClipped(changes: Change[], overflow: Change[], oldDoc: DocModel, newDoc: DocModel, newOfOld: Int32Array, include: (t: Token) => boolean): void {
   const squash = (x: string) => x.replace(/\s+/g, '');
@@ -2817,21 +2819,37 @@ function foldClipped(changes: Change[], overflow: Change[], oldDoc: DocModel, ne
     if (across) return newDoc.tokens[n].rects[0].y - oldDoc.tokens[j].rects[0].y;
     return na.span(newDoc.tokens[n].rects[0])[0] - oa.span(oldDoc.tokens[j].rects[0])[0];
   };
-  const shifts = new Map<string, { along: number; across: number } | null>();
+  /**
+   * How the page's matched text moved: the median shift, and the share of
+   * words that moved by it (within 1.5 pt both ways). None when the glyphs
+   * changed size (median ratio off by more than 1 %): a page printed to fit
+   * other paper ("A4 on Letter") was scaled, not cut, and has no one shift.
+   */
+  const shifts = new Map<string, { along: number; across: number; rigid: number } | null>();
   const pageShift = (op: number, np: number) => {
     const key = `${op}:${np}`;
     if (shifts.has(key)) return shifts.get(key)!;
     const along: number[] = [];
     const across: number[] = [];
+    const ratio: number[] = [];
     const [s, e] = pageRange.get(op) ?? [0, 0];
     for (let j = s; j < e; j++) {
-      if (oldDoc.tokens[j].furniture) continue;
+      const t = oldDoc.tokens[j];
+      if (t.furniture) continue;
       const d = moved(j, np);
       if (d === null) continue;
       along.push(d);
       across.push(moved(j, np, true)!);
+      if (t.size > 0) ratio.push(newDoc.tokens[newOfOld[j]].size / t.size);
     }
-    const out = along.length ? { along: median(along)!, across: median(across)! } : null;
+    let out: { along: number; across: number; rigid: number } | null = null;
+    const scale = median(ratio);
+    if (along.length && (scale === null || Math.abs(scale - 1) <= 0.01)) {
+      const da = median(along)!;
+      const dc = median(across)!;
+      const rigid = along.filter((d, j) => Math.abs(d - da) <= 1.5 && Math.abs(across[j] - dc) <= 1.5).length / along.length;
+      out = { along: da, across: dc, rigid };
+    }
     shifts.set(key, out);
     return out;
   };
@@ -2994,7 +3012,9 @@ function foldClipped(changes: Change[], overflow: Change[], oldDoc: DocModel, ne
     // compared text beyond them on the page: PDF.js leaves out a glyph whose
     // baseline lies outside the page, so the baseline must lie past the edge
     // whatever the font's ascent (between 65 % and 85 % of the box height).
-    if (!cuts && c.kind === 'delete' && (op.textAngle ?? 0) === 0) {
+    // The lines are placed by the page's one shift, so most of its matched
+    // text must have moved by it, as under a new page box.
+    if (!cuts && c.kind === 'delete' && (op.textAngle ?? 0) === 0 && shift.rigid >= 0.75) {
       const dy = shift.across;
       const beyond = (k: number, step: 1 | -1) => {
         for (; k >= 0 && k < oldDoc.tokens.length; k += step) if (include(oldDoc.tokens[k])) return oldDoc.tokens[k].page === opage;
