@@ -1307,17 +1307,19 @@ function appearanceChanges(
     return [clip(a.rects[0]), clip(b.rects[0])];
   };
   // An "underline" that runs on past an end of the word's line of text, at
-  // its rows, by 3 pt or more is a rule or the edge of a fill along the
+  // its rows, for 12 pt or more is a rule or the edge of a fill along the
   // table row (the border of a row split at the page foot, the lower edge
   // of a dark header band 0.7 pt off after a re-flow), not a line under
-  // the text: an underline ends with the text. Null for that, else the
-  // line found.
+  // the text. An underline ends with the text, or a few spaces after it
+  // (an underlined field with trailing spaces: 3–6 pt); the table rules
+  // and bands seen run on for 30 pt or more. Null for that, else the line
+  // found.
   const rowEdge = (found: ReturnType<typeof addedLine>, X: Prepared, lines: DocModel['lines'], t: Token) => {
     if (!found || found.line !== 'underline') return found;
     const l = lines.find((x) => x.id === t.line);
     if (!l) return found;
     const s = X.r.scale;
-    const d = 3;
+    const d = 12;
     const [y0, y1] = found.rows;
     const dark = (x0: number, x1: number) => {
       let n = 0;

@@ -49,3 +49,22 @@ test('N1: a mark removed or added in a shaded cell whose words changed is listed
   assert.equal(graphics(badge).length, 1, list(badge.changes).join(' | '));
   assert.ok(hits(graphics(badge)[0], 'old', 1, 152, 150));
 });
+
+test('N2: an underline that runs a few points past its text is still an underline; a table rule along the row is not', { skip }, async () => {
+  // reportlab letter: one line underlined, the line drawn 4 pt past its end
+  // or past both ends. Chromium: <u>…&nbsp;&nbsp;</u>, about 5 pt past.
+  // Before: "No differences found" (reportlab), or only an 8 pt "Graphic or
+  // image added" at the line's end (Chromium).
+  const UL = 'Underlined: “The deposit of 1,800.00 is refu…”';
+  for (const [a, b] of [
+    ['probe8-N2-before.pdf', 'probe8-N2-ul-right4.pdf'],
+    ['probe8-N2-before.pdf', 'probe8-N2-ul-both4.pdf'],
+    ['probe8-N2-c-before.pdf', 'probe8-N2-c-ul-nbsp.pdf'],
+  ]) {
+    const r = await run(a, b);
+    assert.ok(list(r.changes).includes(UL), `${b}: ${list(r.changes).join(' | ')}`);
+  }
+  // The control of c523b58 holds: a Writer row's border, 58 pt past the
+  // text after a split at the page foot, is no underline (R5-12, R5-V02 in
+  // visual8-appearance).
+});
