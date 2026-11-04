@@ -110,3 +110,13 @@ test('R3-02: a filled form against its flattened copy: the same words at the sam
   r = await run('R3-02-lo-plain', 'R3-02-lo-fields');
   assert.ok(!r.changes.some((c) => c.category === 'text'), JSON.stringify(listed(r)));
 });
+
+test('R3-04: a longer field value inside its widget does not stick out into the margin', async () => {
+  // Room booking: "Team meeting" → "Quarterly planning meeting with the
+  // regional sales team" (ends at x 484, inside the box, 111 pt from the edge).
+  let r = await run('R3-04-before', 'R3-04-after');
+  assert.deepEqual(listed(r), ['Rewrote 8 words (form field)']);
+  // Change of address form (reportlab): the value ends at x 519 in a box to x 545.
+  r = await run('R3-04-rl-before', 'R3-04-rl-after');
+  assert.deepEqual(listed(r), ['Rewrote 12 words (form field)']);
+});

@@ -147,7 +147,9 @@ export function findOverflow(oldDoc: DocModel, newDoc: DocModel, A: Token[], B: 
     const pg = newDoc.pages[t.page];
     let edge: Edge | null = null;
     for (const r of t.rects) edge = edge ?? edgeOf(r, pg.width, pg.height);
-    const ext = edge ? undefined : extents.get(frameKey(newDoc, t.page));
+    // A form field's value is clipped to its widget, which is part of the
+    // page: it can reach the page edge, but not stick out into the margin.
+    const ext = edge || t.field ? undefined : extents.get(frameKey(newDoc, t.page));
     if (ext) {
       // When the page's text block starts where the new template puts it,
       // elsewhere than the old document's, the page's own block counts as
