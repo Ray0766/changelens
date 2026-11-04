@@ -451,8 +451,19 @@ function textChange(ctx: Ctx, h: Hunk): Change {
   const wholeA = wholeBlocks(ctx.blocksA, A, h.a0, h.a1);
   const wholeB = wholeBlocks(ctx.blocksB, B, h.b0, h.b1);
   const whole = Math.max(wholeA, wholeB);
-  const oldSide = makeSide(A, h.a0, h.a1, wholeB > 0);
-  const newSide = makeSide(B, h.b0, h.b1, wholeA > 0);
+  // Where nothing stands on one side, its caret marks the place: before the
+  // next word for a whole paragraph, else after the previous one. At a page
+  // break it goes on the page where the other side's text continues: text
+  // added at the end of a page's content (a stamp, a closing sentence) is
+  // marked at the end of that page, not at the top of the next.
+  const caretNext = (T: Token[], s: number, O: Token[], o0: number, o1: number, whole: boolean) => {
+    if (!T[s - 1] || !T[s] || T[s - 1].page === T[s].page || o1 === o0) return whole;
+    if (O[o0 - 1]?.page === O[o0].page) return false;
+    if (O[o1]?.page === O[o1 - 1].page) return true;
+    return whole;
+  };
+  const oldSide = makeSide(A, h.a0, h.a1, caretNext(A, h.a0, B, h.b0, h.b1, wholeB > 0));
+  const newSide = makeSide(B, h.b0, h.b1, caretNext(B, h.b0, A, h.a0, h.a1, wholeA > 0));
   const kind = delToks.length && insToks.length ? 'replace' : delToks.length ? 'delete' : 'insert';
   const words = (ts: Token[]) => ts.filter((t) => t.kind !== 'punct');
   const all = [...words(delToks), ...words(insToks)];
