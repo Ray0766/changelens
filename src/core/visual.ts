@@ -2109,24 +2109,44 @@ export function sameGraphic(result: CompareResult, oldPage: number, newPage: num
 }
 
 /**
- * A graphic lies in `rect` of a page: ink that is not text (darker than
- * paper by more than the comparison's tolerance) covering 1 pt² or more.
+ * A rule of its own lies along `rect` of a page: a pixel row in it (or one
+ * pixel beyond) whose colour across the rect (the median, text left out)
+ * is not paper and not a blend of the rows two pixels above and below it.
+ * The anti-aliased edge of a fill or a band is such a blend; a grey rule
+ * under a light blue header fill, or a black one on paper, is not.
  */
-export function inkAt(doc: DocModel, page: number, r: Raster, rect: Rect): boolean {
+export function ruleAt(doc: DocModel, page: number, r: Raster, rect: Rect): boolean {
   const s = r.scale;
   const mask = maskOf(doc, page, r);
   const x0 = Math.max(0, Math.floor(rect.x * s));
-  const y0 = Math.max(0, Math.floor(rect.y * s));
   const x1 = Math.min(r.width, Math.ceil((rect.x + rect.w) * s));
-  const y1 = Math.min(r.height, Math.ceil((rect.y + rect.h) * s));
-  let n = 0;
-  for (let y = y0; y < y1; y++)
+  const y0 = Math.floor(rect.y * s) - 1;
+  const y1 = Math.ceil((rect.y + rect.h) * s) + 1;
+  const row = (y: number): number[] | null => {
+    if (y < 0 || y >= r.height) return [255, 255, 255];
+    const px: [number, number, number][] = [];
     for (let x = x0; x < x1; x++) {
       const i = y * r.width + x;
-      if (mask[i] === GLYPH || mask[i] === PAD) continue;
-      if (Math.min(...rgb(r, i)) < 255 - THRESH) n++;
+      if (mask[i] !== GLYPH && mask[i] !== PAD) px.push(rgb(r, i));
     }
-  return n >= s * s;
+    if (px.length < 4) return null;
+    return [0, 1, 2].map((c) => px.map((v) => v[c]).sort((u, v) => u - v)[px.length >> 1]);
+  };
+  // Distance of colour c from the segment between colours a and b.
+  const off = (c: number[], a: number[], b: number[]) => {
+    const d = b.map((v, k) => v - a[k]);
+    const dd = d.reduce((t, v) => t + v * v, 0);
+    const t = dd ? Math.max(0, Math.min(1, d.reduce((u, v, k) => u + v * (c[k] - a[k]), 0) / dd)) : 0;
+    return Math.max(...c.map((v, k) => Math.abs(v - (a[k] + t * d[k]))));
+  };
+  for (let y = y0; y < y1; y++) {
+    const c = row(y);
+    const a = row(y - 2);
+    const b = row(y + 2);
+    if (!c || !a || !b || Math.min(...c) >= 255 - THRESH) continue;
+    if (off(c, a, b) > THRESH) return true;
+  }
+  return false;
 }
 
 /**

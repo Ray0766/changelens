@@ -7,7 +7,7 @@ import {
   dedupeGraphics,
   foundOnPair,
   furnitureMark,
-  inkAt,
+  ruleAt,
   pageGraphics,
   pageSignature,
   planVisual,
@@ -237,17 +237,18 @@ export async function addVisualChanges(
     into.add(y.change);
   }
   // A copy that differs from the other version's copy at the same place of
-  // the page, where that copy has a graphic too (a rule under the row
+  // the page, where that copy has a rule of its own (a rule under the row
   // recoloured), but not back (the other copy looks like the rest of its
   // own): the graphic changed; it was not added or removed. Its other place
-  // is the same spot of that copy.
+  // is the same spot of that copy. A rule drawn against what the other copy
+  // has there (a red rule under a blue header band) stays added.
   for (const x of listed) {
     const k = x.copy;
     const o = x.row.side === 'old' ? 'new' : 'old';
     if (into.has(x.change) || !k || !x.rect || k.side !== o || Math.abs(k.dy) > 2 || x.change[o].rects.length) continue;
     const there = { ...x.rect, x: x.rect.x + k.dx, y: x.rect.y + k.dy };
     try {
-      if (!inkAt(docs[o], k.page, await page(o, k.page), there)) continue;
+      if (!ruleAt(docs[o], k.page, await page(o, k.page), there)) continue;
     } catch {
       continue;
     }
