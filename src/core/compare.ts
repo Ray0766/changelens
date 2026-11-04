@@ -531,13 +531,16 @@ const REFERENCE_WORD =
 
 /**
  * T[s, e) is a number that names something rather than measuring it: a
- * cross-reference ("clause 4.4", "[12]", "第 4.4 条") or a figure written
- * with a leading zero ("09.00", "007"). Such a change gets no percentage.
+ * cross-reference ("clause 4.4", "[12]", "第 4.4 条"), a figure written
+ * with a leading zero ("09.00", "007") or the digits typed into a comb
+ * field. Such a change gets no percentage.
  */
 function referenceNumber(T: Token[], s: number, e: number): boolean {
   if (e - s !== 1) return false;
   const t = T[s];
   if (/^0\d/.test(t.text)) return true;
+  // A comb field's digits (a postcode, an account number, a date written 03112026).
+  if (t.comb && /^\d+$/.test(t.text)) return true;
   const before = T[s - 1];
   const after = T[e];
   const sameLine = (x: Token | undefined) => !!x && x.line === t.line;
