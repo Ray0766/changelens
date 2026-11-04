@@ -196,3 +196,52 @@ test('R2-14: many shortened figures on pages that keep their size compare in lin
   // About 1.6 s on the 4-core test VM; 13–16 s when each figure scanned the whole document.
   assert.ok(ms < 6000, `took ${ms.toFixed(0)} ms`);
 });
+
+// Second pass (verifier counter-probes, synthetic; reportlab and Chromium,
+// pypdf for the page boxes): copied to test/fixtures/probe8-T2N1-* and
+// probe8-T2N2-*. A line is set from its start, so the words after an edit at
+// a line start move with it, and on a line set flush right the words before
+// an edit at its end do. They are no evidence that a part was cut; the
+// page's own shift (the crop) is.
+
+test('T2N1: a word deleted at the start of a line on a left-cropped page is a deletion, not part of the cut', async () => {
+  // "shall / not exceed EUR 250,000" → "shall / exceed …"; the page box starts at x 59, the lines at x 56.
+  const r = await run('T2N1-before', 'T2N1-deleted');
+  assert.ok(listed(r).includes('Deleted “not”'), listed(r).join(' | '));
+  assert.ok(cut(r, 'left').every((c) => !/\bnot\b/.test(c.old.text)));
+  // Control: the crop alone keeps "not" visible across the edge, and nothing is listed as deleted.
+  const c = await run('T2N1-before', 'T2N1-cut');
+  assert.deepEqual(listed(c), [LEFT]);
+  assert.deepEqual(texts(c.changes[0]), ['', 'The not apply']);
+});
+
+test('T2N2: a sign or a prefix removed at the start of a running-text line on a left-cropped page is listed', async () => {
+  // reportlab: "−4,800.00 is credited …" → "4,800.00 is credited …", re-set from the margin; the "4" now straddles the edge.
+  const sign = await run('T2N2-run-before', 'T2N2-run-sign');
+  assert.ok(listed(sign).includes('Number changed: −4,800.00 → 4,800.00 (sign changed)'), listed(sign).join(' | '));
+  assert.ok(cut(sign, 'left').every((c) => !c.old.text.includes('4,800.00')));
+  const prefix = await run('T2N2-run-before', 'T2N2-run-prefix');
+  assert.ok(listed(prefix).includes('Changed “non-refundable” → “refundable”'), listed(prefix).join(' | '));
+  assert.ok(cut(prefix, 'left').every((c) => !c.old.text.includes('refundable')));
+  // Control: the crop alone keeps the straddling minus.
+  const c = await run('T2N2-run-before', 'T2N2-run-cut');
+  assert.deepEqual(listed(c), [LEFT]);
+  assert.match(c.changes[0].new.text, /−4,800\.00 and non-refundable/);
+  // Chromium, the same edit and control.
+  const chr = await run('T2N2-chr-before', 'T2N2-chr-sign');
+  assert.ok(listed(chr).includes('Number changed: −4,800.00 → 4,800.00 (sign changed)'), listed(chr).join(' | '));
+  const chrCut = await run('T2N2-chr-before', 'T2N2-chr-cut');
+  assert.deepEqual(listed(chrCut), [LEFT]);
+  assert.match(chrCut.changes[0].new.text, /−4,800\.00/);
+});
+
+test('T2N2: a figure shortened at the end of a line set flush right on a right-cropped page is a number change', async () => {
+  // "… aggregate: EUR 5,000,000" → "EUR 5,000", right-aligned at x 545; the page box ends at x 540.
+  const r = await run('T2N2-flush-before', 'T2N2-flush-figure');
+  assert.ok(listed(r).includes('Number changed: 5,000,000 → 5,000 (-100%)'), listed(r).join(' | '));
+  assert.ok(cut(r, 'right').every((c) => !c.old.text.includes('5,000,000')));
+  // Control: the crop alone (a trailing minus wholly outside the page is the only cut text).
+  const c = await run('T2N2-flush-before', 'T2N2-flush-cut');
+  assert.deepEqual(listed(c), [RIGHT]);
+  assert.equal(c.changes[0].old.text, '-');
+});
