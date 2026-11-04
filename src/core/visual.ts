@@ -1615,11 +1615,20 @@ function appearanceChanges(
   // Lines of text (new side) next to which the graphics comparison found
   // differences, at some word of the line (see rowEdge).
   const seenLine = new Map<number, boolean>();
+  // A word whose text runs another way than in the other version, by a
+  // quarter or a half turn (a label set upright in one and turned in the
+  // other, a page turned by /Rotate that could not be turned back), cannot
+  // be laid over itself: a turned glyph's strokes lie in other rows, and a
+  // stroke of it would pass for a line. Only looked up where either page
+  // has text turned so; text set at a slant (a stamp) is an overlay.
+  const quarter = (r: TextRun) => r.angle % 90 === 0 && !!r.str.trim();
+  const tilted = [result.oldDoc.runs[oldPage], result.newDoc.runs[newPage]].some((rs) => (rs ?? []).some((r) => r.angle !== 0 && quarter(r)));
   for (let p = 0; p < m.length; p += 2) {
     const a = TA[m[p]];
     const b = TB[m[p + 1]];
     if (a.page !== oldPage || b.page !== newPage || a.kind === 'punct' || skip(b)) continue;
     if (a.rects.length !== 1 || b.rects.length !== 1 || under(a, b)) continue;
+    if (tilted && wordAngle(result.oldDoc, a, quarter) !== wordAngle(result.newDoc, b, quarter)) continue;
     // An overlay drawn over or behind the word on one side: the word is
     // compared outside the overlay's ink.
     const over = cover(a, b);
@@ -2319,14 +2328,14 @@ function turnedBy(result: CompareResult, oldPage: number, newPage: number): numb
   return best;
 }
 
-/** The direction of the run a word lies in: of the runs whose box holds its centre, the smallest. */
-function wordAngle(doc: DocModel, t: Token): number {
+/** The direction of the run a word lies in: of the runs whose box holds its centre (and that `of` accepts), the smallest. */
+function wordAngle(doc: DocModel, t: Token, of: (run: TextRun) => boolean = () => true): number {
   const r = t.rects[0];
   const x = r.x + r.w / 2;
   const y = r.y + r.h / 2;
   let best: TextRun | null = null;
   for (const run of doc.runs[t.page] ?? []) {
-    if (!run.str.trim() || x < run.x - 0.5 || x > run.x + run.w + 0.5 || y < run.y - 0.5 || y > run.y + run.h + 0.5) continue;
+    if (!run.str.trim() || !of(run) || x < run.x - 0.5 || x > run.x + run.w + 0.5 || y < run.y - 0.5 || y > run.y + run.h + 0.5) continue;
     if (!best || run.w * run.h < best.w * best.h) best = run;
   }
   return best?.angle ?? 0;
