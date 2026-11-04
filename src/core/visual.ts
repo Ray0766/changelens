@@ -39,6 +39,14 @@ export const SHIFT_PT = 4;
  */
 const BALANCE_LINE = 0.2;
 const BALANCE_EDGE = 0.08;
+/**
+ * The same for a thin line (a table rule, a cell border) that a single pixel
+ * across it explains: the same line drawn at another sub-pixel position
+ * after the text around it moved by a fraction of a pixel. Its anti-aliased
+ * rows carry up to about a third more or less ink then (measured on Chromium
+ * table rules printed after a re-flow, rendered by PDF.js: 0.74–1.3).
+ */
+const BALANCE_PHASE = 0.35;
 
 /**
  * Pixel budget for one rendered page (about A0 at 1 px/pt). The visual stage
@@ -591,7 +599,15 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
     // part inside the region keeps its ink much more closely; a light bar
     // with a dark outline that grew by 3 pt does not.
     const edge = continuesBeyond(sx0, sy0, sx1, sy1, Math.abs(dx) >= Math.abs(dy));
-    const balanced = Math.abs(delta) <= (edge ? BALANCE_EDGE : BALANCE_LINE) * Math.max(inkS, inkD) + 0.5;
+    // A thin line (at most two cells across) explained by one pixel across
+    // it and none along it. A rule that became thicker or darker by more
+    // than a third, or moved by more than a pixel (0.67 pt at the visual
+    // stage's scale), is still a difference; one that grew or moved by a
+    // single pixel (a bar's edge 0.67 pt higher) is at most a minor shift.
+    const thin = 2 * CELL;
+    const phase =
+      (dx === 0 && Math.abs(dy) <= 1 && rect.h * scale <= thin && rect.w >= 3 * rect.h) || (dy === 0 && Math.abs(dx) <= 1 && rect.w * scale <= thin && rect.h >= 3 * rect.w);
+    const balanced = Math.abs(delta) <= (phase ? BALANCE_PHASE : edge ? BALANCE_EDGE : BALANCE_LINE) * Math.max(inkS, inkD) + 0.5;
     return { shift: true, delta: balanced ? 0 : delta, raw: delta, ox: dx, oy: dy, mx, my, inked: true };
   };
   const cand = comps.map((c, k) => {
@@ -870,90 +886,150 @@ function differsNear(d: Unmatched, r: Raster, rect: Rect): boolean {
  * coverage is preserved under sub-pixel shifts. Graphics next to the token
  * would count too, so tokens near a graphic difference are not measured
  * (see compareRasters).
+ *
+ * The glyphs are measured in the token's own box only, with the pixels on
+ * its edges weighted by the share of them inside it: the same glyphs are
+ * then cut at the same place in both versions, wherever the token landed
+ * relative to the pixel grid. A box padded and rounded out to whole pixels
+ * took in a table rule 1–2 pt above or below a word in one version and not
+ * in the other after its row moved by a fraction of a pixel, which read as
+ * a change of weight (small katakana in a cell) or of colour (red figures
+ * under a coloured header rule). The background is the most common colour
+ * of the box padded by 15 % of its height, so that it is the paper (or the
+ * highlight) even behind a dense CJK glyph; a thin rule in the padding is
+ * never the most common colour.
  */
 function ink(side: Prepared, rect: Rect): { total: number; chroma: [number, number, number]; n: number; bg: [number, number, number] } {
   const { r, lum: l } = side;
   const d = r.data;
-  // Pad so that sub-pixel placement does not cut glyphs differently.
-  const pad = rect.h * 0.15;
-  const x0 = Math.max(0, Math.floor((rect.x - pad) * r.scale));
-  const y0 = Math.max(0, Math.floor((rect.y - pad) * r.scale));
-  const x1 = Math.min(r.width, Math.ceil((rect.x + rect.w + pad) * r.scale));
-  const y1 = Math.min(r.height, Math.ceil((rect.y + rect.h + pad) * r.scale));
+  const s = r.scale;
+  const cover = (v: number, lo: number, hi: number) => Math.max(0, Math.min(v + 1, hi) - Math.max(v, lo));
+  // Pixel range of a box (in pixels) and the share of each pixel inside it.
+  const span = (b: Rect) => {
+    const X0 = b.x * s;
+    const X1 = (b.x + b.w) * s;
+    const Y0 = b.y * s;
+    const Y1 = (b.y + b.h) * s;
+    return {
+      x0: Math.max(0, Math.floor(X0)),
+      y0: Math.max(0, Math.floor(Y0)),
+      x1: Math.min(r.width, Math.ceil(X1)),
+      y1: Math.min(r.height, Math.ceil(Y1)),
+      w: (x: number, y: number) => cover(x, X0, X1) * cover(y, Y0, Y1),
+    };
+  };
+  const padded = span(expand(rect, rect.h * 0.15));
   let bg = 0;
   // Most common luminance (in steps of 8): the paper or highlight behind the glyphs.
-  const hist = new Uint32Array(32);
-  for (let y = y0; y < y1; y++) {
-    for (let x = x0; x < x1; x++) {
+  const hist = new Float64Array(32);
+  for (let y = padded.y0; y < padded.y1; y++) {
+    for (let x = padded.x0; x < padded.x1; x++) {
       const v = l[y * r.width + x];
       if (v > bg) bg = v;
-      hist[v >> 3]++;
+      hist[v >> 3] += padded.w(x, y);
     }
   }
   let mode = 0;
   for (let k = 1; k < 32; k++) if (hist[k] > hist[mode]) mode = k;
+  let bn = 0;
+  let br = 0;
+  let bgG = 0;
+  let bb = 0;
+  for (let y = padded.y0; y < padded.y1; y++) {
+    for (let x = padded.x0; x < padded.x1; x++) {
+      const p = y * r.width + x;
+      if (l[p] >> 3 !== mode) continue;
+      const w = padded.w(x, y);
+      bn += w;
+      br += w * d[p * 4];
+      bgG += w * d[p * 4 + 1];
+      bb += w * d[p * 4 + 2];
+    }
+  }
+  const box = span(rect);
   let total = 0;
   let n = 0;
   let wsum = 0;
   let cr = 0;
   let cg = 0;
   let cb = 0;
-  let bn = 0;
-  let br = 0;
-  let bgG = 0;
-  let bb = 0;
-  for (let y = y0; y < y1; y++) {
-    for (let x = x0; x < x1; x++) {
+  for (let y = box.y0; y < box.y1; y++) {
+    for (let x = box.x0; x < box.x1; x++) {
+      const w = box.w(x, y);
+      if (w <= 0) continue;
       const p = y * r.width + x;
       const q = p * 4;
       const v = bg - l[p];
-      total += v;
+      total += w * v;
       if (v > 40) {
-        n++;
-        wsum += v;
-        cr += (d[q] - l[p]) * v;
-        cg += (d[q + 1] - l[p]) * v;
-        cb += (d[q + 2] - l[p]) * v;
-      }
-      if (l[p] >> 3 === mode) {
-        bn++;
-        br += d[q];
-        bgG += d[q + 1];
-        bb += d[q + 2];
+        n += w;
+        wsum += w * v;
+        cr += (d[q] - l[p]) * v * w;
+        cg += (d[q + 1] - l[p]) * v * w;
+        cb += (d[q + 2] - l[p]) * v * w;
       }
     }
   }
   // Normalise by scale² so both rasters are comparable.
   return {
-    total: total / (r.scale * r.scale),
+    total: total / (s * s),
     chroma: wsum ? [cr / wsum, cg / wsum, cb / wsum] : [0, 0, 0],
     n,
     bg: bn ? [br / bn, bgG / bn, bb / bn] : [255, 255, 255],
   };
 }
 
-/** Darkness (0–1) of each pixel of a token's box, extended a little below for underlines. */
-function boxDarkness(side: Prepared, rect: Rect): { d: Float32Array; cols: number; rows: number; top: number } {
+type Box = { d: Float32Array; cols: number; rows: number; top: number };
+
+/**
+ * Darkness (0–1) of each pixel of a token's box, extended a little below for
+ * underlines. With `on` (the box of the same token in the other version),
+ * the rows are sampled where the other box's rows lie relative to its token,
+ * so the two boxes line up as the token itself moved: a displacement by a
+ * fraction of a pixel is interpolated between pixel rows, as if the glyphs
+ * had been drawn at the other version's sub-pixel position.
+ */
+function boxDarkness(side: Prepared, rect: Rect, on?: { rect: Rect; scale: number }): Box {
   const { r, lum } = side;
   const s = r.scale;
   const x0 = Math.max(0, Math.round(rect.x * s));
   const x1 = Math.min(r.width, Math.round((rect.x + rect.w) * s));
-  const y0 = Math.max(0, Math.floor(rect.y * s));
-  const y1 = Math.min(r.height, Math.ceil((rect.y + rect.h * 1.15) * s));
   const cols = Math.max(0, x1 - x0);
-  const rows = Math.max(0, y1 - y0);
+  const dark = (y: number, c: number) => (y < 0 || y >= r.height ? 0 : (255 - lum[y * r.width + x0 + c]) / 255);
+  if (!on) {
+    const y0 = Math.max(0, Math.floor(rect.y * s));
+    const y1 = Math.min(r.height, Math.ceil((rect.y + rect.h * 1.15) * s));
+    const rows = Math.max(0, y1 - y0);
+    const d = new Float32Array(cols * rows);
+    for (let k = 0; k < rows; k++) for (let c = 0; c < cols; c++) d[k * cols + c] = dark(y0 + k, c);
+    return { d, cols, rows, top: y0 / s };
+  }
+  const so = on.scale;
+  const oy0 = Math.max(0, Math.floor(on.rect.y * so));
+  const rows = Math.max(0, Math.ceil((on.rect.y + on.rect.h * 1.15) * so) - oy0);
   const d = new Float32Array(cols * rows);
-  for (let k = 0; k < rows; k++) for (let c = 0; c < cols; c++) d[k * cols + c] = (255 - lum[(y0 + k) * r.width + x0 + c]) / 255;
-  return { d, cols, rows, top: y0 / s };
+  for (let k = 0; k < rows; k++) {
+    // The centre of the other box's row k, at the same place relative to this token.
+    const y = ((oy0 + k + 0.5) / so - on.rect.y + rect.y) * s - 0.5;
+    const j = Math.floor(y);
+    const t = y - j;
+    for (let c = 0; c < cols; c++) d[k * cols + c] = (1 - t) * dark(j, c) + t * dark(j + 1, c);
+  }
+  return { d, cols, rows, top: oy0 / so - on.rect.y + rect.y };
 }
 
 /**
  * A line through or under the token in `b` that `a` does not have: rows
  * where nearly every column of `b` is dark but not those of `a`, while the
- * rest of the glyphs is unchanged. Darkness is summed over a few rows, so the
- * same glyph rendered at another sub-pixel position looks the same.
+ * rest of the glyphs is unchanged. The glyphs are compared with themselves:
+ * `a`'s box is sampled at `b`'s rows as the token moved (see boxDarkness),
+ * so a stroke of the glyph that one rendering puts in one pixel row and the
+ * other spreads over two (the bar of a "4", the strokes of 一 or 重 after a
+ * re-flow by a fraction of a pixel) is in both. Darkness is also summed over
+ * a few rows. `few`: the token has one or two glyphs (a figure, a CJK
+ * character), see below.
  */
-function addedLine(a: Prepared, ra: Rect, b: Prepared, rb: Rect): 'strike' | 'underline' | null {
+function addedLine(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean): 'strike' | 'underline' | null {
   // A box narrower than this has too few pixel columns to tell a line from
   // a glyph drawn at another sub-pixel position. A single figure struck
   // through ("<s>5</s> working days") is a common redline, so the limit is
@@ -962,11 +1038,11 @@ function addedLine(a: Prepared, ra: Rect, b: Prepared, rb: Rect): 'strike' | 'un
   // rows and the other rows unchanged.
   if (rb.w < 3) return null;
   if (Math.abs(ra.w - rb.w) > 0.15 * Math.max(ra.w, rb.w) || Math.abs(ra.h - rb.h) > 0.15 * Math.max(ra.h, rb.h)) return null;
-  const A = boxDarkness(a, ra);
+  const A = boxDarkness(a, ra, { rect: rb, scale: b.r.scale });
   const B = boxDarkness(b, rb);
   if (A.cols < 4 || B.cols < 4) return null;
   const n = Math.min(A.rows, B.rows);
-  const prof = (X: typeof A) => {
+  const prof = (X: Box) => {
     const p = new Float32Array(X.rows);
     for (let k = 0; k < X.rows; k++) {
       let sum = 0;
@@ -983,19 +1059,8 @@ function addedLine(a: Prepared, ra: Rect, b: Prepared, rb: Rect): 'strike' | 'un
     for (let j = k - half; j <= k + half; j++) sum += p[j] ?? 0;
     return sum;
   };
-  // Best vertical alignment of the two boxes (sub-pixel placement).
-  let off = 0;
-  let bestErr = Infinity;
-  for (let o = -2; o <= 2; o++) {
-    let err = 0;
-    for (let k = 0; k < n; k++) err += Math.abs(win(pb, k, 1) - win(pa, k + o, 1));
-    if (err < bestErr) {
-      bestErr = err;
-      off = o;
-    }
-  }
   // Share of columns that are dark within rows k-half..k+half.
-  const share = (X: typeof A, k: number, half: number) => {
+  const share = (X: Box, k: number, half: number) => {
     let dark = 0;
     for (let c = 0; c < X.cols; c++) {
       let sum = 0;
@@ -1006,7 +1071,7 @@ function addedLine(a: Prepared, ra: Rect, b: Prepared, rb: Rect): 'strike' | 'un
   };
   // A line adds about its own darkness to its rows (minus what glyphs
   // already covered); a glyph stroke drawn a little darker adds far less.
-  const line = (k: number) => share(B, k, 1) >= 0.85 && share(A, k + off, 1) <= 0.7 && win(pb, k, 1) - win(pa, k + off, 1) >= 0.45;
+  const line = (k: number) => share(B, k, 1) >= 0.85 && share(A, k, 1) <= 0.7 && win(pb, k, 1) - win(pa, k, 1) >= 0.45;
   for (let k = 0; k < n; k++) {
     if (!line(k)) continue;
     let e = k;
@@ -1017,15 +1082,15 @@ function addedLine(a: Prepared, ra: Rect, b: Prepared, rb: Rect): 'strike' | 'un
     let total = 0;
     for (let j = 1; j < n - 1; j++) {
       if (j >= k - 3 && j <= e + 3) continue;
-      diff += Math.abs(win(pb, j, 1) - win(pa, j + off, 1));
-      total += win(pa, j + off, 1);
+      diff += Math.abs(win(pb, j, 1) - win(pa, j, 1));
+      total += win(pa, j, 1);
     }
-    // A token of one or two glyphs (narrower than 8 pt) may have a stroke
-    // across its whole width of its own (the bar of a "4"); drawn at another
-    // sub-pixel position it can look like a line. Its other rows must then
-    // match almost exactly: a line added to the same glyph leaves them as
-    // they were.
-    const narrow = rb.w < 8;
+    // A token of one or two glyphs (or narrower than 8 pt) may have a stroke
+    // across its whole width of its own (the bar of a "4", most CJK
+    // characters: 一 主 重 年); drawn at another sub-pixel position it can
+    // look like a line. Its other rows must then match almost exactly: a
+    // line added to the same glyph leaves them as they were.
+    const narrow = few || rb.w < 8;
     if (diff > (narrow ? 0.08 : 0.35) * total + (narrow ? 0.1 : 0.5)) return null;
     const rel = (B.top + (k + e + 1) / 2 / b.r.scale - rb.y) / rb.h;
     if (rel < 0.3) return null;
@@ -1046,19 +1111,22 @@ function appearanceChanges(
   B: Prepared,
   skip: (b: Token) => boolean,
   near: (a: Token, b: Token) => boolean,
+  under: (a: Token, b: Token) => boolean = () => false,
 ): Change[] {
   const TA = result.oldDoc.tokens;
   const TB = result.newDoc.tokens;
   const m = result.matches;
-  type Hit = { a: Token; b: Token; colour: boolean; line?: { line: 'strike' | 'underline'; added: boolean } };
+  type Ink = ReturnType<typeof ink>;
+  type Hit = { a: Token; b: Token; colour: boolean; line?: { line: 'strike' | 'underline'; added: boolean }; ink?: Ink };
   const hits: Hit[] = [];
   for (let p = 0; p < m.length; p += 2) {
     const a = TA[m[p]];
     const b = TB[m[p + 1]];
     if (a.page !== oldPage || b.page !== newPage || a.kind === 'punct' || skip(b)) continue;
-    if (a.rects.length !== 1 || b.rects.length !== 1) continue;
-    const added = addedLine(A, a.rects[0], B, b.rects[0]);
-    const removed = added ? null : addedLine(B, b.rects[0], A, a.rects[0]);
+    if (a.rects.length !== 1 || b.rects.length !== 1 || under(a, b)) continue;
+    const few = b.kind === 'cjk' || [...b.text].length <= 2;
+    const added = addedLine(A, a.rects[0], B, b.rects[0], few);
+    const removed = added ? null : addedLine(B, b.rects[0], A, a.rects[0], few);
     if (added || removed) {
       hits.push({ a, b, colour: false, line: { line: (added ?? removed)!, added: !!added } });
       continue;
@@ -1072,7 +1140,7 @@ function appearanceChanges(
       Math.hypot(ia.chroma[0] - ib.chroma[0], ia.chroma[1] - ib.chroma[1], ia.chroma[2] - ib.chroma[2]) > 30 ||
       Math.max(Math.abs(ia.bg[0] - ib.bg[0]), Math.abs(ia.bg[1] - ib.bg[1]), Math.abs(ia.bg[2] - ib.bg[2])) > 40;
     const weight = Math.abs(ia.total - ib.total) / Math.max(ia.total, ib.total, 1) > 0.3;
-    if (colour || weight) hits.push({ a, b, colour });
+    if (colour || weight) hits.push({ a, b, colour, ink: ib });
   }
   // Text of a group: every token from the first hit to the last, so a word
   // skipped in between (punctuation, a short word) is not left out. Tokens
@@ -1120,11 +1188,24 @@ function appearanceChanges(
     group = [];
   };
   const key = (h: Hit) => (h.line ? `${h.line.line}:${h.line.added}` : '');
+  // The same new colour (and background) on both words.
+  const alike = (u: Ink, v: Ink) =>
+    Math.hypot(u.chroma[0] - v.chroma[0], u.chroma[1] - v.chroma[1], u.chroma[2] - v.chroma[2]) <= 30 &&
+    Math.max(Math.abs(u.bg[0] - v.bg[0]), Math.abs(u.bg[1] - v.bg[1]), Math.abs(u.bg[2] - v.bg[2])) <= 40;
   // A line through or under text that goes on at the start of the next line
-  // of the same paragraph is one change (a struck sentence that wraps). The
-  // words must follow each other on both sides.
+  // of the same paragraph is one change (a struck sentence that wraps), and
+  // so is a colour, weight or background that does (a tracked deletion shown
+  // in the reviewer's colour, a highlight over three lines) when the words
+  // got the same colour and background. The words must follow each other on
+  // both sides. Two lines of one paragraph that turned different colours
+  // stay two changes.
   const wraps = (last: Hit, h: Hit) =>
-    !!h.line && last.b.block === h.b.block && last.a.block === h.a.block && h.b.i > last.b.i && h.a.i > last.a.i && h.a.i - last.a.i <= 2;
+    last.b.block === h.b.block &&
+    last.a.block === h.a.block &&
+    h.b.i > last.b.i &&
+    h.a.i > last.a.i &&
+    h.a.i - last.a.i <= 2 &&
+    (!!h.line || (!!h.ink && !!last.ink && last.colour === h.colour && alike(last.ink, h.ink)));
   for (const h of hits) {
     const last = group[group.length - 1];
     if (last && ((last.b.line !== h.b.line && !wraps(last, h)) || h.b.i - last.b.i > 2 || key(last) !== key(h))) flush();
@@ -1132,6 +1213,62 @@ function appearanceChanges(
   }
   flush();
   return out;
+}
+
+/** Share of a token's box that text on one side only must cover to explain a change of its ink (see overlays). */
+const OVERLAY_SHARE = 0.2;
+
+/**
+ * Where the text of text changes lies on one page of one side (inserted,
+ * deleted, replaced or moved text): one shape per token, its box, or for
+ * rotated text the box turned with its run, so that a diagonal watermark
+ * covers the band its letters run along, not its whole bounding box. Words
+ * that such text overlaps (a watermark removed from over a paragraph, a
+ * stamp added over a signature line) change their ink because of it;
+ * ordinary inserted or deleted words sit beside other words, not on them.
+ */
+type Shape = { box: Rect; inside: (x: number, y: number) => boolean };
+function overlays(result: CompareResult, side: 'old' | 'new', page: number): Shape[] {
+  const doc = side === 'old' ? result.oldDoc : result.newDoc;
+  const rotated = (doc.runs[page] ?? []).filter((r) => r.angle !== 0 && r.rot && r.str.trim());
+  const out: Shape[] = [];
+  for (const c of result.changes) {
+    const s = c[side];
+    if (c.category !== 'text' || c.kind === 'format' || c.kind === 'position' || s.start === undefined || s.end === undefined) continue;
+    for (let i = s.start; i < s.end; i++) {
+      const t = doc.tokens[i];
+      if (!t || t.page !== page || t.furniture) continue;
+      for (const b of t.rects) {
+        const cx = b.x + b.w / 2;
+        const cy = b.y + b.h / 2;
+        const run = rotated.find((r) => cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h);
+        if (!run) {
+          out.push({ box: b, inside: (x, y) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h });
+          continue;
+        }
+        // In the run's upright frame (see tokenize.ts): the token's box
+        // there is as high as the run, and as long as its bounding box allows.
+        const a = (run.angle * Math.PI) / 180;
+        const cos = Math.cos(a);
+        const sin = Math.sin(a);
+        const H = run.rot!.ascent + run.rot!.descent;
+        const L = Math.abs(cos) >= Math.abs(sin) ? (b.w - Math.abs(sin) * H) / Math.abs(cos) : (b.h - Math.abs(cos) * H) / Math.abs(sin);
+        const cu = cx * cos + cy * sin;
+        const cv = -cx * sin + cy * cos;
+        out.push({ box: b, inside: (x, y) => Math.abs(x * cos + y * sin - cu) <= L / 2 && Math.abs(-x * sin + y * cos - cv) <= H / 2 });
+      }
+    }
+  }
+  return out;
+}
+
+/** Share of a rect that the shapes cover (sampled on a 5 × 5 grid). */
+function covered(r: Rect, shapes: Shape[]): number {
+  const near = shapes.filter((f) => intersects(f.box, r));
+  if (!near.length) return 0;
+  let n = 0;
+  for (let j = 0; j < 5; j++) for (let i = 0; i < 5; i++) if (near.some((f) => f.inside(r.x + ((i + 0.5) * r.w) / 5, r.y + ((j + 0.5) * r.h) / 5))) n++;
+  return n / 25;
 }
 
 /** Share of a rect covered by the union of other rects (estimated on a grid). */
@@ -1314,12 +1451,30 @@ export function compareRasters(
     for (const c of positions) if (c[side].pages[0] === page) for (const r of [...c.old.rects, ...c.new.rects]) out.push(expand(r.rect, 4));
     return out;
   };
-  const keep = (rects: Rect[], side: 'old' | 'new') => {
+  const rows = { old: rowBands(result, 'old', oldPage), new: rowBands(result, 'new', newPage) };
+  const runningRows = { old: furnitureRows(result, 'old', oldPage, newPage), new: furnitureRows(result, 'new', newPage, oldPage) };
+  const keep = (rects: Rect[], side: 'old' | 'new', real = false) => {
     const page = side === 'old' ? oldPage : newPage;
     const explained = zones(side, page);
     const [src, dst] = side === 'old' ? [A, B] : [B, A];
     return rects.filter((r) => {
       if (coveredShare(r, explained) >= 0.6) return false;
+      // A change bar in the margin beside the lines of a text change.
+      const bar = real ? changeBar(result, side, page, r, src.r.scale) : null;
+      if (bar) {
+        bar[side].rects.push({ page, rect: r });
+        return false;
+      }
+      // The fill and rules of a table row whose text is a change of its own
+      // (or a header row repeated at a page top only because a page break
+      // moved): part of that change.
+      const row = rows[side].find((x) => coveredShare(r, [x.rect]) >= 0.6);
+      if (row) {
+        const s = row.change[side];
+        if (!s.rects.some((q) => q.page === page && coveredShare(r, [q.rect]) >= 0.6)) s.rects.push({ page, rect: r });
+        return false;
+      }
+      if (coveredShare(r, runningRows[side]) >= 0.6) return false;
       for (const c of positions) {
         if (c[side].pages[0] !== page) continue;
         const o = c.old.rects[0].rect;
@@ -1331,8 +1486,8 @@ export function compareRasters(
       return true;
     });
   };
-  const oldKeep = keep(oldRects, 'old');
-  const newKeep = keep(newRects, 'new');
+  const oldKeep = keep(oldRects, 'old', true);
+  const newKeep = keep(newRects, 'new', true);
 
   const mapWith = (anchors: Anch[]) => (r: Rect): Rect => {
     let best = anchors[0] ?? { y: 0, dx: 0, dy: 0, own: true };
@@ -1413,10 +1568,126 @@ export function compareRasters(
     }
     const inFormat = (b: Token) => skip.has(b.i) || coveredShare(b.rects[0], fmtRects) >= 0.5;
     const near = (a: Token, b: Token) => differsNear(fwdDiff, ra, a.rects[0]) || differsNear(bwdDiff, rb, b.rects[0]);
-    changes.push(...appearanceChanges(result, oldPage, newPage, A, B, inFormat, near));
+    // Text drawn over the word that is on one side only (a DRAFT watermark
+    // removed, a stamp added) changes its ink there: that belongs to the
+    // text change, which is reported.
+    const coverOld = overlays(result, 'old', oldPage);
+    const coverNew = overlays(result, 'new', newPage);
+    const under = (a: Token, b: Token) => covered(a.rects[0], coverOld) >= OVERLAY_SHARE || covered(b.rects[0], coverNew) >= OVERLAY_SHARE;
+    changes.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under));
   }
   for (const c of changes) foundOn.set(c, `${oldPage}:${newPage}`);
   return changes;
+}
+
+/**
+ * The text change that a difference region is the change bar of: a narrow
+ * vertical bar (at most 8 pt wide, at least twice as tall) in the margin
+ * beside that change's lines — no line of text at its height reaches it, the
+ * nearest one starts or ends within 36 pt of it — whose height lies within
+ * those lines (give or take half a line and a cell) and is mostly covered
+ * by them. Word
+ * and LibreOffice mark the lines of tracked changes so in the margin; any
+ * revision bar looks the same. The bar is then shown as part of that change
+ * (its region is added to the change's place) instead of as a graphic of its
+ * own. A vertical rule deliberately added in the margin next to edited
+ * lines is shown with that edit the same way, not as a separate item.
+ */
+function changeBar(result: CompareResult, side: 'old' | 'new', page: number, r: Rect, scale: number): Change | null {
+  if (r.w > 8 || r.h < 8 || r.h < 2 * r.w) return null;
+  const doc = side === 'old' ? result.oldDoc : result.newDoc;
+  const level = doc.lines.filter((l) => l.page === page && l.end > l.start && !l.furniture && l.rect.y < r.y + r.h && l.rect.y + l.rect.h > r.y);
+  if (!level.length) return null;
+  const starts = Math.min(...level.map((l) => l.rect.x));
+  const ends = Math.max(...level.map((l) => l.rect.x + l.rect.w));
+  const leftOf = r.x + r.w <= starts + 1 && starts - (r.x + r.w) <= 36;
+  const rightOf = r.x >= ends - 1 && r.x - ends <= 36;
+  if (!leftOf && !rightOf) return null;
+  let best: Change | null = null;
+  let bestCover = 0;
+  for (const c of result.changes) {
+    if (c.category !== 'text' || c.kind === 'position') continue;
+    const rs = c[side].rects.filter((q) => q.page === page && q.rect.y < r.y + r.h && q.rect.y + q.rect.h > r.y).map((q) => q.rect);
+    if (!rs.length) continue;
+    const top = Math.min(...rs.map((q) => q.y));
+    const bottom = Math.max(...rs.map((q) => q.y + q.h));
+    // The bar spans the lines' leading, and the region is rounded out to
+    // whole cells.
+    const slack = CELL / scale + 0.5 * Math.max(...rs.map((q) => q.h));
+    if (r.y < top - slack || r.y + r.h > bottom + slack) continue;
+    const cover = (Math.min(bottom, r.y + r.h) - Math.max(top, r.y)) / r.h;
+    if (cover > bestCover) [best, bestCover] = [c, cover];
+  }
+  return bestCover >= 0.7 ? best : null;
+}
+
+/**
+ * Table rows on one page whose text is a change on its own: whole lines
+ * inserted, deleted, replaced or moved (a row added to a table, a group
+ * heading row that went to the next page), and lines repeated at the page
+ * top only because a page break moved (a table's header row that came or
+ * went: consequence 'repeatedLine', kept among the minor changes). A row is
+ * the lines' box widened to the table row around it: up to a line height
+ * above and below, but not into another line of text, and across the page's
+ * text block. The fill and rules of such a row come and go with its text, so
+ * they belong to that change (compareRasters adds them to its place); for a
+ * consequence they are counted and shown with it. This holds for any table
+ * whose rows are filled or ruled (Word, LibreOffice, Chromium, spreadsheet
+ * print titles). A graphic deliberately added inside such a row is shown
+ * with the row's change, not as an item of its own; the copies of a header
+ * row that are matched on other pages are still compared, so a header
+ * shading or rule changed throughout a table is still reported there.
+ */
+function rowBands(result: CompareResult, side: 'old' | 'new', page: number): { rect: Rect; change: Change }[] {
+  const doc = side === 'old' ? result.oldDoc : result.newDoc;
+  const out: { rect: Rect; change: Change }[] = [];
+  let lines: DocModel['lines'] | null = null;
+  const candidates = [
+    ...result.minor.filter((c) => c.consequence === 'repeatedLine'),
+    ...result.changes.filter((c) => c.category === 'text' && c.kind !== 'format' && c.kind !== 'position'),
+  ];
+  for (const c of candidates) {
+    const s = c[side];
+    if (!s.pages.includes(page) || s.start === undefined || s.end === undefined) continue;
+    lines ??= doc.lines.filter((l) => l.page === page && l.end > l.start);
+    // Whole lines only: a word changed inside a row says nothing about its fill.
+    const own = lines.filter((l) => l.start >= s.start! && l.end <= s.end!);
+    if (own.length) out.push({ rect: rowAround(own, lines), change: c });
+  }
+  return out;
+}
+
+/** The table row around some lines of a page (see rowBands): `lines` are all lines of the page. */
+function rowAround(own: DocModel['lines'], lines: DocModel['lines']): Rect {
+  const u = union(own.map((l) => l.rect));
+  const lh = Math.max(...own.map((l) => l.rect.h));
+  let top = u.y - lh;
+  let bottom = u.y + u.h + lh;
+  for (const l of lines) {
+    if (own.includes(l)) continue;
+    if (l.rect.y + l.rect.h <= u.y + 0.5) top = Math.max(top, l.rect.y + l.rect.h);
+    else if (l.rect.y >= u.y + u.h - 0.5) bottom = Math.min(bottom, l.rect.y);
+  }
+  const left = Math.min(u.x, ...lines.map((l) => l.rect.x)) - 12;
+  const right = Math.max(u.x + u.w, ...lines.map((l) => l.rect.x + l.rect.w)) + 12;
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+/**
+ * Rows of the running headers and footers of a page (furniture, which
+ * includes a table's header row repeated at the top of most pages), when
+ * the page is compared with a page other than its own counterpart in the
+ * page map: there the rows' fill and rules stay at the same place, and they
+ * are compared on that pair. On another pair (rows that came from the
+ * previous page under the repeated header row) the header row's shading
+ * has no counterpart, as its text is not compared there either.
+ */
+function furnitureRows(result: CompareResult, side: 'old' | 'new', page: number, other: number): Rect[] {
+  const counterpart = side === 'old' ? result.oldToNew[page] : result.newToOld[page];
+  if (counterpart === undefined || counterpart < 0 || counterpart === other) return [];
+  const doc = side === 'old' ? result.oldDoc : result.newDoc;
+  const lines = doc.lines.filter((l) => l.page === page && l.end > l.start);
+  return lines.filter((l) => l.furniture).map((l) => rowAround([l], lines));
 }
 
 /** Merge difference regions that are close together (e.g. the borders of one table). */

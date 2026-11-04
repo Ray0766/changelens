@@ -16,11 +16,21 @@ function edgeOf(r: Rect, w: number, h: number): Edge | null {
   return null;
 }
 
-/** Horizontal text extent of the old document, per page width. */
-function bodyExtents(doc: DocModel, toks: Token[]): Map<number, { left: number; right: number }> {
-  const m = new Map<number, { left: number; right: number }>();
+/**
+ * Pages whose horizontal text extents can be compared: the same width, and
+ * text that runs the same way (a page turned by /Rotate has its lines along
+ * the page's height, so their x extent is not a margin).
+ */
+function frameKey(doc: DocModel, page: number): string {
+  const p = doc.pages[page];
+  return `${Math.round(p.width)}:${p.textAngle ?? 0}`;
+}
+
+/** Horizontal text extent of the old document, per page width and text direction. */
+function bodyExtents(doc: DocModel, toks: Token[]): Map<string, { left: number; right: number }> {
+  const m = new Map<string, { left: number; right: number }>();
   for (const t of toks) {
-    const w = Math.round(doc.pages[t.page].width);
+    const w = frameKey(doc, t.page);
     const e = m.get(w) ?? { left: Infinity, right: -Infinity };
     for (const r of t.rects) {
       e.left = Math.min(e.left, r.x);
@@ -133,7 +143,7 @@ export function findOverflow(oldDoc: DocModel, newDoc: DocModel, A: Token[], B: 
     const pg = newDoc.pages[t.page];
     let edge: Edge | null = null;
     for (const r of t.rects) edge = edge ?? edgeOf(r, pg.width, pg.height);
-    const ext = edge ? undefined : extents.get(Math.round(pg.width));
+    const ext = edge ? undefined : extents.get(frameKey(newDoc, t.page));
     if (ext) {
       // When the page's text block starts where the new template puts it,
       // elsewhere than the old document's, the page's own block counts as

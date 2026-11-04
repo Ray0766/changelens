@@ -77,7 +77,7 @@ export async function addVisualChanges(
   const cacheOld = new Map<number, Promise<Raster>>();
   const cacheNew = new Map<number, Promise<Raster>>();
   const found: Change[] = [];
-  const sizes = new Map<string, { pair: VisualPair; count: number }>();
+  const sizes = new Map<string, { pair: VisualPair; count: number; pairs: VisualPair[] }>();
   for (let k = 0; k < pairs.length; k++) {
     const pair = pairs[k];
     const { old: op, new: np } = pair;
@@ -86,8 +86,10 @@ export async function addVisualChanges(
     if (pair.whole && (Math.abs(a.width - b.width) > 1 || Math.abs(a.height - b.height) > 1)) {
       const key = `${Math.round(a.width)}x${Math.round(a.height)}:${Math.round(b.width)}x${Math.round(b.height)}`;
       const cur = sizes.get(key);
-      if (cur) cur.count++;
-      else sizes.set(key, { pair, count: 1 });
+      if (cur) {
+        cur.count++;
+        cur.pairs.push(pair);
+      } else sizes.set(key, { pair, count: 1, pairs: [pair] });
     }
     if (large('old', op) || large('new', np)) {
       if (large('old', op)) skipped.old.add(op);
@@ -171,10 +173,30 @@ export async function addVisualChanges(
   again.new.clear();
   if (pushed.size) found.splice(0, found.length, ...found.filter((c) => !pushed.has(c)));
   // A change of page size or orientation, once per kind of change.
-  for (const { pair, count } of sizes.values()) {
+  for (const { pair, count, pairs: same } of sizes.values()) {
     const c = wholePage('resized', result, pair.new, undefined, [pair.old, pair.new], false);
     if (count > 1) c.places = count;
     pageChanges.push(c);
+    // A page turned to another orientation (/Rotate): its text runs another
+    // way now, and every graphic on it turned with it, so the pixels of the
+    // pair differ wherever there is ink. That is the turn the page change
+    // reports; the regions found on the pair are shown as part of it, not
+    // as graphic changes (or slight shifts) of their own. A graphic edited
+    // on the turned page is then only shown inside the page change, which
+    // covers the whole page. A page whose size changed but whose text still
+    // runs the same way (a new paper size, a page re-laid out in landscape)
+    // is compared as usual.
+    for (const p of same) {
+      if ((docs.old.pages[p.old].textAngle ?? 0) === (docs.new.pages[p.new].textAngle ?? 0)) continue;
+      const turned = found.filter((f) => f.kind === 'graphic' && !f.format && !f.pageChange && foundOnPair(f)?.[0] === p.old && foundOnPair(f)?.[1] === p.new);
+      for (const f of turned) {
+        for (const side of ['old', 'new'] as const) {
+          c[side].rects.push(...f[side].rects);
+          c[side].pages = [...new Set([...c[side].pages, ...f[side].rects.map((r) => r.page)])].sort((x, y) => x - y);
+        }
+      }
+      if (turned.length) found.splice(0, found.length, ...found.filter((f) => !turned.includes(f)));
+    }
   }
   await graphicsOfUnpairedPages(result, pairs, render, large);
   const visual = [...dedupeGraphics(found.filter((c) => !c.minor)), ...pageChanges];
