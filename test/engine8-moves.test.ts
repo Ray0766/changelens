@@ -49,3 +49,31 @@ test('a table row pushed past a page break and renumbered on the way is not a mo
   assert.ok(minor(q09).includes('25 → 26'), JSON.stringify(minor(q09)));
   assert.equal(q09.ignored.renumbered, 27);
 });
+
+/** Compares probe8-<id>-after.pdf (as the old version) with probe8-<id>-before.pdf. */
+async function reversed(id: string, before = id): Promise<CompareResult> {
+  const a = buildDocModel(await extractText(await openPdf(`${fixtures}probe8-${id}-after.pdf`), 'after.pdf'));
+  const b = buildDocModel(await extractText(await openPdf(`${fixtures}probe8-${before}-before.pdf`), 'before.pdf'));
+  return compareDocs(a, b);
+}
+
+test('a table row that flows back over a page break, above the repeated header row, is not a move (R1-13, second pass)', async () => {
+  // Word numbered list: row 6 deleted, so "25. Handover pack…" at the top of page 2, under the
+  // repeated header row, flows back to the foot of page 1 as 24. Before: "Moved a paragraph".
+  const q09d = await probe('r1-13-q09d', 'r1-13-q09');
+  assert.deepEqual(listed(q09d), ['Deleted “6. Requirements catalogue, final 7”']);
+  assert.ok(minor(q09d).includes('25 → 24'), JSON.stringify(minor(q09d)));
+  assert.equal(q09d.ignored.renumbered, 24);
+  // Typed row numbers, the versions of R1-03's probe swapped: row 4 deleted. Before: "Moved and
+  // edited" plus "Number changed: 27 → 26".
+  const q09t = await reversed('r1-03-q09t');
+  assert.deepEqual(listed(q09t), ['Deleted “4 Interview notes, IT team 4”']);
+  assert.equal(q09t.ignored.renumbered, 27);
+  // Controls, LibreOffice, row 4 deleted: the crossing row's number typed by hand ("28" in the
+  // old version, 25 in the new) and its due week edited (28 → 26) stay listed.
+  const ch1 = await reversed('r1-13-ch1');
+  assert.ok(listed(ch1).includes('Number changed: 28 → 25'), JSON.stringify(listed(ch1)));
+  const ch2 = await reversed('r1-13-ch2');
+  assert.ok(listed(ch2).some((d) => /26”$/.test(d) && d.startsWith('Added “25. Archive')), JSON.stringify(listed(ch2)));
+  assert.ok(listed(ch2).some((d) => /28”$/.test(d) && d.startsWith('Deleted “26. Archive')), JSON.stringify(listed(ch2)));
+});

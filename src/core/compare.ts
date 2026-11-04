@@ -857,18 +857,41 @@ function crossedPageBreak(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: 
     if (!lineStart(A, d.a0) || !lineEnd(A, d.a1) || !lineStart(B, ins.b0) || !lineEnd(B, ins.b1) || !lineStart(A, x0) || !lineEnd(A, x1)) return false;
     return repeatedEarlier(A, x0, x1) && repeatedEarlier(B, y0, y1);
   };
+  /**
+   * The other way: a line right under the repeated line at the top of a
+   * page in the old version flowed back to the foot of the page before (a
+   * row deleted above it): the new version reads "… heading | header row |
+   * rows …", the old one "… | header row | heading | rows …".
+   */
+  const crossingBack = (ins: Hunk, d: Hunk) => {
+    const n = d.a0 - ins.a0;
+    if (n < 1 || n > 60 || d.b0 - ins.b1 !== n || ins.b1 - ins.b0 !== d.a1 - d.a0) return false;
+    for (let k = 0; k < n; k++) if (toB[ins.a0 + k] !== ins.b1 + k) return false;
+    for (let k = 0; k < d.a1 - d.a0; k++) if (A[d.a0 + k].key !== B[ins.b0 + k].key && !(k === 0 && renumbered(d.a0, ins.b0))) return false;
+    const [x0, x1, y0, y1] = [ins.a0, d.a0, ins.b1, d.b0];
+    if (B[y0].page === B[ins.b1 - 1].page || !pageTop(A, x0) || !pageTop(B, y0) || A[x1 - 1].page !== A[d.a0].page) return false;
+    if (!lineStart(A, d.a0) || !lineEnd(A, d.a1) || !lineStart(B, ins.b0) || !lineEnd(B, ins.b1) || !lineStart(B, y0) || !lineEnd(B, y1)) return false;
+    return repeatedEarlier(A, x0, x1) && repeatedEarlier(B, y0, y1);
+  };
   // A row's label renumbered on the way ("25." → "26."): the two numbers
   // are left as a change of their own, for extractRenumbering.
   const labels = new Map<Hunk, Hunk>();
-  for (const d of dels) {
-    const ins = hunks.find((h) => h.a0 === h.a1 && h.a0 > d.a1 && h.a0 - d.a1 <= 60 && !gone.has(h) && crossing(d, h));
-    if (!ins) continue;
+  const pair = (d: Hunk, ins: Hunk) => {
     for (let k = 0; k < d.a1 - d.a0; k++) {
       if (A[d.a0 + k].key === B[ins.b0 + k].key) out.push(d.a0 + k, ins.b0 + k);
       else labels.set(d, { a0: d.a0, a1: d.a0 + 1, b0: ins.b0, b1: ins.b0 + 1 });
     }
     gone.add(d);
     gone.add(ins);
+  };
+  for (const d of dels) {
+    const ins = hunks.find((h) => h.a0 === h.a1 && h.a0 > d.a1 && h.a0 - d.a1 <= 60 && !gone.has(h) && crossing(d, h));
+    if (ins) pair(d, ins);
+  }
+  for (const ins of hunks) {
+    if (ins.a0 !== ins.a1 || ins.b1 <= ins.b0 || ins.b1 - ins.b0 > 40 || gone.has(ins)) continue;
+    const d = dels.find((h) => h.a0 > ins.a0 && h.a0 - ins.a0 <= 60 && !gone.has(h) && crossingBack(ins, h));
+    if (d) pair(d, ins);
   }
   if (!gone.size) return { hunks, pairs: out, labels: new Set() };
   return { hunks: hunks.flatMap((h) => labels.get(h) ?? (gone.has(h) ? [] : [h])), pairs: out, labels: new Set(labels.values()) };
