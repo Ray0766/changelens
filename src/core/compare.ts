@@ -1191,26 +1191,50 @@ function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, aft
    * table header row written after the rows of the page before, or a
    * footnote that the alignment passed over. Every word the passage diff
    * matched is on a page the page map pairs, at its old height (within
-   * 2 pt), and, on a line without an edit, at its old place along the line:
-   * an edit may shift the words after it on its own line. Nothing moved, so
+   * 2 pt), and at its old place along the line unless an edit comes before
+   * it on its line (an edit shifts the words after it). A line whose matched
+   * words all follow an edit must start where it started. Nothing moved, so
    * no move is reported: the words are matched text, and only the edits
-   * inside the passage are listed.
+   * inside the passage are listed. A line moved sideways and edited keeps
+   * its move ("Delivery: Dock 4" at x 56 → "Delivery: Dock 7" at x 320).
    */
   const inPlace = (d: Hunk, ins: Hunk, matches: Int32Array, ops: DiffOp[]) => {
     if (!matches.length) return false;
-    const edited = new Set<number>();
+    // Where the first edit on each line is, as an index into A or B.
+    const firstA = new Map<number, number>();
+    const firstB = new Map<number, number>();
+    const mark = (m: Map<number, number>, T: Token[], k: number) => {
+      const t = T[k] ?? T[k - 1];
+      const f = t && m.get(t.line);
+      if (t && (f === undefined || k < f)) m.set(t.line, k);
+    };
     for (const o of ops) {
       if (o.type === 'equal') continue;
-      for (let k = o.a0; k < o.a1; k++) edited.add(ctx.A[k].line);
-      for (let k = o.b0; k < o.b1; k++) edited.add(-1 - ctx.B[k].line);
+      mark(firstA, ctx.A, o.a0);
+      mark(firstB, ctx.B, o.b0);
     }
+    const beforeEdit = (m: Map<number, number>, t: Token, k: number) => {
+      const f = m.get(t.line);
+      return f === undefined || k < f;
+    };
+    const checked = new Set<string>();
+    const unchecked = new Set<string>();
     for (let p = 0; p < matches.length; p += 2) {
-      const a = ctx.A[d.a0 + matches[p]];
-      const b = ctx.B[ins.b0 + matches[p + 1]];
+      const ia = d.a0 + matches[p];
+      const ib = ins.b0 + matches[p + 1];
+      const a = ctx.A[ia];
+      const b = ctx.B[ib];
       if (oldToNew[a.page] !== b.page || a.rects.length !== b.rects.length) return false;
-      const along = !edited.has(a.line) && !edited.has(-1 - b.line);
+      const along = beforeEdit(firstA, a, ia) && beforeEdit(firstB, b, ib);
       for (let r = 0; r < a.rects.length; r++)
         if ((along && Math.abs(a.rects[r].x - b.rects[r].x) > 2) || Math.abs(a.rects[r].y - b.rects[r].y) > 2) return false;
+      (along ? checked : unchecked).add(`${a.line}:${b.line}`);
+    }
+    const startX = (doc: DocModel, line: number) => doc.tokens[doc.lines[line].start].rects[0].x;
+    for (const key of unchecked) {
+      if (checked.has(key)) continue;
+      const [la, lb] = key.split(':').map(Number);
+      if (Math.abs(startX(ctx.oldDoc, la) - startX(ctx.newDoc, lb)) > 2) return false;
     }
     return true;
   };

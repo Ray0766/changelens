@@ -38,3 +38,16 @@ test('R2-13 control: a paragraph moved to another place with an edit is still a 
   const r = compareDocs(a, b);
   assert.deepEqual(listed(r).sort(), ['Moved and edited a paragraph', 'Number changed: 2,500 → 3,500 (+40%)']);
 });
+
+test('T2N5: a line moved sideways at the same height keeps its move when every moved line has an edit', async () => {
+  // Verifier counter-probes (synthetic; reportlab), copied to test/fixtures/probe8-T2N5-*.
+  // "Delivery: Dock 4, …" drawn first at x 56 becomes "Delivery: Dock 7, …" drawn last at x 320, same height.
+  const r = await run('T2N5-before', 'T2N5-sideways');
+  assert.ok(listed(r).includes('Moved and edited a paragraph'), listed(r).join(' | '));
+  assert.ok(listed(r).includes('Number changed: 4 → 7 (+75%)'), listed(r).join(' | '));
+  // Two lines, each edited.
+  const two = listed(await run('T2N5-two-before', 'T2N5-two-sideways'));
+  assert.ok(two.includes('Moved and edited a paragraph') && two.includes('Number changed: 210 → 260 (+24%)'), two.join(' | '));
+  // Control: the same line drawn last but at its old place, edited: only the edit.
+  assert.deepEqual(listed(await run('T2N5-before', 'T2N5-same-place')), ['Number changed: 4 → 7 (+75%)']);
+});
