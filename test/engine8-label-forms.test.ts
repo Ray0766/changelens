@@ -1,0 +1,77 @@
+// Label forms that were not read as labels (fix round 8): clause numbers
+// with a trailing stop ("4.3.", Word's "1. / 1.1. / 1.1.1." style), whose
+// stop is a token of its own, and full-width digits ("１．", common in
+// Japanese documents). Their renumbering was listed, with percentages. The
+// PDFs are the round-7 adversarial probes (synthetic; Chromium, reportlab,
+// python-docx via LibreOffice), copied to test/fixtures/probe8-*.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { openPdf } from '../src/node/pdf.ts';
+import { extractText } from '../src/pdf/extract.ts';
+import { buildDocModel } from '../src/core/tokenize.ts';
+import { compareDocs } from '../src/core/compare.ts';
+import { describeChange } from '../src/core/describe.ts';
+import type { CompareResult, DocText, TextRun } from '../src/core/types.ts';
+
+const fixtures = new URL('./fixtures/', import.meta.url).pathname;
+async function probe(id: string): Promise<CompareResult> {
+  const a = buildDocModel(await extractText(await openPdf(`${fixtures}probe8-${id}-before.pdf`), 'before.pdf'));
+  const b = buildDocModel(await extractText(await openPdf(`${fixtures}probe8-${id}-after.pdf`), 'after.pdf'));
+  return compareDocs(a, b);
+}
+const listed = (r: CompareResult) => r.changes.map((c) => describeChange('en', c));
+const minor = (r: CompareResult) => r.minor.map((c) => describeChange('en', c).replace('List renumbered: ', ''));
+
+/** Paragraphs as a word processor sets them: the label, then the text after a tab; 20 pt apart. */
+function items(name: string, rows: [string, string][]): DocText {
+  const runs: TextRun[] = [];
+  const run = (str: string, x: number, y: number, eol = false): TextRun => ({ str, x, y: y - 9, w: str.length * 5, h: 11, baseline: y, fontSize: 10, font: 'Body', family: 'sans-serif', eol, angle: 0 });
+  rows.forEach(([label, text], k) => runs.push(run(label, 56, 80 + 20 * k), run(text, 100, 80 + 20 * k, true)));
+  return { name, pages: [{ index: 0, width: 595, height: 842, runs }] };
+}
+const P = ['Each party keeps the other informed.', 'Notices are given in writing.', 'A change takes effect when both sign it.', 'The Supplier may not assign this agreement.'];
+const compare = (a: DocText, b: DocText) => compareDocs(buildDocModel(a), buildDocModel(b));
+
+test('clause labels with a trailing stop ("4.3.") are renumbered after an inserted clause (R1-07)', async () => {
+  // Chromium: 4.2. inserted; 4.2.–4.4. become 4.3.–4.5. Control: the same labels without the stop.
+  for (const id of ['r1-07-p07', 'r1-07-p07c']) {
+    const r = await probe(id);
+    assert.deepEqual(listed(r), ['Added a paragraph'], id);
+    assert.ok(/^4\.2\.? Where a change is needed urgently/.test(r.changes[0].new.text), r.changes[0].new.text);
+    assert.deepEqual(minor(r), ['4.2 → 4.3', '4.3 → 4.4', '4.4 → 4.5'], id);
+  }
+  // Word multilevel numbering "%1.%2." via LibreOffice: a clause inserted as 2.2.
+  const q02 = await probe('r1-07-q02');
+  assert.deepEqual(listed(q02), ['Added a paragraph']);
+  assert.deepEqual(minor(q02), ['2.2 → 2.3', '2.3 → 2.4', '2.4 → 2.5']);
+  // reportlab: labels in a 34 pt column, a clause inserted as 3.2.
+  const w07t = await probe('r1-07-w07t');
+  assert.equal(w07t.changes.length, 1, JSON.stringify(listed(w07t)));
+  assert.deepEqual(minor(w07t), ['3.2 → 3.3', '3.3 → 3.4', '3.4 → 3.5', '3.5 → 3.6']);
+});
+
+test('a trailing-stop label changed by hand is listed, without a percentage (R1-07 control)', () => {
+  const old: [string, string][] = P.map((t, k) => [`4.${k + 1}.`, t]);
+  const byHand = old.map(([l, t], k): [string, string] => [k === 2 ? '4.4.' : l, t]);
+  assert.deepEqual(listed(compare(items('a', old), items('b', byHand))), ['Number changed: 4.3 → 4.4']);
+});
+
+test('full-width list labels ("１．") are renumbered after an inserted item (R1-08)', async () => {
+  // Chromium, IPAGothic: an item inserted as ３．
+  const p10 = await probe('r1-08-p10');
+  assert.deepEqual(listed(p10), ['Added “３． 緊急の故障には、連絡を受けてから四時間以内に対応する。”']);
+  assert.deepEqual(minor(p10), ['３ → ４', '４ → ５']);
+  // python-docx via LibreOffice: typed "１．" + tab, an item inserted as ２. Control: ASCII "1.".
+  const w08 = await probe('r1-08-w08');
+  assert.deepEqual(listed(w08), ['Added “２． 従業員は、私用の電話を勤務中に控えなければならない。”']);
+  assert.deepEqual(minor(w08), ['２ → ３', '３ → ４', '４ → ５']);
+  const w08c = await probe('r1-08-w08c');
+  assert.deepEqual(listed(w08c), ['Added “2. 従業員は、私用の電話を勤務中に控えなければならない。”']);
+  assert.deepEqual(minor(w08c), ['2 → 3', '3 → 4', '4 → 5']);
+});
+
+test('full-width labels changed by hand are listed, without a percentage (R1-08 control)', () => {
+  const old: [string, string][] = P.map((t, k) => [`${String.fromCharCode(0xff11 + k)}．`, t]);
+  const byHand = old.map(([l, t], k): [string, string] => [k === 2 ? '４．' : l, t]);
+  assert.deepEqual(listed(compare(items('a', old), items('b', byHand))), ['Number changed: ３ → ４']);
+});

@@ -109,7 +109,8 @@ test('figures in another column of a numbered table are not row numbers (R1-03)'
   // break is still a move (R1-13), but no row number is listed on its own.
   const q09t = await probe('r1-03-q09t');
   assert.deepEqual(r1_03Loose(q09t), []);
-  assert.equal(q09t.ignored.renumbered, 25);
+  assert.equal(q09t.ignored.renumbered, 26);
+  assert.ok(q09t.changes[0].new.text.startsWith('4 Interview notes, IT team'), q09t.changes[0].new.text);
 });
 const r1_03Loose = (r: CompareResult) => r.changes.filter((c) => c.numeric && c.inMove === undefined).map((c) => describeChange('en', c));
 

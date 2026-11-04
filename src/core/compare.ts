@@ -525,11 +525,12 @@ const sameUnit = (a: string, b: string) => !unitOf(a) || !unitOf(b) || unitOf(a)
  * table's first column) keeps them. Clause numbers set apart at the start
  * of a line ("8.4" → "8.5", see labelAt) get none either.
  */
-function isListLabel(T: Token[], s: number, e: number, text: string): boolean {
+function isListLabel(T: Token[], s: number, e: number, label: string): boolean {
   if (s > 0 && T[s - 1].line === T[s].line) return false;
+  const text = label.normalize('NFKC');
   if (/^\(\d{1,2}\)?$|^\d{1,2}\)$/.test(text)) return true;
   const next = T[e];
-  return /^\d{1,2}$/.test(text) && !!next && next.line === T[e - 1].line && !next.spaceBefore && /^[.)]$/.test(next.text);
+  return /^\d{1,2}$/.test(text) && !!next && next.line === T[e - 1].line && !next.spaceBefore && /^[.)]$/.test(next.text.normalize('NFKC'));
 }
 
 /** Words that a clause, step or page number follows in a cross-reference ("under clause 4.4", "see step 3", "§ 12", "第 4.4 条"). */
@@ -696,8 +697,9 @@ function slideToBoundaries(ops: DiffOp[], A: Token[], B: Token[]): void {
  * followed by the old clause's own text, the old label is paired with the
  * last one instead ("4.3" → "4.4", a renumbering for extractRenumbering) and
  * the insertion starts at the inserted clause's label. Deletions likewise.
- * The tokens that both items start with after the number move with it: the
- * mark of a label "4." ("4" + "."), an opening quote ("1.3 “Change”"). The
+ * The tokens on its line that both items start with after the number (up
+ * to 8) move with it: the mark of a label "4." ("4" + "."), an opening
+ * quote ("1.3 “Change”"), the words of a CJK item ("２． 従業員は、"). The
  * old label and the last one must be in the same role (see sameRole), so a
  * step inserted at the end of a step list does not take the label of the
  * heading after it. The pairing of the other words is unchanged.
@@ -745,11 +747,11 @@ function relabel(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: Hunk[]; p
       return sameRole(labelBox(uDoc, U[x - m].i, before), labelBox(tDoc, q.i, last));
     };
     let m = 0;
-    while (m <= 2 && !fits(m)) {
+    while (m <= 8 && !fits(m)) {
       m++;
-      if (s - m < 0 || T[s - m].key !== T[e - m].key) m = 3;
+      if (s - m < 0 || T[s - m].key !== T[e - m].key) m = 9;
     }
-    if (m > 2) {
+    if (m > 8) {
       out.push(h);
       continue;
     }
@@ -1620,9 +1622,11 @@ const clauseLevels = (levels: string[]) => !levels.some((p) => Number(p) === 0) 
  * The label that token k (a document token index) is, if any: the first
  * token of its line and set apart from the text after it.
  * - "4." "4)" "4、": a bare integer followed by that mark (as before).
- * - "8.4", "8.4.1": a multi-level clause number followed by a gap (a tab,
- *   at least half an em) and either starting its paragraph or hanging (the
- *   paragraph's other lines start where the text after the label starts).
+ * - "8.4", "8.4.1", "8.4." (the mark is part of the label): a multi-level
+ *   clause number followed by a gap (a tab, at least half an em) and either
+ *   starting its paragraph or hanging (the paragraph's other lines start
+ *   where the text after the label starts).
+ * Full-width digits and marks ("１．") count as their ASCII forms.
  *   A wrapped line that happens to start with a figure ("8.4 percent") is
  *   neither, so it stays an ordinary number. Clause numbers have no level
  *   0 and no leading zero in the first level (see clauseLevels): "09.00",
@@ -1639,22 +1643,31 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
   if (!t || t.kind !== 'number') return null;
   const line = doc.lines[t.line];
   if (!line || line.start !== k) return null;
+  // Full-width digits and marks ("１．") read as their ASCII forms.
+  const text = t.text.normalize('NFKC');
   const next = k + 1 < line.end ? doc.tokens[k + 1] : undefined;
+  const mark = !!next && !next.spaceBefore && /^[.)、]$/.test(next.text.normalize('NFKC'));
   const r = t.rects[t.rects.length - 1];
   const gap = next ? next.rects[0].x - (r.x + r.w) : Infinity;
   const blockStart = k === 0 || doc.tokens[k - 1].block !== t.block;
-  if (/^\d{1,3}$/.test(t.text)) {
-    if (next && !next.spaceBefore && /^[.)、．]$/.test(next.text)) return { parts: [Number(t.text)], style: 'list', line: t.line, len: 2 };
-    if (blockStart && gap >= t.size) return { parts: [Number(t.text)], style: 'cell', line: t.line, len: 1 };
+  if (/^\d{1,3}$/.test(text)) {
+    if (mark) return { parts: [Number(text)], style: 'list', line: t.line, len: 2 };
+    if (blockStart && gap >= t.size) return { parts: [Number(text)], style: 'cell', line: t.line, len: 1 };
     return null;
   }
-  const m = /^(\d{1,3}(?:\.\d{1,3}){1,4})\.?$/.exec(t.text);
-  if (!m || gap < 0.5 * t.size) return null;
+  const m = /^(\d{1,3}(?:\.\d{1,3}){1,4})\.?$/.exec(text);
+  if (!m) return null;
+  // A mark written onto the number ("4.3."): the label ends after it.
+  const len = mark ? 2 : 1;
+  const last = doc.tokens[k + len - 1];
+  const after = k + len < line.end ? doc.tokens[k + len] : undefined;
+  const re = last.rects[last.rects.length - 1];
+  if (after && after.rects[0].x - (re.x + re.w) < 0.5 * t.size) return null;
   const levels = m[1].split('.');
   if (!clauseLevels(levels)) return null;
   const hanging = () => {
-    if (!next) return false;
-    const x = next.rects[0].x;
+    if (!after) return false;
+    const x = after.rects[0].x;
     for (let j = Math.max(0, t.line - 12); j < Math.min(doc.lines.length, t.line + 12); j++) {
       const l = doc.lines[j];
       if (j !== t.line && l.block === t.block && Math.abs(l.rect.x - x) < 1.5) return true;
@@ -1662,7 +1675,7 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
     return false;
   };
   if (!blockStart && !hanging()) return null;
-  return { parts: levels.map(Number), style: 'list', line: t.line, len: 1 };
+  return { parts: levels.map(Number), style: 'list', line: t.line, len };
 }
 
 /**
@@ -1706,12 +1719,13 @@ interface Sibling {
  */
 function rowNumberAt(doc: DocModel, k: number): Label | null {
   const t = doc.tokens[k];
-  if (!t || t.kind !== 'number' || !/^\d{1,3}$/.test(t.text)) return null;
+  const text = t?.text.normalize('NFKC');
+  if (!t || t.kind !== 'number' || !/^\d{1,3}$/.test(text)) return null;
   const line = doc.lines[t.line];
   const next = k + 1 < line.end ? doc.tokens[k + 1] : undefined;
   const r = t.rects[t.rects.length - 1];
   if (next && next.rects[0].x - (r.x + r.w) < t.size) return null;
-  return { parts: [Number(t.text)], style: 'cell', line: t.line, len: 1 };
+  return { parts: [Number(text)], style: 'cell', line: t.line, len: 1 };
 }
 
 /** Where a label stands on its page: its left and right edge (the mark included) and its font size. */
@@ -2041,7 +2055,7 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
   const clusterAt = (doc: DocModel, l: Line): { now: number[] | null; before: number[]; tok: number } | null => {
     let end = l.start + 1;
     while (end < l.end && !doc.tokens[end].spaceBefore) end++;
-    const m = REDLINE_LABEL.exec(doc.tokens.slice(l.start, end).map((t) => t.text).join(''));
+    const m = REDLINE_LABEL.exec(doc.tokens.slice(l.start, end).map((t) => t.text).join('').normalize('NFKC'));
     const parts = (x: string) => x.split('.').map(Number);
     if (m) return { now: m[1] === undefined ? null : parts(m[1]), before: parts(m[2]), tok: l.start };
     const label = labelAt(doc, l.start);
@@ -2072,9 +2086,9 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
       if (changed(t.i)) return false;
       const o = matched[t.i];
       const s = o >= 0 ? other.at.get(o) : undefined;
-      return !!s && sameParts(s.label.parts, t.text.split('.').map(Number));
+      return !!s && sameParts(s.label.parts, t.text.normalize('NFKC').split('.').map(Number));
     };
-    const b = inner[0].text.split('.').map(Number);
+    const b = inner[0].text.normalize('NFKC').split('.').map(Number);
     if (keptAs(inner[0])) return outer.every((t) => changed(t.i));
     if (outer.length !== 1 || !keptAs(outer[0]) || !changed(inner[0].i)) return false;
     for (let j = line - 1; j >= Math.max(0, line - 60); j--) {
@@ -2097,7 +2111,7 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     const line = doc.lines[first.line];
     let end = line.start + 1;
     while (end < line.end && !doc.tokens[end].spaceBefore) end++;
-    if (side.end! > end || !labelShaped(doc.tokens.slice(line.start, end).map((t) => t.text).join(''), doc, first.line)) continue;
+    if (side.end! > end || !labelShaped(doc.tokens.slice(line.start, end).map((t) => t.text).join('').normalize('NFKC'), doc, first.line)) continue;
     const k = `${c.kind}:${first.line}`;
     let list = clusters.get(k);
     if (!list) clusters.set(k, (list = []));
