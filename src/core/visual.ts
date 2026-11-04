@@ -704,31 +704,35 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
     faintComps.forEach((c, k) => {
       const idx = samples[k];
       const step = Math.max(1, Math.floor(idx.length / 1500));
+      // Share of the samples that fit at offset (dx, dy).
+      const fit = (dx: number, dy: number) => {
+        let hit = 0;
+        let total = 0;
+        for (let j = 0; j < idx.length; j += step) {
+          const p = faintP[idx[j]];
+          const q0 = faintQ[idx[j]];
+          const qy = ((q0 / rd.width) | 0) + dy;
+          const qx = (q0 % rd.width) + dx;
+          total++;
+          if (qy < 0 || qx < 0 || qy >= rd.height || qx >= rd.width) continue;
+          const q = qy * rd.width + qx;
+          if (outside(s0[p], n0[q], x0[q]) <= rel(s0[p]) && outside(s1[p], n1[q], x1[q]) <= rel(s1[p]) && outside(s2[p], n2[q], x2[q]) <= rel(s2[p])) hit++;
+        }
+        return total ? hit / total : 0;
+      };
+      // The same light graphic, only anti-aliased differently: no difference
+      // (and no need to look for an offset).
+      if (fit(0, 0) >= 0.85) return;
       let best = 0;
-      let still = 0;
       let bx = 0;
       let by = 0;
       for (let dy = -S; dy <= S; dy++) {
         for (let dx = -S; dx <= S; dx++) {
-          let hit = 0;
-          let total = 0;
-          for (let j = 0; j < idx.length; j += step) {
-            const p = faintP[idx[j]];
-            const q0 = faintQ[idx[j]];
-            const qy = ((q0 / rd.width) | 0) + dy;
-            const qx = (q0 % rd.width) + dx;
-            total++;
-            if (qy < 0 || qx < 0 || qy >= rd.height || qx >= rd.width) continue;
-            const q = qy * rd.width + qx;
-            if (outside(s0[p], n0[q], x0[q]) <= rel(s0[p]) && outside(s1[p], n1[q], x1[q]) <= rel(s1[p]) && outside(s2[p], n2[q], x2[q]) <= rel(s2[p])) hit++;
-          }
-          const f = total ? hit / total : 0;
-          if (dx === 0 && dy === 0) still = f;
-          else if (f > best || (f === best && f > 0 && Math.abs(dx) + Math.abs(dy) < Math.abs(bx) + Math.abs(by))) [best, bx, by] = [f, dx, dy];
+          if (dx === 0 && dy === 0) continue;
+          const f = fit(dx, dy);
+          if (f > best || (f === best && f > 0 && Math.abs(dx) + Math.abs(dy) < Math.abs(bx) + Math.abs(by))) [best, bx, by] = [f, dx, dy];
         }
       }
-      // The same light graphic, only anti-aliased differently: no difference.
-      if (still >= 0.85) return;
       const blankHere = paperShare(faintP, idx, step) >= 0.95;
       // A light fill that moved keeps its ink too; one that grew does not.
       if (idx.length > 0 && best >= 0.85) cand.push({ rect: c.rect, ...inkBalance(c.rect, faintP, faintQ, idx, step, bx, by), blankHere });
@@ -1618,12 +1622,26 @@ function foundAt(src: Pick<Prepared, 'r' | 'mask'>, dst: Pick<Prepared, 'r'>, r:
   return m && m.miss <= 0.15 * m.n;
 }
 
+/** Offsets within ±S pixels, nearest first (the place `to` gives is the likeliest). */
+const spirals = new Map<number, Int8Array>();
+function spiral(S: number): Int8Array {
+  let o = spirals.get(S);
+  if (o) return o;
+  const list: [number, number][] = [];
+  for (let oy = -S; oy <= S; oy++) for (let ox = -S; ox <= S; ox++) list.push([ox, oy]);
+  list.sort((a, b) => Math.hypot(a[0], a[1]) - Math.hypot(b[0], b[1]));
+  spirals.set(S, (o = Int8Array.from(list.flat())));
+  return o;
+}
+
 /**
  * The sampled pixels of a region not found where `to` puts them at the
  * best offset within SHIFT_PT (see foundAt), counted up to `stop` of them
  * (a share): the count, the number sampled, the area one sample stands
  * for (pt²) and, with `where`, the box around them (src points). Text is
  * left out where `src.mask` is given. Null when there is nothing to sample.
+ * The offsets are tried nearest first; with `enough` (pt²), the search
+ * ends at the first offset where the missed samples cover less than that.
  */
 function missing(
   src: { r: Raster; mask: Uint8Array | null },
@@ -1634,6 +1652,7 @@ function missing(
   tol: number,
   stop = 1,
   where = false,
+  enough = 0,
 ): { miss: number; n: number; area: number; box: Rect | null } | null {
   const rs = src.r;
   const rd = dst.r;
@@ -1682,17 +1701,21 @@ function missing(
   const S = Math.round(SHIFT_PT * rd.scale);
   const n = pts.length / 2;
   const allowed = stop * n;
+  const area = (step * step) / (rs.scale * rs.scale);
+  // Missed samples that cover less than `enough` end the search.
+  const few = enough > 0 ? Math.ceil(enough / area) - 1 : 0;
+  const offsets = spiral(S);
   let best = Infinity;
   let bx = 0;
   let by = 0;
-  for (let oy = -S; oy <= S && best > 0; oy++) {
-    for (let ox = -S; ox <= S && best > 0; ox++) {
-      let miss = 0;
-      for (let k = 0; k < pts.length && miss <= allowed && miss < best; k += 2) {
-        if (!near(pts[k + 1] * rs.width + pts[k], at[k] + ox, at[k + 1] + oy)) miss++;
-      }
-      if (miss < best) [best, bx, by] = [miss, ox, oy];
+  for (let o = 0; o < offsets.length && best > few; o += 2) {
+    const ox = offsets[o];
+    const oy = offsets[o + 1];
+    let miss = 0;
+    for (let k = 0; k < pts.length && miss <= allowed && miss < best; k += 2) {
+      if (!near(pts[k + 1] * rs.width + pts[k], at[k] + ox, at[k + 1] + oy)) miss++;
     }
+    if (miss < best) [best, bx, by] = [miss, ox, oy];
   }
   let box: Rect | null = null;
   if (where && best > 0) {
@@ -1701,7 +1724,7 @@ function missing(
       if (!near(pts[k + 1] * rs.width + pts[k], at[k] + bx, at[k + 1] + by)) missed.push({ x: pts[k] / rs.scale, y: pts[k + 1] / rs.scale, w: step / rs.scale, h: step / rs.scale });
     box = union(missed);
   }
-  return { miss: best, n, area: (step * step) / (rs.scale * rs.scale), box };
+  return { miss: best, n, area, box };
 }
 
 /** Page pair (old:new) each visual change was found on, for merging across pairs. */
@@ -2242,6 +2265,14 @@ export interface RepeatedRow {
   /** Its lines, and the row's width across the text block (see rowAround). */
   lines: DocModel['lines'];
   rect: Rect;
+  /** The table row around its lines (see rowAround), within which compareRasters showed regions with it. */
+  band: Rect;
+  /**
+   * The row with the rules along it: its lines and most of the way to the
+   * band's edges (a rule between two rows lies halfway between their text),
+   * but not the next row's fill beyond.
+   */
+  edges: Rect;
 }
 
 /** The header rows repeated at moved page tops, per page and side (see RepeatedRow). */
@@ -2264,7 +2295,17 @@ export function repeatedRows(result: CompareResult): RepeatedRow[] {
         // not the rows above and below, which differ between copies.
         const top = Math.max(band.y, u.y - 0.3 * lh);
         const bottom = Math.min(band.y + band.h, u.y + u.h + 0.3 * lh);
-        out.push({ change: c, side, page, lines: own, rect: { x: band.x, y: top, w: band.w, h: bottom - top } });
+        const above = u.y - 0.7 * (u.y - band.y);
+        const below = u.y + u.h + 0.7 * (band.y + band.h - u.y - u.h);
+        out.push({
+          change: c,
+          side,
+          page,
+          lines: own,
+          rect: { x: band.x, y: top, w: band.w, h: bottom - top },
+          band,
+          edges: { x: band.x, y: Math.min(top, above), w: band.w, h: Math.max(bottom, below) - Math.min(top, above) },
+        });
       }
     }
   }
@@ -2316,34 +2357,77 @@ export function rowCopies(result: CompareResult, row: RepeatedRow, max = 4): Row
 }
 
 /**
- * Where a repeated header row has ink that a copy (see rowCopies) does not
- * show: the box around the ink of the row, glyphs included, that is not
- * found in the same colours at the copy (see movedWith), when it covers at
- * least 2 pt². Two copies of one row drawn by the same program match all
- * but a few pixels; a tick, a tint or a highlight put on one copy does not.
- * Null when the copy shows all of it.
+ * How a repeated header row and a copy of it (see rowCopies) differ: for
+ * each of three looks, the box where they do not look alike (covering at
+ * least 2 pt²), or null where they do.
+ * - `marks`: the ink of the row, glyphs included, that is not found in the
+ *   same colours at the copy (see movedWith): a tick, a tint or a highlight
+ *   put on this copy.
+ * - `fill`: outside the text, each one's ink that the other does not show,
+ *   in colours that must match closely (a light fill taken off one copy
+ *   differs from paper by only 20–40 levels; the same glyph drawn at
+ *   another sub-pixel position differs by more, so glyphs are left out).
+ * - `rules`: the same along the row's edges, above and below its text (see
+ *   RepeatedRow.edges): a rule under one copy recoloured, thickened or
+ *   taken off. Only a copy at the same place of its page tells (undefined
+ *   otherwise): a program may draw the rule under a table's first header
+ *   row unlike the one under its repeated copies.
+ * Two copies of one row drawn by the same program match all but a few
+ * pixels. `region` is the part of the row's page compared for marks and
+ * fill (by default the row itself): the row, and what compareRasters found
+ * differing around it on its page pair (see rowFolds).
  */
-export function rowDiffers(row: RepeatedRow, r: Raster, copy: RowCopy, rc: Raster): Rect | null {
-  const m = missing({ r, mask: null }, { r: rc }, row.rect, (x, y) => [(x * rc.scale) / r.scale + copy.dx * rc.scale, (y * rc.scale) / r.scale + copy.dy * rc.scale], true, 48, 1, true);
-  return m?.box && m.miss * m.area >= 2 ? m.box : null;
+export interface RowDifference {
+  marks: Rect | null;
+  fill: Rect | null;
+  rules: Rect | null | undefined;
+}
+export function rowDiffers(result: CompareResult, row: RepeatedRow, r: Raster, copy: RowCopy, rc: Raster, region: Rect = row.rect): RowDifference {
+  const at = (s: Raster, d: Raster, dx: number, dy: number) => (x: number, y: number): [number, number] => [(x * d.scale) / s.scale + dx * d.scale, (y * d.scale) / s.scale + dy * d.scale];
+  const docOf = (side: 'old' | 'new') => (side === 'old' ? result.oldDoc : result.newDoc);
+  const here = (where: Rect, tol: number, text: boolean) => {
+    const m = missing({ r, mask: text ? null : maskOf(docOf(row.side), row.page, r) }, { r: rc }, where, at(r, rc, copy.dx, copy.dy), true, tol, 1, true, 2);
+    return m?.box && m.miss * m.area >= 2 ? m.box : null;
+  };
+  const there = (where: Rect, tol: number) => {
+    const away = { ...where, x: where.x + copy.dx, y: where.y + copy.dy };
+    const m = missing({ r: rc, mask: maskOf(docOf(copy.side), copy.page, rc) }, { r }, away, at(rc, r, -copy.dx, -copy.dy), true, tol, 1, true, 2);
+    return m?.box && m.miss * m.area >= 2 ? { ...m.box, x: m.box.x - copy.dx, y: m.box.y - copy.dy } : null;
+  };
+  const both = (where: Rect, tol: number) => here(where, tol, false) ?? there(where, tol);
+  const e = row.edges;
+  const strips = [
+    { x: e.x, y: e.y, w: e.w, h: row.rect.y - e.y },
+    { x: e.x, y: row.rect.y + row.rect.h, w: e.w, h: e.y + e.h - row.rect.y - row.rect.h },
+  ].filter((q) => q.h > 0.5);
+  return {
+    marks: here(region, 48, true),
+    fill: both(region, 16),
+    rules: Math.abs(copy.dy) > 2 ? undefined : (strips.map((q) => both(q, 48)).find((b) => b) ?? null),
+  };
 }
 
 /**
  * A repeated header row that does not look like any of its copies (at
  * `rect`, see rowDiffers), or has none (`rect` null: each region shown with
- * it), is
- * a graphic change of its own: the regions that compareRasters showed with
- * the row there go with it and are taken off the row's consequence.
+ * it), is a graphic change of its own, at `rect`. Without a copy, the
+ * regions that compareRasters showed with the row there are its place and
+ * are taken off the row's consequence.
  */
 export function listRow(result: CompareResult, row: RepeatedRow, rect: Rect | null): Change | null {
   const mine = rowFolds(result).filter((f) => f.change === row.change && f.side === row.side && f.page === row.page && (!rect || intersects(expand(rect, 4), f.rect)));
   if (!rect && !mine.length) return null;
-  for (const f of mine) {
-    if (!f.place) continue;
-    const s = f.change[f.side];
-    s.rects = s.rects.filter((q) => q !== f.place);
+  // Where a copy was compared, the place is what differs from it (a tick,
+  // not the whole header band around it); the regions shown with the row
+  // stay with it. Without a copy, they are the place.
+  if (!rect) {
+    for (const f of mine) {
+      if (!f.place) continue;
+      const s = f.change[f.side];
+      s.rects = s.rects.filter((q) => q !== f.place);
+    }
   }
-  const place = union([...(rect ? [rect] : []), ...mine.map((f) => f.rect)]);
+  const place = rect ?? union(mine.map((f) => f.rect));
   const counterpart = row.side === 'old' ? result.oldToNew[row.page] : result.newToOld[row.page];
   const [op, np] = mine[0]?.pair ?? (row.side === 'old' ? [row.page, counterpart ?? -1] : [counterpart ?? -1, row.page]);
   const c = graphicChange(op, np, row.side === 'old' ? [place] : [], row.side === 'new' ? [place] : [], place.y);

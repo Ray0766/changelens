@@ -1,6 +1,6 @@
 import type { Change, CompareResult, DocModel, Rect, Side } from './types.ts';
 import { sortAndNumber } from './compare.ts';
-import { union as unionRect } from './geometry.ts';
+import { expand, intersects, union as unionRect } from './geometry.ts';
 import {
   alignPages,
   compareRasters,
@@ -19,6 +19,8 @@ import {
   sameGraphic,
   tooLargeToCompare,
   type Raster,
+  type RepeatedRow,
+  type RowCopy,
   type VisualPair,
 } from './visual.ts';
 
@@ -156,29 +158,67 @@ export async function addVisualChanges(
     }
     return r;
   };
+  // The row is compared with its copies together with what was found
+  // differing around it (its fill and the rules along it), so that a rule
+  // under one copy recoloured or taken off is seen as well.
+  const listed: { row: RepeatedRow; copy: RowCopy | null; rect: Rect | null; change: Change }[] = [];
   for (const row of repeatedRows(result)) {
     if (large(row.side, row.page)) continue;
-    let rect: Rect | null = null;
-    let same = false;
+    const around = rowFolds(result).filter((f) => f.change === row.change && f.side === row.side && f.page === row.page && intersects(f.rect, row.band));
+    const region = unionRect([row.rect, ...around.map((f) => f.rect)]);
+    // For each look (see rowDiffers), whether every copy that tells differs,
+    // and where the first one does. A copy alike in every look ends it.
+    const looks = { marks: { all: true, at: null as Rect | null, by: null as RowCopy | null, n: 0 }, fill: { all: true, at: null as Rect | null, by: null as RowCopy | null, n: 0 }, rules: { all: true, at: null as Rect | null, by: null as RowCopy | null, n: 0 } };
     let compared = false;
-    for (const copy of rowCopies(result, row)) {
+    const copies = rowCopies(result, row);
+    for (const copy of copies) {
       if (large(copy.side, copy.page)) continue;
       try {
         const [r, rc] = await Promise.all([page(row.side, row.page), page(copy.side, copy.page)]);
-        const d = rowDiffers(row, r, copy, rc);
+        const d = rowDiffers(result, row, r, copy, rc, region);
         compared = true;
-        if (!d) {
-          same = true;
-          break;
+        for (const k of ['marks', 'fill', 'rules'] as const) {
+          const v = d[k];
+          if (v === undefined) continue;
+          const l = looks[k];
+          l.n++;
+          if (!v) l.all = false;
+          else if (!l.at) [l.at, l.by] = [v, copy];
         }
-        rect ??= d;
+        if (!looks.marks.all && !looks.fill.all && (!looks.rules.all || (looks.rules.n === 0 && !copies.some((c) => Math.abs(c.dy) <= 2)))) break;
       } catch {
         // Not rendered: the next copy is tried.
       }
     }
-    if (same) continue;
+    const differs = (['marks', 'fill', 'rules'] as const).map((k) => looks[k]).find((l) => l.n > 0 && l.all);
+    if (compared && !differs) continue;
+    const rect = differs?.at ?? null;
+    const first = differs?.by ?? null;
     const c = listRow(result, row, compared ? rect : null);
-    if (c) found.push(c);
+    if (c) listed.push({ row, copy: first, rect, change: c });
+  }
+  // A copy that differs from the other version's copy at the same place
+  // of the page, which differs back at the same spot, is one edit seen from
+  // both sides (a tick put on the new copy, which the old copy lacks): one
+  // change with both places.
+  const shownRows = new Set<Change>();
+  const into = new Set<Change>();
+  for (const x of listed) {
+    const k = x.copy;
+    if (into.has(x.change) || !k || !x.rect || k.side === x.row.side || Math.abs(k.dy) > 2) continue;
+    const y = listed.find(
+      (y) => y !== x && !into.has(y.change) && y.row.side === k.side && y.row.page === k.page && !!y.rect && intersects(expand(x.rect!, 4), { ...y.rect, x: y.rect.x - k.dx, y: y.rect.y - k.dy }),
+    );
+    if (!y) continue;
+    const s = y.row.side;
+    x.change[s].rects.push(...y.change[s].rects);
+    x.change[s].pages = [...new Set(x.change[s].rects.map((q) => q.page))].sort((a, b) => a - b);
+    into.add(y.change);
+  }
+  for (const x of listed) {
+    if (into.has(x.change)) continue;
+    found.push(x.change);
+    shownRows.add(x.change);
   }
   pages.old.clear();
   pages.new.clear();
@@ -188,8 +228,11 @@ export async function addVisualChanges(
   // paired with the same page, it moved; it was not added or removed.
   const pushed = new Set<Change>();
   const again = { old: new Map<number, Promise<Raster>>(), new: new Map<number, Promise<Raster>>() };
+  // A repeated header row that looks unlike every copy of it (see
+  // rowDiffers) was compared with those copies already: it is not taken
+  // for a figure that moved.
   for (const c of found) {
-    if (c.minor || c.kind !== 'graphic' || c.format || c.pageChange || !c.old.rects.length === !c.new.rects.length) continue;
+    if (c.minor || c.kind !== 'graphic' || c.format || c.pageChange || shownRows.has(c) || !c.old.rects.length === !c.new.rects.length) continue;
     const at = foundOnPair(c);
     if (!at) continue;
     const side = c.old.rects.length ? 'old' : 'new';
@@ -212,7 +255,7 @@ export async function addVisualChanges(
   // Removed from one page and added to a neighbouring one with the same
   // look (a figure that a new page size put on the next page): it moved.
   const oneSided = (c: Change, side: 'old' | 'new') =>
-    !pushed.has(c) && !c.minor && c.kind === 'graphic' && !c.format && !c.pageChange && c[side].rects.length > 0 && !c[side === 'old' ? 'new' : 'old'].rects.length;
+    !pushed.has(c) && !shownRows.has(c) && !c.minor && c.kind === 'graphic' && !c.format && !c.pageChange && c[side].rects.length > 0 && !c[side === 'old' ? 'new' : 'old'].rects.length;
   const removed = found.filter((c) => oneSided(c, 'old'));
   const added = found.filter((c) => oneSided(c, 'new'));
   for (const r of removed) {
