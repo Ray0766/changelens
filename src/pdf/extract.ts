@@ -77,13 +77,18 @@ export async function extractPage(page: PDFPageProxy, index: number): Promise<Pa
     }
     if (str === '' && !item.hasEOL) continue;
     const style = tc.styles[item.fontName] ?? { fontFamily: 'sans-serif', ascent: 0.8, descent: -0.2 };
-    runs.push(
-      makeRun(viewport.transform, item.transform, item.width, str, Number(style.ascent), Number(style.descent), {
-        font: fontNames.get(item.fontName) || style.fontFamily || '',
-        family: familyOf(style.fontFamily),
-        eol: item.hasEOL,
-      }),
-    );
+    const run = makeRun(viewport.transform, item.transform, item.width, str, Number(style.ascent), Number(style.descent), {
+      font: fontNames.get(item.fontName) || style.fontFamily || '',
+      family: familyOf(style.fontFamily),
+      eol: item.hasEOL,
+    });
+    // A run placed by a matrix that is not finite (an overflowing scale)
+    // has no position to compare: its characters are counted as unreadable.
+    if (!placed(run)) {
+      unmapped += Array.from(str.replace(/\s/g, '')).length;
+      continue;
+    }
+    runs.push(run);
   }
   let fields: FieldRuns = { runs: [], unread: 0 };
   try {
@@ -95,6 +100,11 @@ export async function extractPage(page: PDFPageProxy, index: number): Promise<Pa
   const page_: PageText = { index, width: viewport.width, height: viewport.height, runs: placeFieldRuns(runs, fields.runs), unmapped };
   if (fields.unread) page_.fieldsUnread = fields.unread;
   return page_;
+}
+
+/** Every coordinate of the run is a finite number. */
+function placed(r: TextRun): boolean {
+  return [r.x, r.y, r.w, r.h, r.baseline, r.fontSize, ...(r.rot ? [r.rot.x, r.rot.len, r.rot.ascent, r.rot.descent] : [])].every(Number.isFinite);
 }
 
 /**
