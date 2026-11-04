@@ -2102,6 +2102,7 @@ function compareAligned(
   const newRects = cluster(bwdDiff.real, rb.width / rb.scale);
 
   const appearance: Change[] = [];
+  const furniture: Change[] = [];
   if (options.appearance !== false) {
     // Tokens a formatting change already reports — every place of an
     // aggregated one, found by position as well as by token range.
@@ -2153,6 +2154,18 @@ function compareAligned(
       return ca?.partial || cb?.partial ? 'skip' : [ca, cb];
     };
     appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover));
+    // Running headers and footers left out of the text comparison: a line
+    // through, under or a colour put on their words (a header's
+    // "Confidential" struck through) is a difference in them, counted with
+    // the others that are ignored (see furnitureMarks).
+    if (result.options.ignoreFurniture && result.oldToNew[oldPage] === newPage) {
+      const pairs = furniturePairs(result, oldPage, newPage);
+      if (pairs.length)
+        for (const c of appearanceChanges({ ...result, matches: Int32Array.from(pairs) }, oldPage, newPage, A, B, () => false, near, () => false, cover)) {
+          furnitureMarked.add(c);
+          furniture.push(c);
+        }
+    }
   }
 
   // Regions explained by text changes on the same page. Text that moved
@@ -2293,9 +2306,38 @@ function compareAligned(
     changes.push(minor);
   }
 
-  changes.push(...appearance);
+  changes.push(...appearance, ...furniture);
   for (const c of changes) foundOn.set(c, `${oldPage}:${newPage}`);
   return changes;
+}
+
+/** Appearance changes of running header and footer words (see compareAligned): counted, not listed. */
+const furnitureMarked = new WeakSet<Change>();
+export function furnitureMark(c: Change): boolean {
+  return furnitureMarked.has(c);
+}
+
+/**
+ * The words of the running header and footer lines of two corresponding
+ * pages, paired as matches ([old, new, …]): lines of the same words within
+ * 6 pt of the same place.
+ */
+function furniturePairs(result: CompareResult, oldPage: number, newPage: number): number[] {
+  const A = result.oldDoc;
+  const B = result.newDoc;
+  const of = (doc: DocModel, page: number) => doc.lines.filter((l) => l.page === page && l.furniture && l.end > l.start);
+  const key = (doc: DocModel, l: DocModel['lines'][number]) => doc.tokens.slice(l.start, l.end).map((t) => t.key).join(' ');
+  const lb = of(B, newPage);
+  const used = new Set<number>();
+  const out: number[] = [];
+  for (const a of of(A, oldPage)) {
+    const k = key(A, a);
+    const b = lb.find((l) => !used.has(l.id) && Math.abs(l.rect.x - a.rect.x) <= 6 && Math.abs(l.rect.y - a.rect.y) <= 6 && key(B, l) === k);
+    if (!b) continue;
+    used.add(b.id);
+    for (let i = 0; i < a.end - a.start; i++) out.push(a.start + i, b.start + i);
+  }
+  return out;
 }
 
 /**

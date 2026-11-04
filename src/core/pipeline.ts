@@ -6,6 +6,7 @@ import {
   compareRasters,
   dedupeGraphics,
   foundOnPair,
+  furnitureMark,
   pageGraphics,
   pageSignature,
   planVisual,
@@ -26,6 +27,9 @@ import {
 
 export type RenderFn = (page: number) => Promise<Raster>;
 
+/** The header and footer differences found as text, per result (see addVisualChanges). */
+const furnitureText = new WeakMap<CompareResult, number>();
+
 /**
  * Add visual (graphic / colour) changes to a text comparison. Pages are
  * rendered on demand through the supplied callbacks and released as soon
@@ -41,6 +45,10 @@ export async function addVisualChanges(
 ): Promise<Change[]> {
   const docs = { old: result.oldDoc, new: result.newDoc };
   const render = { old: renderOld, new: renderNew };
+  // Header and footer differences found as text, before this stage added
+  // the ones it finds in their look (an earlier run on this result).
+  const textFurniture = furnitureText.get(result) ?? result.ignored.furniture;
+  furnitureText.set(result, textFurniture);
   // Regions shown with repeated header rows by an earlier run on this result.
   rowFolds(result).splice(0);
   const skipped = { old: new Set<number>(), new: new Set<number>() };
@@ -293,6 +301,11 @@ export async function addVisualChanges(
     if (count > 1) c.places = count;
     pageChanges.push(c);
   }
+  // A line or a colour put on header or footer words: a difference in
+  // them, which is ignored with the others and counted (shown on request).
+  const marks = found.filter(furnitureMark);
+  if (marks.length) found.splice(0, found.length, ...found.filter((c) => !furnitureMark(c)));
+  result.ignored.furniture = textFurniture + marks.length;
   await graphicsOfUnpairedPages(result, pairs, render, large);
   const visual = [...dedupeGraphics(found.filter((c) => !c.minor)), ...pageChanges];
   const shifts = found.filter((c) => c.minor);
