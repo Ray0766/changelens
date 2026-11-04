@@ -75,3 +75,19 @@ test('R3-05: a comb value is located on the cells it is drawn in (right-aligned,
     assert.ok(Math.abs(q.x - cells[k][0]) < 1 && Math.abs(q.x + q.w - cells[k][1]) < 1, JSON.stringify(q));
   });
 });
+
+test('R3-03: field values on a page turned in the new version follow their labels', async () => {
+  // Timesheet, 5 labelled fields; the new version is the same page saved turned (/Rotate 90).
+  assert.deepEqual(listed(await run('R3-03-upright', 'R3-03-turned')), []);
+  let r = await run('R3-03-upright', 'R3-03-turned-edit');
+  assert.deepEqual(listed(r), ['Number changed: 7.5 → 5.7 (-24%) (form field)']);
+  // The new value lies in the turned widget (the "Hours" row runs down the page).
+  const q = r.changes[0].new.rects[0].rect;
+  assert.ok(q.h > q.w && q.y > 200 && q.y + q.h < 300, JSON.stringify(q));
+  // Control: both versions turned, two edits.
+  r = await run('R3-03-turned', 'R3-03-turned-both-edit');
+  assert.deepEqual(listed(r), ['Number changed: 7.5 → 5.7 (-24%) (form field)', 'Changed “Ndlovu” → “Ndlovu-Smit” (form field)']);
+  // Purchase order (reportlab appearances), the new page turned by 270.
+  r = await run('R3-03-rl-before', 'R3-03-rl-after');
+  assert.deepEqual(listed(r), ['Number changed: 12 → 21 (+75%) (form field)']);
+});

@@ -1,6 +1,7 @@
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import type { DocText, PageText, TextRun } from '../core/types.ts';
 import { charWeight } from '../core/fontwidths.ts';
+import { upright } from '../core/tokenize.ts';
 
 type Matrix = [number, number, number, number, number, number];
 
@@ -416,25 +417,33 @@ function wrap(line: string, width: number, advance: (s: string) => number): stri
  * to its left and runs on under the widget, or else after the line of the
  * nearest content above it, or first on the page. The label's
  * line-break flag moves to the field's last run, so label and value form one
- * line, as they read on the page.
+ * line, as they read on the page. On a turned page (/Rotate) the content
+ * and the fields run in the same direction: positions are compared in the
+ * upright frame of that direction, as lines are built (see upright()).
  */
 export function placeFieldRuns(content: TextRun[], fields: TextRun[][]): TextRun[] {
   if (!fields.length) return content;
   const runs = content.slice();
+  const up = runs.map(upright);
   const after = new Map<number, TextRun[][]>();
   /** Content runs that fields follow on the same line, with their own line-break flag. */
   const labelEol = new Map<number, boolean>();
+  /** Each field's first run in the upright frame of its direction (for sorting). */
+  const key = new Map<TextRun[], TextRun>();
   for (const group of fields) {
-    const f = group[0];
+    const f = upright(group[0]);
+    key.set(group, f);
     const size = Math.max(1, f.fontSize);
+    /** The content run reads in the field's direction (both upright, or both turned with the page). */
+    const along = (c: TextRun) => c.angle === f.angle && (c.angle === 0 || (!!c.rot && !!group[0].rot)) && !!c.str.trim();
     let at = -1;
     let bestRight = -Infinity;
     // A label that runs on under the widget (the widget's fill covers its
     // end): the same-line run that starts closest to the left of the value.
     let under = -1;
     let bestLeft = -Infinity;
-    runs.forEach((c, k) => {
-      if (f.angle !== 0 || c.angle !== 0 || !c.str.trim()) return;
+    up.forEach((c, k) => {
+      if (!along(c)) return;
       if (Math.abs(c.baseline - f.baseline) >= 0.5 * Math.max(size, c.fontSize)) return;
       const right = c.x + c.w;
       if (right <= f.x + 0.5 * size && right > bestRight) {
@@ -446,10 +455,7 @@ export function placeFieldRuns(content: TextRun[], fields: TextRun[][]): TextRun
       }
     });
     if (at < 0) at = under;
-    if (f.angle !== 0) {
-      // Rotated text (a page with /Rotate): after the page's content.
-      at = runs.length - 1;
-    } else if (at >= 0) {
+    if (at >= 0) {
       // Label and value on one line: the label's line break goes after the
       // last value on its line (see below).
       if (!labelEol.has(at)) labelEol.set(at, runs[at].eol);
@@ -457,8 +463,8 @@ export function placeFieldRuns(content: TextRun[], fields: TextRun[][]): TextRun
     } else {
       // The nearest content line above the field; then the rest of that line.
       let best = -Infinity;
-      runs.forEach((c, k) => {
-        if (c.angle !== 0 || !c.str.trim() || c.baseline > f.y + 0.2 * size) return;
+      up.forEach((c, k) => {
+        if (!along(c) || c.baseline > f.y + 0.2 * size) return;
         const overlap = Math.min(c.x + c.w, f.x + f.w) - Math.max(c.x, f.x) > 0 ? 0.5 : 0;
         const score = c.baseline + overlap;
         if (score > best) {
@@ -466,17 +472,20 @@ export function placeFieldRuns(content: TextRun[], fields: TextRun[][]): TextRun
           at = k;
         }
       });
-      while (at >= 0 && at + 1 < runs.length && !runs[at].eol && Math.abs(runs[at + 1].baseline - runs[at].baseline) < 0.5 * Math.max(1, runs[at].fontSize)) at++;
+      while (at >= 0 && at + 1 < runs.length && !runs[at].eol && Math.abs(up[at + 1].baseline - up[at].baseline) < 0.5 * Math.max(1, runs[at].fontSize)) at++;
+      // Turned text with no content in its direction: after the page's content.
+      if (at < 0 && f.angle !== 0 && !up.some(along)) at = runs.length - 1;
     }
     let list = after.get(at);
     if (!list) after.set(at, (list = []));
     list.push(group);
   }
+  const order = (x: TextRun[], y: TextRun[]) => key.get(x)!.baseline - key.get(y)!.baseline || key.get(x)!.x - key.get(y)!.x;
   const out: TextRun[] = [];
-  for (const g of (after.get(-1) ?? []).sort((x, y) => x[0].baseline - y[0].baseline || x[0].x - y[0].x)) out.push(...g);
+  for (const g of (after.get(-1) ?? []).sort(order)) out.push(...g);
   runs.forEach((c, k) => {
     out.push(c);
-    const groups = (after.get(k) ?? []).sort((x, y) => x[0].baseline - y[0].baseline || x[0].x - y[0].x);
+    const groups = (after.get(k) ?? []).sort(order);
     groups.forEach((g, j) => {
       const eol = labelEol.get(k);
       if (eol !== undefined) g[g.length - 1] = { ...g[g.length - 1], eol: j === groups.length - 1 ? eol : false };
@@ -485,8 +494,6 @@ export function placeFieldRuns(content: TextRun[], fields: TextRun[][]): TextRun
   });
   return out;
 }
-
-
 
 export async function extractText(
   pdf: PDFDocumentProxy,

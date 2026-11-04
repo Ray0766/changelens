@@ -63,7 +63,7 @@ function fold(ch: string): string {
  * angle so that it reads left to right, lines and characters are worked out
  * there, and the resulting boxes are turned forward into page space.
  */
-function upright(r: TextRun): TextRun {
+export function upright(r: TextRun): TextRun {
   if (r.angle === 0 || !r.rot) return r;
   const a = (r.angle * Math.PI) / 180;
   const u = r.rot.x * Math.cos(a) + r.baseline * Math.sin(a);
