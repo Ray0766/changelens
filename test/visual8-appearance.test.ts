@@ -24,6 +24,7 @@ async function run(before: string, after: string): Promise<CompareResult> {
   return r;
 }
 const list = (cs: Change[]) => cs.map((c) => describeChange('en', c));
+const formatsOf = (r: CompareResult) => list(r.changes.filter((c) => c.format?.appearanceChanged));
 
 test('R5-13: a red rule drawn under a repeated header copy does not recolour the data row whose tall boxes reach it', { skip }, async () => {
   // Calc word boxes are 13.4 pt tall for 10 pt text; one row inserted near
@@ -143,4 +144,21 @@ test('R3-V01: words added or deleted in a shaded cell or a filled field are not 
   assert.ok(graphics(red).some((c) => hits(c, 'new', 1, 190, 154)), list(red.changes).join(' | '));
   const tint = await run('probe8-R3-V01-cell-before.pdf', 'probe8-R3-V01-cell-added-tint.pdf');
   assert.ok(graphics(tint).some((c) => hits(c, 'new', 1, 310, 154)), list(tint.changes).join(' | '));
+});
+
+test('R5-12, R5-V02: a table rule or a fill edge along a re-flowed row is not an underline of its text', { skip }, async () => {
+  // LibreOffice Writer: the row "PUM-023 Test alarms 20 Contractor" was
+  // split at the foot of old p. 1, its bottom border right under the text;
+  // two notes added at the top put it whole on new p. 2. Before: "Underline
+  // removed: “PUM-023 Test alarms 20 Contract…”".
+  const w = await run('probe8-R5-12-before.pdf', 'probe8-R5-12-reflow.pdf');
+  assert.deepEqual(formatsOf(w), [], list(w.changes).join(' | '));
+  assert.ok(w.changes.some((c) => c.kind === 'insert'));
+  // Chromium: a header row in white on navy moved down by two notes; the
+  // band's lower edge lands 0.7 pt off the text's displacement. Before:
+  // "Underlined: “Item Description Bin Qty Unit c…”".
+  const d = await run('probe8-R5-V02-before.pdf', 'probe8-R5-V02-two-notes.pdf');
+  assert.deepEqual(list(d.changes), ['Added 2 paragraphs']);
+  // Real underlines elsewhere (CJK, under a watermark, on a running header
+  // row) are still found: see V06, V07 and V12 in visual6-probes.
 });

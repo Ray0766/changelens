@@ -1128,7 +1128,7 @@ function boxDarkness(side: Prepared, rect: Rect, on?: { rect: Rect; scale: numbe
  * that ink are compared; where the glyphs show through it (it lies behind
  * them, or is transparent), its own colour counts as paper.
  */
-function addedLine(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: Cover | null = null, cb: Cover | null = null): 'strike' | 'underline' | null {
+function addedLine(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: Cover | null = null, cb: Cover | null = null): { line: 'strike' | 'underline'; rows: [number, number] } | null {
   // A box narrower than this has too few pixel columns to tell a line from
   // a glyph drawn at another sub-pixel position. A single figure struck
   // through ("<s>5</s> working days") is a common redline, so the limit is
@@ -1252,7 +1252,7 @@ function addedLine(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, c
     if (diff > (narrow ? 0.08 : 0.35) * total + (narrow ? 0.1 : 0.5)) return null;
     const rel = (B.top + (k + e + 1) / 2 / b.r.scale - rb.y) / rb.h;
     if (rel < 0.3) return null;
-    return rel >= 0.72 ? 'underline' : 'strike';
+    return { line: rel >= 0.72 ? 'underline' : 'strike', rows: [Math.round(B.ys[k]), Math.round(B.ys[e])] };
   }
   return null;
 }
@@ -1306,6 +1306,32 @@ function appearanceChanges(
     const clip = (r: Rect) => ({ x: r.x, y: r.y + top, w: r.w, h: Math.max(1, r.h - top - bottom) });
     return [clip(a.rects[0]), clip(b.rects[0])];
   };
+  // An "underline" that runs on past an end of the word's line of text, at
+  // its rows, by 3 pt or more is a rule or the edge of a fill along the
+  // table row (the border of a row split at the page foot, the lower edge
+  // of a dark header band 0.7 pt off after a re-flow), not a line under
+  // the text: an underline ends with the text. Null for that, else the
+  // line found.
+  const rowEdge = (found: ReturnType<typeof addedLine>, X: Prepared, lines: DocModel['lines'], t: Token) => {
+    if (!found || found.line !== 'underline') return found;
+    const l = lines.find((x) => x.id === t.line);
+    if (!l) return found;
+    const s = X.r.scale;
+    const d = 3;
+    const [y0, y1] = found.rows;
+    const dark = (x0: number, x1: number) => {
+      let n = 0;
+      let m = 0;
+      for (let x = Math.max(0, Math.round(x0 * s)); x < Math.min(X.r.width, Math.round(x1 * s)); x++) {
+        let sum = 0;
+        for (let y = Math.max(0, y0 - 1); y <= Math.min(X.r.height - 1, y1 + 1); y++) sum += (255 - X.lum[y * X.r.width + x]) / 255;
+        m++;
+        if (sum >= 0.6) n++;
+      }
+      return m > 0 && n >= 0.85 * m;
+    };
+    return dark(l.rect.x - d - 1, l.rect.x - 1) || dark(l.rect.x + l.rect.w + 1, l.rect.x + l.rect.w + d + 1) ? null : found;
+  };
   type Hit = { a: Token; b: Token; colour: boolean; line?: { line: 'strike' | 'underline'; added: boolean }; ink?: Ink };
   const hits: Hit[] = [];
   for (let p = 0; p < m.length; p += 2) {
@@ -1319,10 +1345,10 @@ function appearanceChanges(
     if (over === 'skip') continue;
     const [ca, cb] = over;
     const few = b.kind === 'cjk' || [...b.text].length <= 2;
-    const added = addedLine(A, a.rects[0], B, b.rects[0], few, ca, cb);
-    const removed = added ? null : addedLine(B, b.rects[0], A, a.rects[0], few, cb, ca);
+    const added = rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, ca, cb), B, pageLines.new, b);
+    const removed = added ? null : rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, cb, ca), A, pageLines.old, a);
     if (added || removed) {
-      hits.push({ a, b, colour: false, line: { line: (added ?? removed)!, added: !!added } });
+      hits.push({ a, b, colour: false, line: { line: (added ?? removed)!.line, added: !!added } });
       continue;
     }
     // A graphic that changed next to (or behind) the word explains its ink
