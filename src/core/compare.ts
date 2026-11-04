@@ -448,6 +448,8 @@ function textChange(ctx: Ctx, h: Hunk): Change {
       balanced(to) &&
       !(isListLabel(A, h.a0, h.a1, from) && isListLabel(B, h.b0, h.b1, to)) &&
       !(h.a1 - h.a0 === 1 && h.b1 - h.b0 === 1 && labelAt(ctx.oldDoc, A[h.a0].i)?.style === 'list' && labelAt(ctx.newDoc, B[h.b0].i)?.style === 'list') &&
+      !referenceNumber(A, h.a0, h.a1) &&
+      !referenceNumber(B, h.b0, h.b1) &&
       sameUnit(from, to) &&
       !halfOfGroupedNumber(ctx, h);
     const decimal = decimalMark(from) ?? decimalMark(to) ?? undefined;
@@ -521,6 +523,29 @@ function isListLabel(T: Token[], s: number, e: number, text: string): boolean {
   if (/^\(\d{1,2}\)?$|^\d{1,2}\)$/.test(text)) return true;
   const next = T[e];
   return /^\d{1,2}$/.test(text) && !!next && next.line === T[e - 1].line && !next.spaceBefore && /^[.)]$/.test(next.text);
+}
+
+/** Words that a clause, step or page number follows in a cross-reference ("under clause 4.4", "see step 3", "§ 12", "第 4.4 条"). */
+const REFERENCE_WORD =
+  /^(?:clauses?|sections?|§§?|art|arts|articles?|paragraphs?|paras?|item|step|page|pp?|figure|fig|table|tab|footnote|annex|appendix|schedule|exhibit|chapter|no|nos|nr|ziffern?|abschnitte?|artikel|absatz|seite|第)\.?$/i;
+
+/**
+ * T[s, e) is a number that names something rather than measuring it: a
+ * cross-reference ("clause 4.4", "[12]", "第 4.4 条") or a figure written
+ * with a leading zero ("09.00", "007"). Such a change gets no percentage.
+ */
+function referenceNumber(T: Token[], s: number, e: number): boolean {
+  if (e - s !== 1) return false;
+  const t = T[s];
+  if (/^0\d/.test(t.text)) return true;
+  const before = T[s - 1];
+  const after = T[e];
+  const sameLine = (x: Token | undefined) => !!x && x.line === t.line;
+  // The word, also when abbreviated with a full stop ("No. 12", "Art. 5").
+  const word = before?.text === '.' && !before.spaceBefore ? T[s - 2] : before;
+  if (sameLine(word) && REFERENCE_WORD.test(word!.text)) return true;
+  if (sameLine(after) && /^[条款项章节]$/.test(after!.text)) return true;
+  return sameLine(before) && sameLine(after) && before!.text === '[' && after!.text === ']' && !t.spaceBefore && !after!.spaceBefore;
 }
 
 /** Unit and currency symbols that are written directly onto numbers. */
@@ -1295,11 +1320,10 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   });
   mergeNearby(changes, oldDoc, newDoc);
   markDuplicates(changes, B);
-  // The old line facing a new token: that of the nearest matched token before it.
-  const oldLineOf = new Int32Array(newDoc.tokens.length + 1).fill(-1);
-  for (let p = 0; p < pairs.length; p += 2) oldLineOf[B[pairs[p + 1]].i] = A[pairs[p]].line;
-  for (let k = 1; k < oldLineOf.length; k++) if (oldLineOf[k] < 0) oldLineOf[k] = oldLineOf[k - 1];
-  const renumbered = extractRenumbering(changes, oldDoc, newDoc, (k) => oldLineOf[k]);
+  // Matched text, by document token: the new token facing each old one (or -1).
+  const newOfOld = new Int32Array(oldDoc.tokens.length).fill(-1);
+  for (const list of [pairs, moved.inPlace]) for (let p = 0; p < list.length; p += 2) newOfOld[A[list[p]].i] = B[list[p + 1]].i;
+  const renumbered = extractRenumbering(changes, oldDoc, newDoc, newOfOld);
   aggregateReplacements(changes);
   if (options.detectFormatting) {
     const formats = [...detectFormatting(ctx, ops), ...detectFormatting(ctx, moved.innerOps)];
@@ -1542,11 +1566,14 @@ interface Label {
  *   at least half an em) and either starting its paragraph or hanging (the
  *   paragraph's other lines start where the text after the label starts).
  *   A wrapped line that happens to start with a figure ("8.4 percent") is
- *   neither, so it stays an ordinary number.
+ *   neither, so it stays an ordinary number. Clause numbers do not start at
+ *   0 and have no leading zeros: "09.00", "15.03.27" and "0.8" in a table's
+ *   first cell are a time, a date and a measure.
  * - "7": a bare integer that starts a paragraph (a table row) and stands in
  *   a cell of its own (the next text is at least an em away, or there is
- *   none). Only runs of such numbers can be a renumbering (see
- *   extractRenumbering).
+ *   none).
+ * Whether a label is part of a numbered list is decided by its neighbours
+ * (see numberedRun).
  */
 function labelAt(doc: DocModel, k: number | undefined): Label | null {
   if (k === undefined) return null;
@@ -1565,6 +1592,8 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
   }
   const m = /^(\d{1,3}(?:\.\d{1,3}){1,4})\.?$/.exec(t.text);
   if (!m || gap < 0.5 * t.size) return null;
+  const levels = m[1].split('.');
+  if (levels[0] === '0' || levels.some((p) => p.length > 1 && p[0] === '0')) return null;
   const hanging = () => {
     if (!next) return false;
     const x = next.rects[0].x;
@@ -1575,16 +1604,15 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
     return false;
   };
   if (!blockStart && !hanging()) return null;
-  return { parts: m[1].split('.').map(Number), style: 'list', line: t.line };
+  return { parts: levels.map(Number), style: 'list', line: t.line };
 }
 
 /**
  * How label a became label b when it was renumbered: exactly one level
  * changed, by at most 3, and every deeper level is the same ("8.4" → "8.5"
- * and "8.4.1" → "8.5.1" shift the same level of the same parent, so they
- * share a key).
+ * and "8.4.1" → "8.5.1" shift the same level of the same parent).
  */
-function labelShift(a: Label, b: Label): { key: string; delta: number } | null {
+function labelShift(a: Label, b: Label): { level: number; delta: number } | null {
   if (a.style !== b.style || a.parts.length !== b.parts.length) return null;
   let level = -1;
   for (let i = 0; i < a.parts.length; i++) {
@@ -1595,43 +1623,146 @@ function labelShift(a: Label, b: Label): { key: string; delta: number } | null {
   if (level < 0) return null;
   const delta = b.parts[level] - a.parts[level];
   if (Math.abs(delta) > 3) return null;
-  return { key: `${a.style}:${a.parts.slice(0, level).join('.')}:${level}:${delta}`, delta };
+  return { level, delta };
+}
+
+/** A line-start label in the list of its siblings (see labelSequences). */
+interface Sibling {
+  /** Document token index of the label. */
+  tok: number;
+  label: Label;
+  /** The siblings, this one included, in reading order. */
+  list: Sibling[];
+  index: number;
+  /** Position among all labels of the document. */
+  pos: number;
+}
+
+/**
+ * A bare integer that starts a line and stands in a cell of its own (the
+ * next text is at least an em away, or there is none): a row number, also
+ * where the table's text blocks do not start at the row (labelAt asks for
+ * that). Used with labelAt to read a column of row numbers as a whole (see
+ * labelSequences); whether it is one is decided by numberedRun.
+ */
+function rowNumberAt(doc: DocModel, k: number): Label | null {
+  const t = doc.tokens[k];
+  if (!t || t.kind !== 'number' || !/^\d{1,3}$/.test(t.text)) return null;
+  const line = doc.lines[t.line];
+  const next = k + 1 < line.end ? doc.tokens[k + 1] : undefined;
+  const r = t.rects[t.rects.length - 1];
+  if (next && next.rects[0].x - (r.x + r.w) < t.size) return null;
+  return { parts: [Number(t.text)], style: 'cell', line: t.line };
+}
+
+/**
+ * The line-start labels of a document (running headers and footers left
+ * out), each in the list of its siblings: labels of the same style with the
+ * same number of levels under the same parent ("4.1", "4.2", "4.3" under
+ * clause 4; "1.", "2.", "3." at the top level; a table's row numbers).
+ */
+function labelSequences(doc: DocModel): { at: Map<number, Sibling>; all: Sibling[] } {
+  const at = new Map<number, Sibling>();
+  const all: Sibling[] = [];
+  const lists = new Map<string, Sibling[]>();
+  for (const line of doc.lines) {
+    if (line.furniture || line.end <= line.start) continue;
+    const label = labelAt(doc, line.start) ?? rowNumberAt(doc, line.start);
+    if (!label) continue;
+    const key = `${label.style}|${label.parts.length}|${label.parts.slice(0, -1).join('.')}`;
+    let list = lists.get(key);
+    if (!list) lists.set(key, (list = []));
+    const s: Sibling = { tok: line.start, label, list, index: list.length, pos: all.length };
+    list.push(s);
+    at.set(line.start, s);
+    all.push(s);
+  }
+  return { at, all };
+}
+
+const lastLevel = (s: Sibling) => s.label.parts[s.label.parts.length - 1];
+
+/**
+ * The siblings before s that number on to it without a gap from 1 ("4.1",
+ * "4.2" before "4.3"; a list that starts again at 1 starts a new run). Null
+ * when s does not number on from 1: after a gap or a repeated number, or a
+ * figure that only looks like a label (a time "10.30", a quantity column
+ * "2, 3, 4", a date).
+ */
+function numberedRun(s: Sibling): Sibling[] | null {
+  let i = s.index;
+  while (i > 0 && lastLevel(s.list[i - 1]) === lastLevel(s.list[i]) - 1) i--;
+  return lastLevel(s.list[i]) === 1 ? s.list.slice(i, s.index) : null;
+}
+
+/** Header words of a column of quantities ("Qty", "Menge", "数量"): its figures are amounts, never row numbers. */
+const QUANTITY_HEADER = /^(?:qty|qtys|quantity|quantities|menge|anzahl|stk|pcs|units?|qté|quantité|cantidad|cant|quantità|aantal|数量|件数|台数)$/i;
+
+/** The header cell above a run's first row number (the nearest line above that starts in its column) names a column of quantities. */
+function quantityColumn(doc: DocModel, first: Sibling): boolean {
+  const t = doc.tokens[first.tok];
+  const r = t.rects[0];
+  for (let j = first.label.line - 1; j >= Math.max(0, first.label.line - 8); j--) {
+    const l = doc.lines[j];
+    if (l.page !== t.page) break;
+    if (l.end <= l.start) continue;
+    const q = doc.tokens[l.start].rects[0];
+    if (q.x >= r.x + r.w + 2 || r.x >= q.x + q.w + 2) continue;
+    // Its first word (CJK characters are tokens of their own: 数|量).
+    let k = l.start + 1;
+    while (k < l.end && !doc.tokens[k].spaceBefore && doc.tokens[k].kind !== 'punct') k++;
+    return QUANTITY_HEADER.test(doc.tokens.slice(l.start, k).map((x) => x.text).join(''));
+  }
+  return false;
 }
 
 /** A redline display of a list label: "4.3[4.4]" (renumbered, old number in brackets) or "[4.3]" (the label of a deleted item). */
-const REDLINE_LABEL = /^(?:\d{1,3}(?:\.\d{1,3})*\.?)?\[\d{1,3}(?:\.\d{1,3})*\.?\]$/;
+const REDLINE_LABEL = /^(?:(\d{1,3}(?:\.\d{1,3})*)\.?)?\[(\d{1,3}(?:\.\d{1,3})*)\.?\]$/;
 
 /**
- * List numbers that changed only because an item was added, removed or
- * moved above them. They are consequences, not edits: taken out of the
- * change list (shown on request) and counted.
- * - List and clause labels ("4." → "5.", "8.4" → "8.5", "8.4.1" → "8.5.1"):
- *   two or more nearby labels with the same shift (the same level of the
- *   same parent, by the same amount), or one right after an insertion,
- *   deletion or move. Clause numbering is automatic in word processors, so
- *   inserting clause 8.3 shifts 8.4 and all its sub-clauses alike.
- * - Row numbers in a table's first column ("7" → "8", "8" → "9", …): only a
- *   run of at least two rows whose numbers are consecutive in both versions
- *   and shift by the same amount, right after an inserted, deleted or moved
- *   row. A column of figures does not look like that by chance.
+ * List numbers that changed only because numbered items were added,
+ * removed or moved. They are consequences, not edits: taken out of the
+ * change list (shown on request) and counted. Each needs positive evidence;
+ * a label that changed without it is listed.
+ * - List, clause and row labels ("4." → "5.", "8.4" → "8.5", a table's row
+ *   number "7" → "8"): one level changed, by at most 3, and
+ *   (1) the label numbers on from 1 among its siblings (the labels of the
+ *       same level under the same parent) in both versions, with no gap and
+ *       no repeated number (see numberedRun): times, dates, quantities and
+ *       isolated figures do not;
+ *   (2) the shift equals the number of siblings above it that are in the
+ *       new version only (added, or moved there) minus those in the old
+ *       version only (removed, or moved away). A sibling counts only when
+ *       its label is not matched text: it lies in an insertion, deletion,
+ *       move or replacement that is listed.
+ *   So a clause inserted as 8.3 explains 8.3 → 8.4 and 8.4 → 8.5, but not
+ *   8.4 → 8.6, not a label changed in another section, and not a list
+ *   renumbered by hand with nothing added or removed. A column of row
+ *   numbers headed "Qty" (or similar) is a column of figures.
+ * - Sub-clauses that follow their clause ("8.4.1" → "8.5.1"): the clause
+ *   label above it at the level that changed is itself such a consequence.
  * - The label at the start of a moved passage (and its sub-clauses), which
- *   takes the number of its new place ("7.2" → "3.4"): the move stays
- *   "Moved", not "Moved and edited".
+ *   takes the number of its new place ("7.2" → "3.4"): both numbers number
+ *   on from 1 among their siblings (as in (1)); the move stays "Moved", not
+ *   "Moved and edited". A figure at the start of a moved table row ("0.8"
+ *   → "1.5") is an edit inside the move.
  * - A tracked-change display of a renumbered label ("4.3[4.4]", "[4.3]" in a
- *   PDF exported with changes shown): the brackets and numbers inserted
- *   around a line-start label.
- * A label edited by hand that is not part of such a shift (a single label
- * with no insertion, deletion or move just above it, a label that changed
- * two levels at once or by more than 3, a cross-reference in running text)
- * is still listed.
+ *   PDF exported with changes shown): brackets and numbers inserted around
+ *   a line-start label, the bracketed number of the same shape as the label
+ *   (one level apart by at most 3: "2.5[1]", a footnote marker on a value,
+ *   is an edit).
+ * A cross-reference in running text is always listed.
  */
-function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocModel, toOldLine: (newToken: number) => number): Change[] {
+function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocModel, newOfOld: Int32Array): Change[] {
   const out: Change[] = [];
   const take = (c: Change) => {
     c.minor = true;
     c.consequence = 'renumber';
     out.push(c);
   };
+  const oldLabels = labelSequences(oldDoc);
+  const newLabels = labelSequences(newDoc);
+  const single = (c: Change) => c.old.start !== undefined && c.new.start !== undefined && c.old.end === c.old.start + 1 && c.new.end === c.new.start + 1;
   const moves = changes.filter((c) => c.kind === 'move');
   const inside = (s: Side, m: Side) => s.start !== undefined && m.start !== undefined && m.start <= s.start && s.start < m.end!;
   const moveOf = (c: Change) => (c.inMove === undefined ? undefined : moves.find((m) => (c.old.start !== undefined ? inside(c.old, m.old) : inside(c.new, m.new))));
@@ -1640,20 +1771,21 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
   // keep their tail below the head's number ("7.2.1" → "3.4.1").
   const heads = new Map<Change, { a: number[]; b: number[] }>();
   for (const c of changes) {
-    if (c.kind !== 'replace' || !c.numeric) continue;
+    if (c.kind !== 'replace' || !c.numeric || !single(c)) continue;
     const m = moveOf(c);
     if (!m || c.old.start !== m.old.start || c.new.start !== m.new.start) continue;
-    const a = labelAt(oldDoc, c.old.start);
-    const b = labelAt(newDoc, c.new.start);
-    if (!a || !b || c.old.end !== c.old.start! + 1 || c.new.end !== c.new.start! + 1 || a.style !== 'list' || b.style !== 'list' || a.parts.length !== b.parts.length) continue;
-    heads.set(m, { a: a.parts, b: b.parts });
+    const a = oldLabels.at.get(c.old.start!);
+    const b = newLabels.at.get(c.new.start!);
+    if (!a || !b || a.label.style !== 'list' || b.label.style !== 'list' || a.label.parts.length !== b.label.parts.length) continue;
+    if (!numberedRun(a) || !numberedRun(b)) continue;
+    heads.set(m, { a: a.label.parts, b: b.label.parts });
     take(c);
   }
   for (const c of changes) {
-    if (c.kind !== 'replace' || !c.numeric || c.consequence) continue;
+    if (c.kind !== 'replace' || !c.numeric || c.consequence || !single(c)) continue;
     const m = moveOf(c);
     const head = m && heads.get(m);
-    if (!head || c.old.end !== c.old.start! + 1 || c.new.end !== c.new.start! + 1) continue;
+    if (!head) continue;
     const a = labelAt(oldDoc, c.old.start);
     const b = labelAt(newDoc, c.new.start);
     const n = head.a.length;
@@ -1666,55 +1798,108 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     if (m.moveEdits) m.moveEdits = m.moveEdits - own || undefined;
   }
 
-  // Where text was inserted, deleted or moved (old document lines).
-  const lineOfOld = (k: number) => oldDoc.tokens[k].line;
-  const structural: number[] = [];
+  // Tokens paired across the versions: as matched text, or one label
+  // replaced by another.
+  const oldOfNew = new Int32Array(newDoc.tokens.length).fill(-1);
+  for (let k = 0; k < newOfOld.length; k++) if (newOfOld[k] >= 0) oldOfNew[newOfOld[k]] = k;
+  const replacedOld = new Map<number, number>();
+  const replacedNew = new Map<number, number>();
   for (const c of changes) {
-    if (c.consequence || c.inMove !== undefined) continue;
-    if (c.kind !== 'insert' && c.kind !== 'delete' && c.kind !== 'move') continue;
-    if (c.old.start !== undefined) structural.push(lineOfOld(c.old.start), lineOfOld(c.old.end! - 1));
-    else if (c.old.caret) structural.push(lineAt(oldDoc, c.old.caret.page, c.old.caret.y));
-    if (c.new.start !== undefined) structural.push(toOldLine(c.new.start), toOldLine(c.new.end! - 1));
+    if (c.kind !== 'replace' || !single(c)) continue;
+    replacedOld.set(c.old.start!, c.new.start!);
+    replacedNew.set(c.new.start!, c.old.start!);
   }
-  const follows = (line: number) => structural.some((l) => l >= 0 && l <= line && line - l <= 8);
 
-  type Cand = { c: Change; a: Label; b: Label; key: string };
+  type Cand = { c: Change; a: Sibling; b: Sibling; level: number; delta: number };
   const cands: Cand[] = [];
   for (const c of changes) {
-    if (c.kind !== 'replace' || !c.numeric || c.consequence || c.inMove !== undefined) continue;
-    if (c.old.end !== c.old.start! + 1 || c.new.end !== c.new.start! + 1) continue;
-    const a = labelAt(oldDoc, c.old.start);
-    const b = labelAt(newDoc, c.new.start);
-    const shift = a && b && labelShift(a, b);
-    if (shift) cands.push({ c, a: a!, b: b!, key: shift.key });
+    if (c.kind !== 'replace' || !c.numeric || c.consequence || c.inMove !== undefined || !single(c)) continue;
+    const a = oldLabels.at.get(c.old.start!);
+    const b = newLabels.at.get(c.new.start!);
+    const shift = a && b && labelShift(a.label, b.label);
+    if (shift) cands.push({ c, a: a!, b: b!, ...shift });
   }
-  cands.sort((x, y) => x.a.line - y.a.line);
-  // Runs of the same shift, each label within 6 lines of the one before (40
-  // for clause numbers with sub-levels, whose clauses run longer).
-  const groups: Cand[][] = [];
-  const open = new Map<string, Cand[]>();
-  for (const cand of cands) {
-    let g = open.get(cand.key);
-    const last = g?.[g.length - 1];
-    const consecutive = (x: Cand, y: Cand) => y.a.parts[0] === x.a.parts[0] + 1 && y.b.parts[0] === x.b.parts[0] + 1;
-    const window = cand.a.style === 'list' && (cand.a.parts.length > 1 || last?.a.parts.length !== 1) ? 40 : 6;
-    const fits = !!last && cand.a.line - last.a.line <= window && (cand.a.style !== 'cell' || consecutive(last, cand));
-    if (!g || !fits) {
-      g = [];
-      groups.push(g);
-      open.set(cand.key, g);
+  /**
+   * The siblings above x's label in one version and not the other (see (2)
+   * above): added minus removed. Null when that cannot be known: a
+   * sibling's label is matched text that is not a label in the other
+   * version (the labels were read differently), or its counterpart is an
+   * earlier sibling outside the other run (labels swapped, a list numbered
+   * again from 1).
+   */
+  const net = (x: Cand): number | null => {
+    const ra = numberedRun(x.a);
+    const rb = numberedRun(x.b);
+    if (!ra || !rb) return null;
+    if (x.a.label.style === 'cell' && (quantityColumn(oldDoc, ra[0] ?? x.a) || quantityColumn(newDoc, rb[0] ?? x.b))) return null;
+    const count = (run: Sibling[], other: Sibling, matched: Int32Array, replaced: Map<number, number>, labels: { at: Map<number, Sibling> }) => {
+      const inOther = new Set((numberedRun(other) ?? []).map((s) => s.tok));
+      let k = 0;
+      for (const s of run) {
+        const m = matched[s.tok];
+        const o = m >= 0 ? m : replaced.get(s.tok);
+        // Not matched: the label is part of a listed insertion, deletion or move.
+        if (o === undefined) {
+          k++;
+          continue;
+        }
+        if (inOther.has(o)) continue;
+        const so = labels.at.get(o);
+        if (!so ? m >= 0 : so.list === other.list && so.index < other.index) return null;
+        k++;
+      }
+      return k;
+    };
+    const added = count(rb, x.a, oldOfNew, replacedNew, oldLabels);
+    const removed = count(ra, x.b, newOfOld, replacedOld, newLabels);
+    return added === null || removed === null ? null : added - removed;
+  };
+  // Clause and list items first, then their sub-clauses.
+  const accepted = new Map<number, number>();
+  for (const x of cands) {
+    if (x.level !== x.a.label.parts.length - 1 || net(x) !== x.delta) continue;
+    take(x.c);
+    accepted.set(x.a.tok, x.b.tok);
+  }
+  /** The label above s at `level` that s belongs to ("4.4" for "4.4.2" at level 1), if the nearest label at that level or higher is it. */
+  const ancestor = (labels: { all: Sibling[] }, s: Sibling, level: number): Sibling | null => {
+    for (let i = s.pos - 1; i >= 0; i--) {
+      const p = labels.all[i].label.parts;
+      if (p.length > level + 1) continue;
+      return p.length === level + 1 && p.every((v, k) => v === s.label.parts[k]) ? labels.all[i] : null;
     }
-    g.push(cand);
-  }
-  for (const g of groups) {
-    const after = follows(g[0].a.line);
-    const ok = g[0].a.style === 'cell' ? g.length >= 2 && after : g.length >= 2 || after;
-    if (ok) for (const x of g) take(x.c);
+    return null;
+  };
+  for (const x of cands) {
+    if (x.c.consequence || x.level >= x.a.label.parts.length - 1) continue;
+    const pa = ancestor(oldLabels, x.a, x.level);
+    const pb = ancestor(newLabels, x.b, x.level);
+    if (pa && pb && accepted.get(pa.tok) === pb.tok) take(x.c);
   }
 
   // Tracked-change displays of list labels: insertions (or deletions) of
   // brackets and numbers inside a line-start label cluster such as
   // "4.3[4.4]". One consequence per label.
+  /** The cluster is a label and its other number: of one shape, one level apart by at most 3 ("4.3[4.4]"), or a bracketed label like the labels before it ("[4.3]" after "4.2"). */
+  const labelShaped = (text: string, doc: DocModel, line: number) => {
+    const m = REDLINE_LABEL.exec(text);
+    if (!m) return false;
+    const parse = (s: string): Label | null => {
+      const levels = s.split('.');
+      if (levels[0] === '0' || levels.some((p) => p.length > 1 && p[0] === '0')) return null;
+      return { parts: levels.map(Number), style: 'list', line };
+    };
+    const inner = parse(m[2]);
+    if (!inner) return false;
+    if (m[1] !== undefined) {
+      const outer = parse(m[1]);
+      return !!outer && !!labelShift(outer, inner);
+    }
+    const labels = doc === newDoc ? newLabels : oldLabels;
+    let before: Sibling | undefined;
+    for (const s of labels.all) if (s.label.line < line) before = s;
+    return !!before && before.label.style === 'list' && before.label.parts.length === inner.parts.length;
+  };
   const clusters = new Map<string, Change[]>();
   for (const c of changes) {
     if (c.consequence || (c.kind !== 'insert' && c.kind !== 'delete')) continue;
@@ -1725,7 +1910,7 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     const line = doc.lines[first.line];
     let end = line.start + 1;
     while (end < line.end && !doc.tokens[end].spaceBefore) end++;
-    if (side.end! > end || !REDLINE_LABEL.test(doc.tokens.slice(line.start, end).map((t) => t.text).join(''))) continue;
+    if (side.end! > end || !labelShaped(doc.tokens.slice(line.start, end).map((t) => t.text).join(''), doc, first.line)) continue;
     const k = `${c.kind}:${first.line}`;
     let list = clusters.get(k);
     if (!list) clusters.set(k, (list = []));
@@ -1813,12 +1998,6 @@ function repeatedAtPageTop(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): Set<Hunk
     if (below(U, match[k])) out.add(h);
   }
   return out;
-}
-
-function lineAt(doc: DocModel, page: number, y: number): number {
-  let best = -1;
-  for (const l of doc.lines) if (l.page === page && l.rect.y <= y + 1) best = l.id;
-  return best;
 }
 
 /**

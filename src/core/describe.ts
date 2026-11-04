@@ -256,7 +256,7 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
   if (images.length)
     out.push({ level: 'info', text: t(lang, 'noticeImagePaired', { pairs: images.map((l) => pairLabel(lang, l.oldPage, l.newPage)).join(lang === 'zh' ? '、' : ', ') }), action: 'pair' });
   if (r.ignored?.furniture) out.push({ level: 'info', text: t(lang, 'noticeFurniture', { n: r.ignored.furniture }), action: 'furniture' });
-  if (r.ignored?.renumbered) out.push({ level: 'info', text: t(lang, 'noticeRenumbered', { n: r.ignored.renumbered }), action: 'minor' });
+  if (r.ignored?.renumbered) out.push({ level: 'info', text: t(lang, 'noticeRenumberedItems', { n: r.ignored.renumbered }), action: 'minor' });
   if (r.ignored?.repeatedLines) out.push({ level: 'info', text: t(lang, 'noticeRepeatedLines', { n: r.ignored.repeatedLines }), action: 'minor' });
   if (r.ignored?.minorShifts) out.push({ level: 'info', text: t(lang, 'noticeMinor', { n: r.ignored.minorShifts, pt: SHIFT_PT }), action: 'minor' });
   if (r.ignored?.caseOnly) out.push({ level: 'info', text: t(lang, 'noticeCase', { n: r.ignored.caseOnly }) });
