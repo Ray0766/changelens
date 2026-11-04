@@ -898,6 +898,28 @@ function diffShape(d: Unmatched, r: Raster, rect: Rect): Shape {
   };
 }
 
+/**
+ * A difference region next to a token that is a piece of a rule running
+ * through the rows of its box past its end: thin, at least twice as long,
+ * within the box's height (a table rule recoloured or drawn under a header
+ * row, which a tall word box of the row below reaches into; the glyph boxes
+ * on the rule cut it into such pieces). Its ink would count as the word's
+ * and cannot be told from the glyphs there.
+ */
+function ruleAcross(d: Unmatched, r: Raster, rect: Rect): boolean {
+  const thin = Math.max((2 * CELL) / r.scale, 0.35 * rect.h);
+  const e = expand(rect, 0.15 * rect.h + 3);
+  return [...d.real, ...d.shifted].some(
+    (q) =>
+      q.h <= thin &&
+      q.w >= 2 * q.h &&
+      q.y < rect.y + rect.h + 2 &&
+      q.y + q.h > rect.y - 2 &&
+      intersects(q, e) &&
+      (q.x < rect.x - 1 || q.x + q.w > rect.x + rect.w + 1),
+  );
+}
+
 /** Some differing pixels lie in or next to a token's ink box (see ink()). */
 function differsNear(d: Unmatched, r: Raster, rect: Rect): boolean {
   const e = expand(rect, 0.15 * rect.h + 3);
@@ -2062,6 +2084,9 @@ function compareAligned(
       const nb = differsNear(bwdDiff, rb, b.rects[0]);
       if (!na && !nb) return null;
       if (!sameShape(a.rects[0], b.rects[0])) return 'skip';
+      // A rule through or along the word's box: not measured (as before an
+      // overlay's ink was looked for).
+      if ((na && ruleAcross(fwdDiff, ra, a.rects[0])) || (nb && ruleAcross(bwdDiff, rb, b.rects[0]))) return 'skip';
       const ga = na ? overlayInk(A, a.rects[0], B, b.rects[0], [diffShape(fwdDiff, ra, a.rects[0])]) : null;
       const gb = nb ? overlayInk(B, b.rects[0], A, a.rects[0], [diffShape(bwdDiff, rb, b.rects[0])]) : null;
       return (ga || gb) && !ga?.partial && !gb?.partial ? [ga, gb] : 'skip';
