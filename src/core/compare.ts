@@ -1680,7 +1680,9 @@ const clauseLevels = (levels: string[]) => !levels.some((p) => Number(p) === 0) 
  *   clause number followed by a gap (a tab, at least half an em) and either
  *   starting its paragraph, hanging (the paragraph's other lines start
  *   where the text after the label starts), or standing in a column of
- *   such numbers (single-line clauses without paragraph spacing). A
+ *   such numbers under their parent clause (single-line clauses without
+ *   paragraph spacing, below "5. Charges"; a table of measures "2.1",
+ *   "2.2" without row spacing has no clause 2 above it). A
  *   wrapped line that happens to start with a figure ("8.4 percent") is
  *   none of these, so it stays an ordinary number. Clause numbers have no
  *   level 0 and no leading zero in the first level (see clauseLevels):
@@ -1731,11 +1733,34 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
     return false;
   };
   /**
+   * The clause these sub-clauses belong to stands above them: the nearest
+   * line above (up to 200 lines, furniture left out) that starts with a
+   * number of fewer levels starts with this label's parent ("5" or "5."
+   * above "5.3"). A number of fewer levels in this label's column that is
+   * not the parent ends the search.
+   */
+  const parent = () => {
+    const want = levels.slice(0, -1).join('.');
+    for (let j = t.line - 1; j >= Math.max(0, t.line - 200); j--) {
+      const l = doc.lines[j];
+      if (l.furniture || l.end <= l.start) continue;
+      const u = doc.tokens[l.start];
+      if (u.kind !== 'number') continue;
+      const v = u.text.normalize('NFKC').replace(/\.$/, '');
+      if (v.split('.').length >= levels.length) continue;
+      if (v === want) return true;
+      if (Math.abs(u.rects[0].x - t.rects[0].x) <= 1.5) return false;
+    }
+    return false;
+  };
+  /**
    * A column of clause numbers: the nearest line above or below in the same
    * block that starts with a number (up to 3 lines away) starts with a
    * clause number of the same depth at the same x, its text where this
-   * line's text starts. Single-line clauses set without paragraph spacing
-   * share one block and do not hang.
+   * line's text starts, and the parent clause stands above (see parent).
+   * Single-line clauses set without paragraph spacing share one block and
+   * do not hang. A table's first column of measures ("2.1", "2.2" mm) also
+   * forms such a column, but no clause "2" stands above it.
    */
   const column = () => {
     if (!after) return false;
@@ -1749,7 +1774,7 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
         if (!um || um[1].split('.').length !== levels.length || Math.abs(u.rects[0].x - t.rects[0].x) > 1.5) break;
         const v = l.start + 1 < l.end ? doc.tokens[l.start + 1] : undefined;
         const w = v && !v.spaceBefore && /^[.)、]$/.test(v.text.normalize('NFKC')) ? (l.start + 2 < l.end ? doc.tokens[l.start + 2] : undefined) : v;
-        if (w && Math.abs(w.rects[0].x - after.rects[0].x) < 1.5) return true;
+        if (w && Math.abs(w.rects[0].x - after.rects[0].x) < 1.5) return parent();
         break;
       }
     }

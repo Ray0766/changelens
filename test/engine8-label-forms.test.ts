@@ -91,16 +91,38 @@ test('single-line clauses set without paragraph spacing are read as a column of 
 });
 
 test('single-line clauses renumbered by hand are listed, without a percentage (R1-14 control)', () => {
-  // One block: the lines are 13 pt apart, with no paragraph spacing.
+  // One block: the lines are 13 pt apart, with no paragraph spacing, under the heading of clause 5.
   const runs: TextRun[] = [];
   const run = (str: string, x: number, y: number, eol = false): TextRun => ({ str, x, y: y - 9, w: str.length * 5, h: 11, baseline: y, fontSize: 10, font: 'Body', family: 'sans-serif', eol, angle: 0 });
-  const doc = (name: string, labels: string[]): DocText => {
+  const doc = (name: string, labels: string[], heading = true): DocText => {
     runs.length = 0;
+    if (heading) runs.push(run('5.', 56, 56), run('Charges', 100, 56, true));
     labels.forEach((l, k) => runs.push(run(l, 56, 80 + 13 * k), run(P[k], 100, 80 + 13 * k, true)));
     return { name, pages: [{ index: 0, width: 595, height: 842, runs: [...runs] }] };
   };
   const r = compare(doc('a', ['5.1', '5.2', '5.3', '5.4']), doc('b', ['5.1', '5.2', '5.4', '5.5']));
   assert.deepEqual(listed(r), ['Number changed: 5.3 → 5.4', 'Number changed: 5.4 → 5.5']);
+  // Without a clause 5 above them they may be a column of measures (second pass): they keep
+  // their percentage.
+  const m = compare(doc('a', ['5.1', '5.2', '5.3', '5.4'], false), doc('b', ['5.1', '5.2', '5.4', '5.5'], false));
+  assert.deepEqual(listed(m), ['Number changed: 5.3 → 5.4 (+1.9%)', 'Number changed: 5.4 → 5.5 (+1.9%)']);
+});
+
+test('a tight table of measures numbered on from 2.1 is not a clause list (R1-14, second pass)', async () => {
+  // Chromium: board thickness by use, mm, a table without row spacing and with no clause 2
+  // above it. A use is inserted as the third row and the thicknesses of the later rows are
+  // changed (2.3 → 2.4 …): real value edits, listed as at b3de0f4.
+  for (const swap of [false, true]) {
+    const [x, y] = swap ? ['after', 'before'] : ['before', 'after'];
+    const r = compareDocs(
+      buildDocModel(await extractText(await openPdf(`${fixtures}probe8-r1-14-cf2-${x}.pdf`), 'a.pdf')),
+      buildDocModel(await extractText(await openPdf(`${fixtures}probe8-r1-14-cf2-${y}.pdf`), 'b.pdf')),
+    );
+    const numbers = r.changes.filter((c) => c.numeric).map((c) => `${c.numeric!.from} → ${c.numeric!.to}`);
+    assert.deepEqual(numbers, swap ? ['2.5 → 2.4', '2.6 → 2.5', '2.7 → 2.6'] : ['2.4 → 2.5', '2.5 → 2.6', '2.6 → 2.7'], `swap ${swap}`);
+    assert.ok(r.changes.every((c) => !c.numeric || c.numeric.fromValue !== null), `swap ${swap}`);
+    assert.deepEqual(minor(r), [], `swap ${swap}`);
+  }
 });
 
 test('a contents page number after a leader gets no percentage; other line-end figures keep theirs (R1-15)', () => {
