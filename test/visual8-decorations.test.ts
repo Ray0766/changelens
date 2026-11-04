@@ -145,6 +145,26 @@ test('R7-V01: a stamp whose border crosses words adds no line; an underline and 
   assert.deepEqual(lines(cp), [...underlined('above'), ...struck('account')]);
 });
 
+test('R4-22: the second stroke of a double underline is part of the underline, not a graphic of its own', { skip }, async () => {
+  // LibreOffice Calc, every cell ruled: "380.00" double underlined.
+  // Before: also "Graphic or image added" for the lower stroke.
+  const r = await run('probe8-R4-22-before.pdf', 'probe8-R4-22-marks.pdf');
+  assert.deepEqual(list(r.changes), [
+    ...underlined('192.00'),
+    ...struck('1,040.00'),
+    ...underlined('380.00'),
+    ...underlined('120.00'),
+    ...struck('75.00'),
+    ...underlined('510.00'),
+  ]);
+  const twice = r.changes[2];
+  assert.ok(twice.new.rects.some((q) => q.rect.y > 158 && q.rect.h <= 4), JSON.stringify(twice.new.rects));
+  // LibreOffice Writer double underlines (a run split at the underlined
+  // amount, so the two versions' boxes lie 1.4 pt apart): one item each.
+  const w = await run('probe8-R4-22-writer-before.pdf', 'probe8-R4-22-writer-after.pdf');
+  assert.deepEqual(list(w.changes), underlined('784.00', '4,704.00'));
+});
+
 test('R6-05, R7-05: a page turned by /Rotate gives no strike or underline on its figures and short words', { skip }, async () => {
   // Before (fix round 7): "Strikethrough removed: “44”" on a page turned by
   // 90°, "Struck through: “is”" twice on one turned by 180°, and 50 items on

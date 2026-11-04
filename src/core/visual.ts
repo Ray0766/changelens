@@ -3156,6 +3156,20 @@ function compareAligned(
         if (!dry) bar[side].rects.push({ page, rect: r });
         return false;
       }
+      // The second stroke of a double underline (an amount underlined twice,
+      // as accounting styles do in a ruled spreadsheet cell): a thin region
+      // right below an underline found on this side, no wider than its word.
+      // Shown as part of that underline.
+      const twice = appearance.find(
+        (c) =>
+          c.format?.decoration?.line === 'underline' &&
+          c.format.decoration.added === (side === 'new') &&
+          c[side].rects.some((q) => q.page === page && r.h <= 4 && r.y >= q.rect.y + 0.5 * q.rect.h && r.y <= q.rect.y + q.rect.h + 3 && r.x >= q.rect.x - 2 && r.x + r.w <= q.rect.x + q.rect.w + 2),
+      );
+      if (twice) {
+        if (!dry) twice[side].rects.push({ page, rect: r });
+        return false;
+      }
       // The fill and rules of a table row whose text is a change of its own
       // (or a header row repeated at a page top only because a page break
       // moved): part of that change. A row's fill and rules run across it;
