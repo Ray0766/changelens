@@ -33,3 +33,37 @@ test('R3-02: a field value has the glyph box of the same text burned into the pa
   r = await run('R3-02-filled', 'R3-02-flat-edit');
   assert.deepEqual(listed(r), ['Number changed: 8 → 18 (+125%)']);
 });
+
+test('R3-06: lines of a multi-line field drawn from its value lie where the viewer draws them', { skip }, async () => {
+  // Incident report, values in /V only (NeedAppearances): a first line
+  // inserted in "Actions taken" moves the three lines below it down one line;
+  // "pump 2" → "pump 3" elsewhere. The boxes were estimated at 1.2 × the
+  // font size from the top and drifted off the drawn lines, so a line that
+  // only moved down was "Text colour or weight changed" and the rows it left
+  // were "Graphic or image added".
+  let r = await run('R3-06-before', 'R3-06-after');
+  assert.deepEqual(listed(r), ['Number changed: 2 → 3 (+50%) (form field)', 'Added “Line stopped for 2 hours.” (form field)']);
+  // Every word box of the field values covers its drawn glyphs: it holds
+  // ink, and the point above and below it holds none (rules of the box left
+  // out; the lines are 1.35 × the size apart, so the next line is further).
+  const pb = await openPdf(`${fixtures}probe8-R3-06-after.pdf`);
+  const img = await renderPage(pb, 0, 2);
+  const inkRow = (x0: number, x1: number, y: number) => {
+    let n = 0;
+    for (let x = x0; x < x1; x++) if (img.data[(y * img.width + x) * 4] < 128) n++;
+    return n > 0.9 * (x1 - x0) ? 0 : n;
+  };
+  for (const t of r.newDoc.tokens.filter((t) => t.field && t.kind === 'word')) {
+    const q = t.rects[0];
+    const [x0, x1] = [Math.ceil(q.x * 2) + 1, Math.floor((q.x + q.w) * 2) - 1];
+    const sum = (from: number, to: number) => {
+      let n = 0;
+      for (let y = Math.round(from * 2); y < Math.round(to * 2); y++) n += inkRow(x0, x1, y);
+      return n;
+    };
+    assert.ok(sum(q.y, q.y + q.h) > 0 && sum(q.y - 1, q.y) === 0 && sum(q.y + q.h, q.y + q.h + 1) === 0, `${t.text} ${JSON.stringify(q)}`);
+  }
+  // Expense report (reportlab), the same edit pattern: no underline noise on a moved line.
+  r = await run('R3-06-rl-before', 'R3-06-rl-after');
+  assert.deepEqual(listed(r), ['Number changed: 48,120 → 48,210 (+0.2%) (form field)', 'Added 11 words (form field)']);
+});

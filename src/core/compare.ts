@@ -1564,7 +1564,10 @@ function formatDiff(a: Token, b: Token): FormatDetail | null {
   const faces = !(a.field && !a.font) && !(b.field && !b.font);
   if (faces && sa.bold !== sb.bold) sa.bold ? (d.boldRemoved = true) : (d.boldAdded = true);
   if (faces && sa.italic !== sb.italic) sa.italic ? (d.italicRemoved = true) : (d.italicAdded = true);
-  if (Math.abs(a.size - b.size) > Math.max(0.3, 0.08 * Math.max(a.size, b.size))) {
+  // The size of a field value set in an automatic size follows from the
+  // value and the box (the viewer fits it): not a formatting edit.
+  const fitted = a.autoSize && b.autoSize;
+  if (!fitted && Math.abs(a.size - b.size) > Math.max(0.3, 0.08 * Math.max(a.size, b.size))) {
     d.sizeFrom = Math.round(a.size * 10) / 10;
     d.sizeTo = Math.round(b.size * 10) / 10;
   }

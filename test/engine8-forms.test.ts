@@ -165,3 +165,23 @@ test('R3-07: a widget turned by /MK /R is compared as text', async () => {
   assert.deepEqual(listed(r), ['Number changed: 48,120 → 84,120 (+75%) (form field)']);
   assert.equal(r.changes[0].contextBefore, 'Odometer (km)');
 });
+
+test('R3-06: a field in an automatic size is fitted to its value as the viewer fits it; its size is no edit', async () => {
+  // Supplier address in auto-sized fields (DA size 0, values in /V): the
+  // longer address is drawn smaller (11.9 → 8.2 pt). The size follows from
+  // the value and the box, so only the text edits are listed.
+  const r = await run('R3-06-auto-before', 'R3-06-auto-after');
+  assert.deepEqual(listed(r), ['Added “Industrial Estate, Maryhill Road” (form field)', 'Number changed: 77812 → 77821 (form field)']);
+  const sizes = (d: CompareResult['newDoc']) => [...new Set(d.tokens.filter((t) => t.field && t.text === 'Unit').map((t) => Math.round(t.size * 10) / 10))];
+  assert.deepEqual([sizes(r.oldDoc), sizes(r.newDoc)], [[11.9], [8.2]]);
+});
+
+test('R3-06 control: a field set in a fixed size that changes is listed', () => {
+  const VT = [1, 0, 0, -1, 0, 841.89];
+  const label: TextRun = { str: 'Amount', x: 56, y: 150, w: 40, h: 11, baseline: 159, fontSize: 10, font: 'Helvetica', family: 'sans-serif', eol: true, angle: 0 };
+  const doc = (fontSize: number) => {
+    const w: WidgetData = { subtype: 'Widget', fieldType: 'Tx', rect: [235, 841.89 - 164, 535, 841.89 - 146], fieldValue: '1,250.00', defaultAppearanceData: { fontSize, fontName: 'Helv' } };
+    return buildDocModel({ name: 'x', pages: [{ index: 0, width: 595.28, height: 841.89, runs: placeFieldRuns([label], fieldRuns([w], VT, [label]).runs) }] });
+  };
+  assert.deepEqual(listed(compareDocs(doc(10), doc(12))), ['“1,250.00” size 10 → 12 pt']);
+});

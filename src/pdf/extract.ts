@@ -1,6 +1,6 @@
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import type { DocText, PageText, TextRun } from '../core/types.ts';
-import { charWeight } from '../core/fontwidths.ts';
+import { charWeight, isWide } from '../core/fontwidths.ts';
 import { upright } from '../core/tokenize.ts';
 
 type Matrix = [number, number, number, number, number, number];
@@ -122,7 +122,7 @@ function makeRun(
   str: string,
   ascentRaw: number,
   descentRaw: number,
-  extra: { font: string; family: string; eol: boolean; field?: true; comb?: true },
+  extra: { font: string; family: string; eol: boolean; field?: true; comb?: true; autoSize?: true },
 ): TextRun {
   const tx = multiply(vt, transform);
   const scale = Math.hypot(vt[0], vt[1]) || 1;
@@ -177,6 +177,7 @@ function makeRun(
     ...(rot ? { rot } : {}),
     ...(extra.field ? { field: true as const } : {}),
     ...(extra.comb ? { comb: true as const } : {}),
+    ...(extra.autoSize ? { autoSize: true as const } : {}),
   };
 }
 
@@ -405,21 +406,67 @@ function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[]):
   const tpx = tp && Number.isFinite(tp[0]) ? tp[0] : undefined;
   const tpy = tp && Number.isFinite(tp[1]) ? tp[1] : undefined;
   const multi = !!a.multiLine || (a.fieldType === 'Ch' && !a.combo) || lines.length > 1;
+  // No appearance text: the viewer draws the value from /V (NeedAppearances,
+  // or no appearance yet), and the layout follows PDF.js, which renders it
+  // here (TextWidgetAnnotation: 1 pt padding top and bottom, 2 pt at the
+  // sides, lines of 1.35 × the font size fitted to the box).
+  const viewer = a.fieldType === 'Tx' && !Array.isArray(a.textContent);
+  const em = (s: string) => Array.from(s).reduce((n, ch) => n + charWeight(ch, family), 0) / 1000;
+  const floor2 = (v: number) => Math.floor(v * 100) / 100;
+  const inner = { w: boxW - 4, h: boxH - 2 };
   let fs = a.defaultAppearanceData?.fontSize ?? 0;
-  // Auto size (0): what fits the box, as viewers do.
+  const autoSize = !(fs > 0);
+  let rows = 0;
+  if (viewer && multi && inner.h > 0) {
+    // As many lines as fit at 1.35 × the size; auto size: the largest size at
+    // which the wrapped value fits the box.
+    const wrapped = (size: number) => lines.reduce((n, l) => n + splitLine(l, inner.w, (x) => em(x) * size).length, 0);
+    if (fs > 0) rows = Math.max(1, Math.round(inner.h / (1.35 * fs)));
+    else {
+      const sizeFor = (k: number) => floor2(inner.h / k / 1.35);
+      const tooBig = (size: number) => wrapped(size) * size > inner.h;
+      rows = Math.max(1, Math.round(inner.h / 16.2), lines.length);
+      if (tooBig(sizeFor(rows))) {
+        let low = rows;
+        let high = 2 * rows;
+        while (tooBig(sizeFor(high)) && high < 4096) [low, high] = [high, 2 * high];
+        while (high - low > 1) {
+          const mid = Math.floor((low + high) / 2);
+          if (tooBig(sizeFor(mid))) low = mid;
+          else high = mid;
+        }
+        rows = high;
+      }
+      fs = sizeFor(rows);
+    }
+  } else if (viewer && !multi && !(fs > 0) && inner.h > 0 && inner.w > 0) {
+    const width = em(lines[0] ?? '');
+    fs = floor2(Math.min(inner.h / 1.35, width > 0 ? inner.w / width : Infinity));
+  }
+  // Auto size (0) otherwise: what fits the box, as viewers do.
   if (!(fs > 0)) fs = multi ? 12 : Math.max(4, Math.min(12, boxH * 0.65));
-  const advance = (s: string) => (Array.from(s).reduce((n, ch) => n + charWeight(ch, family), 0) / 1000) * fs;
+  const advance = (s: string) => em(s) * fs;
   const align = a.textAlignment ?? 0;
   // The left padding: where the first glyph starts, for left-aligned text.
   const pad = align === 0 && tpx !== undefined ? Math.max(0, Math.min(tpx, boxW / 4)) : 2;
   const avail = Math.max(fs, boxW - 2 * pad);
   // Wrap long lines to the box (multi-line fields), as the viewer shows them.
   let visual = lines;
-  if (multi && !a.comb) visual = lines.flatMap((l) => wrap(l, avail, advance));
+  // A word the viewer breaks because it is wider than the box ("Lisbo" +
+  // "n" in a narrow cell) stays one word, on the line where it starts: its
+  // text is the value's, only its end is drawn elsewhere (or clipped).
+  const glued: boolean[] = [];
+  const letter = (ch: string | undefined) => !!ch && /[\p{L}\p{N}]/u.test(ch) && !isWide(ch.codePointAt(0)!);
+  if (multi && !a.comb)
+    visual = lines.flatMap((l) => {
+      const parts = viewer ? splitLine(l, inner.w, advance) : wrap(l, avail, advance);
+      parts.forEach((p, k) => glued.push(viewer && k > 0 && letter(Array.from(parts[k - 1]).pop()) && letter(Array.from(p)[0])));
+      return parts;
+    });
   const runs: TextRun[] = [];
   const comb = !!a.comb && (a.maxLen ?? 0) > 0;
   const at = (str: string, x: number, baseline: number, w: number, eol: boolean) =>
-    runs.push(makeRun(vt, multiply(frame, [fs, 0, 0, fs, x, baseline]), w, str, ascent, descent, { font, family, eol, field: true, ...(comb ? { comb: true as const } : {}) }));
+    runs.push(makeRun(vt, multiply(frame, [fs, 0, 0, fs, x, baseline]), w, str, ascent, descent, { font, family, eol, field: true, ...(comb ? { comb: true as const } : {}), ...(autoSize ? { autoSize: true as const } : {}) }));
   const xOf = (w: number) => (align === 1 ? (boxW - w) / 2 : align === 2 ? boxW - pad - w : pad);
   if (!multi) {
     const str = visual[0] ?? '';
@@ -433,17 +480,22 @@ function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[]):
     }
     // A value longer than the box scrolls in the viewer: keep its text, but inside the box.
     w = Math.min(w, Math.max(1, boxW - x));
-    const baseline = tpy ?? (boxH - fs) / 2 + 0.22 * fs;
+    // Without an appearance, centred on the font's glyph box, as PDF.js does.
+    const baseline = tpy ?? (boxH - (ascent - descent) * fs) / 2 - descent * fs;
     at(str, x, baseline, w, true);
     return runs;
   }
-  // Multi-line: PDF.js gives the lowest baseline of the appearance's text
-  // (and its count of lines); lines run down from the top of the box.
   const n = visual.length;
   let lh = 1.2 * fs;
   let top = boxH - pad - 0.8 * fs;
-  const known = tpy !== undefined && a.textContent && a.textContent.length > 1 && a.textContent.length === n;
-  if (known) {
+  if (viewer && rows > 0) {
+    // PDF.js: the box's inner height shared by the lines that fit; the first
+    // baseline one line (less its descent) below the top padding.
+    lh = inner.h / rows;
+    top = boxH - Math.min(Math.floor((boxH - fs) / 2), 1) - (lh - Math.max(0.35 / 1.35 * lh, -descent * fs));
+  } else if (tpy !== undefined && a.textContent && a.textContent.length > 1 && a.textContent.length === n) {
+    // An appearance: PDF.js gives its lowest baseline (and the count of its
+    // lines); lines run down from the top of the box.
     const bottom = tpy;
     const est = (top - bottom) / (n - 1);
     if (est >= 0.9 * fs && est <= 1.8 * fs) lh = est;
@@ -451,11 +503,64 @@ function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[]):
   }
   // Lines beyond the box scroll in the viewer: keep them inside it.
   if (n > 1) lh = Math.max(0.3 * fs, Math.min(lh, (top - 0.2 * fs) / (n - 1)));
-  visual.forEach((str, k) => {
-    const w = Math.min(advance(str), avail);
-    at(str, xOf(w), top - k * lh, w, true);
+  visual.forEach((line, k) => {
+    if (glued[k]) return;
+    let str = line;
+    for (let j = k + 1; j < visual.length && glued[j]; j++) str += visual[j];
+    // (The viewer's lines keep the spaces it breaks at, and may run past the
+    // box: a space it starts a line with moves the words after it.)
+    if (!str.trim()) return;
+    const lead = str.length - str.trimStart().length;
+    const w = viewer ? advance(str) : Math.min(advance(str), avail);
+    const x = xOf(w) + advance(str.slice(0, lead));
+    const text = str.trim();
+    at(text, x, top - k * lh, viewer ? advance(text) : Math.min(advance(text), avail), true);
   });
   return runs;
+}
+
+/**
+ * The lines PDF.js breaks a text field's value into (TextWidgetAnnotation
+ * _splitLine), with standard widths: at the last space before the glyph
+ * that would pass `width` (the space stays at the end of the line, and the
+ * first glyph after it is not counted), or before that glyph when the line
+ * has no space; a space that would pass it starts the next line.
+ */
+function splitLine(line: string, width: number, advance: (s: string) => number): string[] {
+  const cps = Array.from(line);
+  if (cps.length <= 1) return [line];
+  const chunks: string[] = [];
+  let start = 0;
+  let lastSpace = -1;
+  let cur = 0;
+  for (let i = 0; i < cps.length; i++) {
+    const w = advance(cps[i]);
+    if (cps[i] === ' ') {
+      if (cur + w > width) {
+        chunks.push(cps.slice(start, i).join(''));
+        start = i;
+        cur = w;
+        lastSpace = -1;
+      } else {
+        cur += w;
+        lastSpace = i;
+      }
+    } else if (cur + w > width) {
+      if (lastSpace !== -1) {
+        chunks.push(cps.slice(start, lastSpace + 1).join(''));
+        start = lastSpace + 1;
+        i = lastSpace + 1;
+        lastSpace = -1;
+        cur = 0;
+      } else {
+        chunks.push(cps.slice(start, i).join(''));
+        start = i;
+        cur = w;
+      }
+    } else cur += w;
+  }
+  if (start < cps.length) chunks.push(cps.slice(start).join(''));
+  return chunks;
 }
 
 /** Greedy word wrap of one line to `width` (CJK text may break between any two characters). */

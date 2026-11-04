@@ -47,6 +47,8 @@ export interface TextRun {
   field?: true;
   /** (Form fields) A comb field's value: one character per cell (a postcode, an account number). */
   comb?: true;
+  /** (Form fields) The field's font size is automatic: the viewer fits it to the value and the box. */
+  autoSize?: true;
 }
 
 export interface PageText {
@@ -118,6 +120,8 @@ export interface Token {
   field?: true;
   /** Part of a comb field's value (see TextRun.comb). */
   comb?: true;
+  /** Part of the value of a field with an automatic font size (see TextRun.autoSize). */
+  autoSize?: true;
 }
 
 export interface Line {
