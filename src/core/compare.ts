@@ -1175,17 +1175,29 @@ function formatDiff(a: Token, b: Token): FormatDetail | null {
 }
 
 /**
- * Formatting changes of matched words. With `pairs` (the final pairing),
- * a pair of `ops` that is no longer matched (a label relabel paired with
- * another one) is not compared.
+ * The runs of matched text of a pairing as equal ops, with an unequal op
+ * between runs that are not contiguous (where the formatting groups of
+ * detectFormatting end).
  */
-function detectFormatting(ctx: Ctx, ops: DiffOp[], pairs?: Int32Array): Change[] {
-  const out: Change[] = [];
-  let toB: Int32Array | undefined;
-  if (pairs) {
-    toB = new Int32Array(ctx.A.length).fill(-1);
-    for (let p = 0; p < pairs.length; p += 2) toB[pairs[p]] = pairs[p + 1];
+function opsOfPairs(pairs: Int32Array): DiffOp[] {
+  const ops: DiffOp[] = [];
+  for (let p = 0; p < pairs.length; p += 2) {
+    const [a, b] = [pairs[p], pairs[p + 1]];
+    const last = ops[ops.length - 1];
+    if (last && last.a1 === a && last.b1 === b) {
+      last.a1++;
+      last.b1++;
+      continue;
+    }
+    if (last) ops.push({ type: 'delete', a0: last.a1, a1: a, b0: last.b1, b1: b });
+    ops.push({ type: 'equal', a0: a, a1: a + 1, b0: b, b1: b + 1 });
   }
+  return ops;
+}
+
+/** Formatting changes of matched words. */
+function detectFormatting(ctx: Ctx, ops: DiffOp[]): Change[] {
+  const out: Change[] = [];
   let group: { a: number[]; b: number[]; sig: string; detail: FormatDetail } | null = null;
   const flush = () => {
     if (!group) return;
@@ -1222,7 +1234,7 @@ function detectFormatting(ctx: Ctx, ops: DiffOp[], pairs?: Int32Array): Change[]
       const ib = op.b0 + k;
       const a = ctx.A[ia];
       const b = ctx.B[ib];
-      const d = toB && toB[ia] !== ib ? null : formatDiff(a, b);
+      const d = formatDiff(a, b);
       if (!d) {
         // Punctuation inside a re-formatted phrase does not break the group.
         if (group && a.kind === 'punct') continue;
@@ -1381,7 +1393,8 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   // Final matched pairs after clean-up.
   const pairList: number[] = [];
   for (const op of ops) if (op.type === 'equal') for (let k = 0; k < op.a1 - op.a0; k++) pairList.push(op.a0 + k, op.b0 + k);
-  let pairs: Int32Array = Int32Array.from(pairList);
+  const pairs0 = Int32Array.from(pairList);
+  let pairs: Int32Array = pairs0;
 
   // Split at paragraph boundaries first, so a paragraph moved next to an
   // edit of the paragraph before it is still a pure insertion.
@@ -1415,7 +1428,8 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   const renumbered = extractRenumbering(changes, oldDoc, newDoc, newOfOld);
   aggregateReplacements(changes);
   if (options.detectFormatting) {
-    const formats = [...detectFormatting(ctx, ops, relabelled.pairs), ...detectFormatting(ctx, moved.innerOps)];
+    // The final pairing: relabel may have paired a label and the words after it anew.
+    const formats = [...detectFormatting(ctx, relabelled.pairs === pairs0 ? ops : opsOfPairs(relabelled.pairs)), ...detectFormatting(ctx, moved.innerOps)];
     changes.push(...aggregateFormatting(formats, ctx, pairs));
     changes.push(...detectPositions(ctx, pairs));
   }

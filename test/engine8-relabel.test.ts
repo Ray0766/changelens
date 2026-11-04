@@ -17,7 +17,7 @@ import { extractText } from '../src/pdf/extract.ts';
 import { buildDocModel } from '../src/core/tokenize.ts';
 import { compareDocs } from '../src/core/compare.ts';
 import { describeChange } from '../src/core/describe.ts';
-import type { CompareResult } from '../src/core/types.ts';
+import type { CompareResult, DocText, TextRun } from '../src/core/types.ts';
 
 const fixtures = new URL('./fixtures/', import.meta.url).pathname;
 /** Compares probe8-<id>-before.pdf with probe8-<id>-after.pdf (swapped with `reverse`). */
@@ -87,4 +87,26 @@ test('a step inserted at the end of a step list does not take the next heading�
   assert.deepEqual(listed(p16h), ['Added “3. Unplug the sensor cable behind the cover.”', 'Number changed: 3 → 4']);
   assert.equal(p16h.ignored.renumbered, 0);
   assert.deepEqual(listed(await probe('r1-04-p16hc')), ['Added “3. Unplug the sensor cable behind the cover.”']);
+});
+
+test('a formatting change on the first words of an item that relabel paired anew is listed', () => {
+  // "２． 従業員は、" starts both items: relabel pairs those words with the next item's.
+  type Row = [string, string, string?];
+  const items = (name: string, rows: Row[]): DocText => {
+    const runs: TextRun[] = [];
+    const run = (str: string, x: number, y: number, font: string, eol = false): TextRun => ({ str, x, y: y - 9, w: str.length * 10, h: 11, baseline: y, fontSize: 10, font, family: 'sans-serif', eol, angle: 0 });
+    rows.forEach(([label, text, bold], k) => {
+      const y = 80 + 20 * k;
+      runs.push(run(label, 56, y, 'Body'));
+      if (bold) runs.push(run(bold, 90, y, 'Body-Bold'), run(text, 90 + bold.length * 10, y, 'Body', true));
+      else runs.push(run(text, 90, y, 'Body', true));
+    });
+    return { name, pages: [{ index: 0, width: 595, height: 842, runs }] };
+  };
+  const old: Row[] = [['１．', '従業員は、始業時刻までに出勤する。'], ['２．', '従業員は、休暇を届け出る。'], ['３．', '従業員は、安全規則を守る。']];
+  // Item ２ inserted; in the old item ２ (now ３) "従業員" set in bold.
+  const grown: Row[] = [old[0], ['２．', '従業員は、私用の電話を控える。'], ['３．', 'は、休暇を届け出る。', '従業員'], ['４．', '従業員は、安全規則を守る。']];
+  const r = compareDocs(buildDocModel(items('a', old)), buildDocModel(items('b', grown)));
+  assert.deepEqual(listed(r), ['Added “２． 従業員は、私用の電話を控える。”', '“従業員” now bold']);
+  assert.deepEqual(minor(r), ['２ → ３', '３ → ４']);
 });
