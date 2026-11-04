@@ -66,7 +66,12 @@ test('N2: an underline that runs a few points past its text is still an underlin
   }
   // The control of c523b58 holds: a Writer row's border, 58 pt past the
   // text after a split at the page foot, is no underline (R5-12, R5-V02 in
-  // visual8-appearance).
+  // visual8-appearance). Nor is a red rule drawn right under a Calc header
+  // band in white on blue, which the graphics comparison lists (the band
+  // above it, paper below; the rule ends with the header's text).
+  const band = await run('probe8-R5-13-before.pdf', 'probe8-N2-calc-rule-noins.pdf');
+  assert.ok(!list(band.changes).some((d) => d.startsWith('Underlined')), list(band.changes).join(' | '));
+  assert.ok(graphics(band).some((c) => hits(c, 'new', 3, 200, 88)), list(band.changes).join(' | '));
 });
 
 test('N3: a chart page that gains a vertical label or a diagonal watermark is still compared visually', { skip }, async () => {

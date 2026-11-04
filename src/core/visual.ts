@@ -1553,15 +1553,32 @@ function appearanceChanges(
   // of a dark header band 0.7 pt off after a re-flow), not a line under
   // the text. An underline ends with the text, or a few spaces after it
   // (an underlined field with trailing spaces: 3–6 pt); the table rules
-  // and bands seen run on for 30 pt or more. Null for that, else the line
-  // found.
-  const rowEdge = (found: ReturnType<typeof addedLine>, X: Prepared, lines: DocModel['lines'], t: Token) => {
+  // and bands seen run on for 30 pt or more. So is a line along the edge of
+  // a fill the text stands on (a red rule drawn right under a header band
+  // in white on blue: the band above it, paper below), when the graphics
+  // comparison sees it (`seen`: differences next to a word of the line).
+  // Null for that, else the line found.
+  const rowEdge = (found: ReturnType<typeof addedLine>, X: Prepared, lines: DocModel['lines'], t: Token, seen: () => boolean) => {
     if (!found || found.line !== 'underline') return found;
     const l = lines.find((x) => x.id === t.line);
     if (!l) return found;
     const s = X.r.scale;
     const d = 12;
     const [y0, y1] = found.rows;
+    // A pixel row along the line of text: of one colour (85 % of it within
+    // the tolerance of its median), 'fill' or 'paper'; else (glyphs) null.
+    const row = (y: number): 'fill' | 'paper' | null => {
+      if (y < 0 || y >= X.r.height) return 'paper';
+      const v: [number, number, number][] = [];
+      for (let x = Math.max(0, Math.round(l.rect.x * s)); x < Math.min(X.r.width, Math.round((l.rect.x + l.rect.w) * s)); x++) v.push(rgb(X.r, y * X.r.width + x));
+      if (!v.length) return null;
+      const med = [0, 1, 2].map((c) => v.map((p) => p[c]).sort((a, b) => a - b)[v.length >> 1]);
+      if (v.filter((p) => p.every((c, k) => Math.abs(c - med[k]) <= THRESH)).length < 0.85 * v.length) return null;
+      return Math.min(...med) >= 255 - THRESH ? 'paper' : 'fill';
+    };
+    const up = row(y0 - 2);
+    const down = row(y1 + 2);
+    if (up && down && up !== down && seen()) return null;
     const dark = (x0: number, x1: number) => {
       let n = 0;
       let m = 0;
@@ -1577,6 +1594,9 @@ function appearanceChanges(
   };
   type Hit = { a: Token; b: Token; colour: boolean; line?: { line: 'strike' | 'underline'; added: boolean }; ink?: Ink };
   const hits: Hit[] = [];
+  // Lines of text (new side) next to which the graphics comparison found
+  // differences, at some word of the line (see rowEdge).
+  const seenLine = new Map<number, boolean>();
   for (let p = 0; p < m.length; p += 2) {
     const a = TA[m[p]];
     const b = TB[m[p + 1]];
@@ -1588,8 +1608,21 @@ function appearanceChanges(
     if (over === 'skip') continue;
     const [ca, cb] = over;
     const few = b.kind === 'cjk' || [...b.text].length <= 2;
-    const added = rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, ca, cb), B, pageLines.new, b);
-    const removed = added ? null : rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, cb, ca), A, pageLines.old, a);
+    const seen = () => {
+      let v = seenLine.get(b.line);
+      if (v === undefined) {
+        v = false;
+        for (let q = 0; q < m.length && !v; q += 2) {
+          const u = TA[m[q]];
+          const w = TB[m[q + 1]];
+          if (w.line === b.line && u.page === oldPage && w.page === newPage && u.rects.length === 1 && w.rects.length === 1) v = near(u, w) !== null;
+        }
+        seenLine.set(b.line, v);
+      }
+      return v;
+    };
+    const added = rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, ca, cb), B, pageLines.new, b, seen);
+    const removed = added ? null : rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, cb, ca), A, pageLines.old, a, seen);
     if (added || removed) {
       hits.push({ a, b, colour: false, line: { line: (added ?? removed)!.line, added: !!added } });
       continue;
