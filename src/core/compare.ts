@@ -2177,6 +2177,21 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     const pb = ancestor(newLabels, x.b, x.parent);
     if (pa && pb && accepted.get(pa.tok) === pb.tok && net(x) === x.delta) take(x.c);
   }
+  // A bare row or heading number ("3 Records" → "4 Records") that stays
+  // listed names an item and does not measure anything: no percentage,
+  // like a "3." label. It numbers on from 1 among its siblings in one of
+  // the versions, and its column is not one of quantities.
+  for (const c of changes) {
+    if (c.consequence || c.kind !== 'replace' || !c.numeric || c.numeric.fromValue === null || !single(c)) continue;
+    const a = oldLabels.at.get(c.old.start!);
+    const b = newLabels.at.get(c.new.start!);
+    if (!a || !b || a.label.style !== 'cell' || b.label.style !== 'cell') continue;
+    const ra = numberedRun(a);
+    const rb = numberedRun(b);
+    if ((!ra && !rb) || quantityColumn(oldDoc, ra?.[0] ?? a) || quantityColumn(newDoc, rb?.[0] ?? b)) continue;
+    c.numeric.fromValue = null;
+    c.numeric.toValue = null;
+  }
 
   // Tracked-change displays of list labels: insertions (or deletions) of
   // brackets and numbers inside a line-start label cluster such as

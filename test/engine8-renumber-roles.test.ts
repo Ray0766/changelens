@@ -14,7 +14,7 @@ import { extractText } from '../src/pdf/extract.ts';
 import { buildDocModel } from '../src/core/tokenize.ts';
 import { compareDocs } from '../src/core/compare.ts';
 import { describeChange } from '../src/core/describe.ts';
-import type { CompareResult } from '../src/core/types.ts';
+import type { CompareResult, DocText, TextRun } from '../src/core/types.ts';
 
 const fixtures = new URL('./fixtures/', import.meta.url).pathname;
 /** Compares probe8-<before>-before.pdf with probe8-<after>-after.pdf. */
@@ -50,12 +50,33 @@ test('a heading renumbered by hand is listed although steps were inserted or del
   assert.deepEqual(numbers(w01m), ['Number changed: 4 → 5']);
   assert.deepEqual(minor(w01m), ['List renumbered: 2 → 3', 'List renumbered: 3 → 4']);
   // Bare row numbers in a "No." table under bare heading numbers: row 2 inserted, heading 3 → 4 by hand.
+  // The heading number names a section: no percentage (second pass; it read "(+33%)").
   const p14 = await probe('r1-01-p14');
-  assert.deepEqual(
-    numbers(p14).map((d) => d.replace(/ \(.*\)$/, '')),
-    ['Number changed: 3 → 4'],
-  );
+  assert.deepEqual(numbers(p14), ['Number changed: 3 → 4']);
   assert.deepEqual(minor(p14), ['List renumbered: 2 → 3']);
+  const p14r = compareDocs(
+    buildDocModel(await extractText(await openPdf(`${fixtures}probe8-r1-01-p14-after.pdf`), 'after.pdf')),
+    buildDocModel(await extractText(await openPdf(`${fixtures}probe8-r1-01-p14-before.pdf`), 'before.pdf')),
+  );
+  assert.deepEqual(numbers(p14r), ['Number changed: 4 → 3']);
+});
+
+test('a bare row or heading number keeps no percentage only when it is in a numbered run (R1-01 P14 control)', () => {
+  // One row per paragraph: a figure in the first column, the item an em or more to the right.
+  const table = (name: string, header: string, rows: [string, string][]): DocText => {
+    const runs: TextRun[] = [];
+    const cell = (str: string, x: number, y: number, eol: boolean): TextRun => ({ str, x, y: y - 9, w: str.length * 5, h: 11, baseline: y, fontSize: 10, font: 'Body', family: 'sans-serif', eol, angle: 0 });
+    runs.push(cell(header, 56, 80, false), cell('Item', 100, 80, true));
+    rows.forEach(([n, item], k) => runs.push(cell(n, 56, 110 + 20 * k, false), cell(item, 100, 110 + 20 * k, true)));
+    return { name, pages: [{ index: 0, width: 595, height: 842, runs }] };
+  };
+  const cmp = (a: DocText, b: DocText) => numbers(compareDocs(buildDocModel(a), buildDocModel(b)));
+  const items = ['Pumps', 'Valves', 'Filters'];
+  // Row numbers 1, 2, 3 with row 3 typed 4: a label.
+  assert.deepEqual(cmp(table('a', 'No.', [['1', items[0]], ['2', items[1]], ['3', items[2]]]), table('b', 'No.', [['1', items[0]], ['2', items[1]], ['4', items[2]]])), ['Number changed: 3 → 4']);
+  // The same figures headed "Qty" are quantities; figures that do not number on from 1 are values.
+  assert.deepEqual(cmp(table('a', 'Qty', [['1', items[0]], ['2', items[1]], ['3', items[2]]]), table('b', 'Qty', [['1', items[0]], ['2', items[1]], ['4', items[2]]])), ['Number changed: 3 → 4 (+33%)']);
+  assert.deepEqual(cmp(table('a', 'Stock', [['12', items[0]], ['15', items[1]], ['20', items[2]]]), table('b', 'Stock', [['12', items[0]], ['18', items[1]], ['20', items[2]]])), ['Number changed: 15 → 18 (+20%)']);
 });
 
 test('bold headings at the steps’ size in the steps’ column are not siblings of the steps (R1-01, second pass)', async () => {
