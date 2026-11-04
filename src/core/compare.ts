@@ -1609,6 +1609,13 @@ interface Label {
 }
 
 /**
+ * The levels of a clause number: none is 0, and the first has no leading
+ * zero ("09.00", "0.8", "12.00" are a time, a measure and a time). Deeper
+ * levels may be padded ("1.01", "2.07": the Section 1.01 style).
+ */
+const clauseLevels = (levels: string[]) => !levels.some((p) => Number(p) === 0) && !(levels[0].length > 1 && levels[0][0] === '0');
+
+/**
  * The label that token k (a document token index) is, if any: the first
  * token of its line and set apart from the text after it.
  * - "4." "4)" "4、": a bare integer followed by that mark (as before).
@@ -1616,9 +1623,9 @@ interface Label {
  *   at least half an em) and either starting its paragraph or hanging (the
  *   paragraph's other lines start where the text after the label starts).
  *   A wrapped line that happens to start with a figure ("8.4 percent") is
- *   neither, so it stays an ordinary number. Clause numbers do not start at
- *   0 and have no leading zeros: "09.00", "15.03.27" and "0.8" in a table's
- *   first cell are a time, a date and a measure.
+ *   neither, so it stays an ordinary number. Clause numbers have no level
+ *   0 and no leading zero in the first level (see clauseLevels): "09.00",
+ *   "12.00" and "0.8" in a table's first cell are times and a measure.
  * - "7": a bare integer that starts a paragraph (a table row) and stands in
  *   a cell of its own (the next text is at least an em away, or there is
  *   none).
@@ -1643,7 +1650,7 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
   const m = /^(\d{1,3}(?:\.\d{1,3}){1,4})\.?$/.exec(t.text);
   if (!m || gap < 0.5 * t.size) return null;
   const levels = m[1].split('.');
-  if (levels[0] === '0' || levels.some((p) => p.length > 1 && p[0] === '0')) return null;
+  if (!clauseLevels(levels)) return null;
   const hanging = () => {
     if (!next) return false;
     const x = next.rects[0].x;
@@ -1993,7 +2000,7 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     if (!m) return false;
     const parse = (s: string): Label | null => {
       const levels = s.split('.');
-      if (levels[0] === '0' || levels.some((p) => p.length > 1 && p[0] === '0')) return null;
+      if (!clauseLevels(levels)) return null;
       return { parts: levels.map(Number), style: 'list', line, len: 1 };
     };
     const inner = parse(m[2]);

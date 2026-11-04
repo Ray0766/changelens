@@ -66,3 +66,25 @@ test('a continued list renumbered by hand, or started at another number, is list
   assert.deepEqual(listed(t), ['Added “12. Security incidents are reported at once.”']);
   assert.equal(t.ignored.renumbered, 5);
 });
+
+test('zero-padded clause labels ("1.01") are renumbered after an inserted or deleted clause (R7-04)', async () => {
+  // Chromium: clause 1.03 inserted; the cross-reference "Section 1.05." updated to 1.06. is a real edit.
+  const r = await probe('r7-04-sec101b');
+  assert.deepEqual(listed(r), ['Added a paragraph', 'Number changed: 1.05. → 1.06.']);
+  assert.ok(r.changes[0].new.text.startsWith('1.03 Order of precedence.'), r.changes[0].new.text);
+  assert.deepEqual(minor(r), ['1.03 → 1.04', '1.04 → 1.05', '1.05 → 1.06', '1.06 → 1.07']);
+  // reportlab: Section 2.03 deleted from 2.01–2.07.
+  const v = await probe('r7-04-r04v');
+  assert.deepEqual(listed(v), ['Deleted a paragraph']);
+  assert.deepEqual(minor(v), ['2.04 → 2.03', '2.05 → 2.04', '2.06 → 2.05', '2.07 → 2.06']);
+});
+
+test('zero-padded labels changed by hand are listed; a time in the first cell keeps its percentage (R7-04 controls)', () => {
+  const old: [string, string][] = P.map((t, k) => [`1.0${k + 1}`, t]);
+  const byHand = old.map(([l, t], k): [string, string] => [k === 3 ? '1.05' : k === 4 ? '1.06' : l, t]);
+  const r = compare(items('a', old), items('b', byHand));
+  assert.deepEqual(listed(r), ['Number changed: 1.04 → 1.05', 'Number changed: 1.05 → 1.06']);
+  // "12.00" has a level 0: a time, not a clause.
+  const t = compare(items('a', [['12.00', 'Lunch']]), items('b', [['13.00', 'Lunch']]));
+  assert.deepEqual(listed(t), ['Number changed: 12.00 → 13.00 (+8.3%)']);
+});
