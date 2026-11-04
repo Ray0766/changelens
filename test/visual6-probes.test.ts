@@ -146,3 +146,41 @@ test('V01: a stamp, a tint or a highlight on one copy of a repeated header row i
   const ctl = await run('probe6-rows-before.pdf', 'probe6-rows-ctl.pdf');
   assert.deepEqual(list(graphics(ctl)), ['Graphic or image changed']);
 });
+
+test('V03: a signature drawn on an inserted line, and a rule under it that changed, are listed beside the insertion', { skip }, async () => {
+  // Before: the signature was only a place of "Added “Signed for the landlord:”".
+  const r = await run('probe6-sign-before.pdf', 'probe6-sign-after.pdf');
+  assert.deepEqual(list(r.changes).sort(), ['Added “Signed for the landlord:”', 'Graphic or image added']);
+  assert.ok(hits(graphics(r)[0], 'new', 1, 200, 164), JSON.stringify(graphics(r)[0].new.rects));
+  // A 0.75 pt grey rule that became a 1.5 pt red one right under the
+  // inserted line: before, "removed" without its new place, which went
+  // into the insertion's.
+  const b = await run('probe6-band-before.pdf', 'probe6-band-after.pdf');
+  const g = graphics(b);
+  assert.ok(g.some((c) => hits(c, 'new', 1, 150, 124)), list(b.changes).join(' | '));
+  assert.ok(g.some((c) => hits(c, 'old', 1, 150, 104)), list(b.changes).join(' | '));
+  const ins = b.changes.find((c) => c.kind === 'insert')!;
+  assert.ok(!ins.new.rects.some((q) => q.rect.y > 115), JSON.stringify(ins.new.rects));
+  // Control: the insertion alone.
+  const c = await run('probe6-band-before.pdf', 'probe6-band-ctrl.pdf');
+  assert.deepEqual(list(c.changes), ['Added “Signed for the landlord:”']);
+});
+
+test('V09: lines set solid (CJK at line height 1.0) do not lend their colour to the word above', { skip }, async () => {
+  const r = await run('probe6-tight-before.pdf', 'probe6-tight-after.pdf');
+  // Two insertions and two colour changes; before, the unchanged 一 above
+  // the red 检查周期 was a third colour change.
+  assert.deepEqual(list(r.changes), ['Added “经审核的”', 'Text colour or weight changed', 'Added “approved”', 'Text colour or weight changed']);
+  assert.deepEqual(
+    formats(r).map((c) => c.new.text),
+    ['检查周期', 'working'],
+  );
+});
+
+test('V05: a thin solid rule that became dashed (6 on, 4 off) is a graphic change', { skip }, async () => {
+  const r = await run('probe6-dash-before.pdf', 'probe6-dash-after.pdf');
+  // Clause 2's 0.75 pt rule at y 126 was not even a slight shift before.
+  assert.ok(graphics(r).some((c) => hits(c, 'old', 1, 300, 126)), list(r.changes).join(' | '));
+  // Clause 1's rule is unchanged.
+  assert.ok(!graphics(r).some((c) => hits(c, 'old', 1, 300, 92) || hits(c, 'new', 1, 300, 92)), list(r.changes).join(' | '));
+});

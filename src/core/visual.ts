@@ -850,8 +850,10 @@ function components(cells: Uint16Array, cols: number, rows: number, scale: numbe
       if (cy < minY) minY = cy;
       if (cx > maxX) maxX = cx;
       if (cy > maxY) maxY = cy;
+      // Along a row a little further: the gaps of a dashed rule that was
+      // solid lie a dash apart.
       for (let dy = -2; dy <= 2; dy++) {
-        for (let dx = -2; dx <= 2; dx++) {
+        for (let dx = dy ? -2 : -3; dx <= (dy ? 2 : 3); dx++) {
           const nx = cx + dx;
           const ny = cy + dy;
           if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
@@ -1213,6 +1215,36 @@ function appearanceChanges(
   const TB = result.newDoc.tokens;
   const m = result.matches;
   type Ink = ReturnType<typeof ink>;
+  // With a line pitch smaller than the glyph boxes (CJK set solid: 14 pt
+  // boxes 11 pt apart), a word's box reaches into the glyphs of the lines
+  // above and below, and their colour would count as the word's. The box is
+  // cut halfway into each overlap with a neighbouring line, by the same
+  // amount on both sides (the tighter of the two versions).
+  const linesOf = (doc: DocModel, page: number) => doc.lines.filter((l) => l.page === page && l.end > l.start);
+  const pageLines = { old: linesOf(result.oldDoc, oldPage), new: linesOf(result.newDoc, newPage) };
+  const cut = (lines: DocModel['lines'], t: Token): [number, number] => {
+    const r = t.rects[0];
+    let top = 0;
+    let bottom = 0;
+    for (const l of lines) {
+      if (l.id === t.line || l.rect.x >= r.x + r.w || l.rect.x + l.rect.w <= r.x) continue;
+      const lo = Math.max(r.y, l.rect.y);
+      const hi = Math.min(r.y + r.h, l.rect.y + l.rect.h);
+      if (hi <= lo) continue;
+      if (l.rect.y + l.rect.h / 2 < r.y + r.h / 2) top = Math.max(top, (hi - r.y) / 2);
+      else bottom = Math.max(bottom, (r.y + r.h - lo) / 2);
+    }
+    return [top, bottom];
+  };
+  const pitch = (a: Token, b: Token): [Rect, Rect] => {
+    const [ta, ba] = cut(pageLines.old, a);
+    const [tb, bb] = cut(pageLines.new, b);
+    const top = Math.max(ta, tb);
+    const bottom = Math.max(ba, bb);
+    if (!top && !bottom) return [a.rects[0], b.rects[0]];
+    const clip = (r: Rect) => ({ x: r.x, y: r.y + top, w: r.w, h: Math.max(1, r.h - top - bottom) });
+    return [clip(a.rects[0]), clip(b.rects[0])];
+  };
   type Hit = { a: Token; b: Token; colour: boolean; line?: { line: 'strike' | 'underline'; added: boolean }; ink?: Ink };
   const hits: Hit[] = [];
   for (let p = 0; p < m.length; p += 2) {
@@ -1240,8 +1272,9 @@ function appearanceChanges(
     const oa = [ca, g?.[0]].filter((c): c is Cover => !!c);
     const ob = [cb, g?.[1]].filter((c): c is Cover => !!c);
     const covers = oa.length + ob.length > 0;
-    const ia = ink(A, a.rects[0], covers ? (x, y) => oa.some((c) => c.at(x, y) !== 0) || ob.some((c) => c.atOther(x, y) !== 0) : undefined);
-    const ib = ink(B, b.rects[0], covers ? (x, y) => ob.some((c) => c.at(x, y) !== 0) || oa.some((c) => c.atOther(x, y) !== 0) : undefined);
+    const [ka, kb] = pitch(a, b);
+    const ia = ink(A, ka, covers ? (x, y) => oa.some((c) => c.at(x, y) !== 0) || ob.some((c) => c.atOther(x, y) !== 0) : undefined);
+    const ib = ink(B, kb, covers ? (x, y) => ob.some((c) => c.at(x, y) !== 0) || oa.some((c) => c.atOther(x, y) !== 0) : undefined);
     if (ia.n < 6 || ib.n < 6) continue;
     const colour =
       Math.hypot(ia.chroma[0] - ib.chroma[0], ia.chroma[1] - ib.chroma[1], ia.chroma[2] - ib.chroma[2]) > 30 ||
@@ -1912,8 +1945,12 @@ export function compareRasters(
       }
       // The fill and rules of a table row whose text is a change of its own
       // (or a header row repeated at a page top only because a page break
-      // moved): part of that change.
-      const row = rows[side].find((x) => coveredShare(r, [x.rect]) >= 0.6);
+      // moved): part of that change. A row's fill and rules run across it;
+      // a compact graphic on the line of a text change (a signature beside
+      // an inserted line, a rule that got shorter and red) is a change of
+      // its own. Around text set at an angle (a stamp), which is no table
+      // row, what lies in the band is the stamp's own frame.
+      const row = rows[side].find((x) => coveredShare(r, [x.rect]) >= 0.6 && (x.change.consequence === 'repeatedLine' || x.angled || r.w >= 0.5 * x.rect.w));
       if (row) {
         const s = row.change[side];
         const place = { page, rect: r };
@@ -2230,9 +2267,10 @@ function changeBar(result: CompareResult, side: 'old' | 'new', page: number, r: 
  * header row that are matched on other pages are compared as usual, so a
  * header shading or rule changed throughout a table is reported there.
  */
-function rowBands(result: CompareResult, side: 'old' | 'new', page: number): { rect: Rect; change: Change }[] {
+function rowBands(result: CompareResult, side: 'old' | 'new', page: number): { rect: Rect; change: Change; angled: boolean }[] {
   const doc = side === 'old' ? result.oldDoc : result.newDoc;
-  const out: { rect: Rect; change: Change }[] = [];
+  const out: { rect: Rect; change: Change; angled: boolean }[] = [];
+  const rotated = (doc.runs[page] ?? []).filter((r) => r.angle !== 0 && r.str.trim());
   let lines: DocModel['lines'] | null = null;
   const candidates = [
     ...result.minor.filter((c) => c.consequence === 'repeatedLine'),
@@ -2244,7 +2282,10 @@ function rowBands(result: CompareResult, side: 'old' | 'new', page: number): { r
     lines ??= doc.lines.filter((l) => l.page === page && l.end > l.start);
     // Whole lines only: a word changed inside a row says nothing about its fill.
     const own = lines.filter((l) => l.start >= s.start! && l.end <= s.end!);
-    if (own.length) out.push({ rect: rowAround(own, lines), change: c });
+    if (!own.length) continue;
+    // Lines set at an angle (a stamp): not a table row.
+    const angled = own.every((l) => rotated.some((r) => intersects(r, l.rect) && coveredShare(l.rect, [r]) >= 0.5));
+    out.push({ rect: rowAround(own, lines), change: c, angled });
   }
   return out;
 }
