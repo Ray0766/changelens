@@ -1780,13 +1780,19 @@ const lastLevel = (s: Sibling) => s.label.parts[s.label.parts.length - 1];
  * "4.2" before "4.3"; a list that starts again at 1 starts a new run). Null
  * when s does not number on from 1: after a gap or a repeated number, or a
  * figure that only looks like a label (a time "10.30", a quantity column
- * "2, 3, 4", a date).
+ * "2, 3, 4", a date). With `continued`, a list of "N." items may also start
+ * at its first label in the document, at any number (paragraphs 12.–19. of
+ * a schedule that continue the agreement's numbering); see runStart.
  */
-function numberedRun(s: Sibling): Sibling[] | null {
+function numberedRun(s: Sibling, continued = false): Sibling[] | null {
   let i = s.index;
   while (i > 0 && lastLevel(s.list[i - 1]) === lastLevel(s.list[i]) - 1) i--;
-  return lastLevel(s.list[i]) === 1 ? s.list.slice(i, s.index) : null;
+  if (lastLevel(s.list[i]) === 1) return s.list.slice(i, s.index);
+  return continued && i === 0 && s.label.style === 'list' && s.label.parts.length === 1 ? s.list.slice(0, s.index) : null;
 }
+
+/** The label a run (see numberedRun) of s starts at. */
+const runStart = (s: Sibling, run: Sibling[]) => lastLevel(run[0] ?? s);
 
 /** Header words of a column of quantities ("Qty", "Menge", "数量"): its figures are amounts, never row numbers. */
 const QUANTITY_HEADER = /^(?:qty|qtys|quantity|quantities|menge|anzahl|stk|pcs|units?|qté|quantité|cantidad|cant|quantità|aantal|数量|件数|台数)$/i;
@@ -1819,7 +1825,10 @@ const REDLINE_LABEL = /^(?:(\d{1,3}(?:\.\d{1,3})*)\.?)?\[(\d{1,3}(?:\.\d{1,3})*)
  * a label that changed without it is listed.
  * - List, clause and row labels ("4." → "5.", "8.4" → "8.5", a table's row
  *   number "7" → "8"): one level changed, by at most 3, and
- *   (1) the label numbers on from 1 among its siblings (the labels of the
+ *   (1) the label numbers on from 1 (or, for "N." items, from the first
+ *       label of the list, when the list starts at the same number in both
+ *       versions: paragraphs 12.–19. that continue another part's
+ *       numbering) among its siblings (the labels of the
  *       same level under the same parent, in the same role: headings and the
  *       steps under them, or an outer and a nested list, are not siblings;
  *       see sameRole) in both versions, with no gap and no repeated number
@@ -1923,12 +1932,15 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
    * again from 1).
    */
   const net = (x: Cand): number | null => {
-    const ra = numberedRun(x.a);
-    const rb = numberedRun(x.b);
+    const ra = numberedRun(x.a, true);
+    const rb = numberedRun(x.b, true);
     if (!ra || !rb) return null;
+    // A list that does not start at 1 starts at the same number in both versions.
+    const from = runStart(x.a, ra);
+    if ((from !== 1 || runStart(x.b, rb) !== 1) && from !== runStart(x.b, rb)) return null;
     if (x.a.label.style === 'cell' && (quantityColumn(oldDoc, ra[0] ?? x.a) || quantityColumn(newDoc, rb[0] ?? x.b))) return null;
     const count = (run: Sibling[], other: Sibling, matched: Int32Array, replaced: Map<number, number>, labels: { at: Map<number, Sibling> }) => {
-      const inOther = new Set((numberedRun(other) ?? []).map((s) => s.tok));
+      const inOther = new Set((numberedRun(other, true) ?? []).map((s) => s.tok));
       let k = 0;
       for (const s of run) {
         const m = matched[s.tok];
