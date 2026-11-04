@@ -555,10 +555,20 @@ function referenceNumber(T: Token[], s: number, e: number): boolean {
   const after = T[e];
   const sameLine = (x: Token | undefined) => !!x && x.line === t.line;
   // The word, also when abbreviated with a full stop ("No. 12", "Art. 5").
-  const word = before?.text === '.' && !before.spaceBefore ? T[s - 2] : before;
-  if (sameLine(word) && REFERENCE_WORD.test(word!.text)) return true;
+  const w = before?.text === '.' && !before.spaceBefore ? s - 2 : s - 1;
+  const word = T[w];
+  // Some of the words are units after a quantity ("48 no. 18,400.00", "12
+  // nr 383.33") or after "per" ("per page 0.12", "per item 2.50"), and an
+  // amount with thousands and cents ("1,250.00") is never a reference: the
+  // figure is then an amount.
+  const prev = sameLine(T[w - 1]) ? T[w - 1] : undefined;
+  const unit =
+    (!!prev && hasDigit(prev) && /^(?:no|nos|nr)\.?$/i.test(word?.text ?? '')) ||
+    (/^per$/i.test(prev?.text ?? '') && /^(?:page|pp?|item|no|nos|nr)\.?$/i.test(word?.text ?? '')) ||
+    /^\d{1,3}(?:[,.\u00a0\u202f ]\d{3})+[.,]\d{2}$/.test(t.text);
+  if (sameLine(word) && REFERENCE_WORD.test(word.text) && !unit) return true;
   // An annex clause label written together at the start of a line ("A.3").
-  if (word !== before && sameLine(word) && /^\p{Lu}$/u.test(word!.text) && !t.spaceBefore && (s - 2 === 0 || T[s - 3].line !== t.line)) return true;
+  if (word !== before && sameLine(word) && /^\p{Lu}$/u.test(word.text) && !t.spaceBefore && (s - 2 === 0 || T[s - 3].line !== t.line)) return true;
   if (sameLine(after) && /^[条款项章节]$/.test(after!.text)) return true;
   // A page number at the end of a contents line, after a leader ("Change control ........ 2").
   const dot = (k: number) => k >= 0 && T[k].text === '.' && sameLine(T[k]);
