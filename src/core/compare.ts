@@ -695,7 +695,11 @@ function slideToBoundaries(ops: DiffOp[], A: Token[], B: Token[]): void {
  * followed by the old clause's own text, the old label is paired with the
  * last one instead ("4.3" → "4.4", a renumbering for extractRenumbering) and
  * the insertion starts at the inserted clause's label. Deletions likewise.
- * The pairing of the words around it is unchanged.
+ * The tokens that both items start with after the number move with it: the
+ * mark of a label "4." ("4" + "."), an opening quote ("1.3 “Change”"). The
+ * old label and the last one must be in the same role (see sameRole), so a
+ * step inserted at the end of a step list does not take the label of the
+ * heading after it. The pairing of the other words is unchanged.
  */
 function relabel(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: Hunk[]; pairs: Int32Array; labels: Set<Hunk> } {
   const { A, B, oldDoc, newDoc } = ctx;
@@ -705,7 +709,7 @@ function relabel(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: Hunk[]; p
     toB[pairs[p]] = pairs[p + 1];
     toA[pairs[p + 1]] = pairs[p];
   }
-  const drop = new Set<number>();
+  let moved = false;
   const out: Hunk[] = [];
   const labels = new Set<Hunk>();
   const same = (x: Label | null, y: Label | null) => !!x && !!y && x.style === y.style && x.parts.length === y.parts.length;
@@ -719,29 +723,54 @@ function relabel(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: Hunk[]; p
     // T: the side with the inserted (or deleted) text; U: the other one.
     const [T, U, tDoc, uDoc, toU, s, e] = ins ? [B, A, newDoc, oldDoc, toA, h.b0, h.b1] : [A, B, oldDoc, newDoc, toB, h.a0, h.a1];
     const x = s > 0 ? toU[s - 1] : -1;
-    const ok =
-      x >= 0 &&
-      e < T.length &&
-      toU[e] === x + 1 &&
-      T[s - 1].line !== T[e - 1].line &&
-      same(labelAt(tDoc, T[s - 1].i), labelAt(tDoc, T[e - 1].i)) &&
-      (() => {
-        const before = labelAt(uDoc, U[x].i);
-        const after = labelAt(tDoc, T[e - 1].i);
-        return !!before && !!after && !!(ins ? labelShift(before, after) : labelShift(after, before));
-      })();
-    if (!ok) {
+    if (x < 0 || e >= T.length || toU[e] !== x + 1) {
       out.push(h);
       continue;
     }
-    const label: Hunk = ins ? { a0: x, a1: x + 1, b0: e - 1, b1: e } : { a0: e - 1, a1: e, b0: x, b1: x + 1 };
-    out.push(ins ? { a0: x, a1: x, b0: s - 1, b1: e - 1 } : { a0: s - 1, a1: e - 1, b0: x, b1: x }, label);
+    /**
+     * The labels are T[s-1-m] (matched to U[x-m]) and T[e-1-m], each followed
+     * by m tokens that read the same on its line; m = 0 for "4.3".
+     */
+    const fits = (m: number) => {
+      if (s - 1 - m < 0 || x - m < 0 || e - s <= m + 1) return false;
+      for (let j = 0; j <= m; j++) if (toU[s - 1 - m + j] !== x - m + j) return false;
+      const [p, q] = [T[s - 1 - m], T[e - 1 - m]];
+      if (p.line === q.line || T[s - 1].line !== p.line || T[e - 1].line !== q.line) return false;
+      const first = labelAt(tDoc, p.i);
+      const last = labelAt(tDoc, q.i);
+      const before = labelAt(uDoc, U[x - m].i);
+      if (!same(first, last) || !before || !last) return false;
+      if (!(ins ? labelShift(before, last) : labelShift(last, before))) return false;
+      return sameRole(labelBox(uDoc, U[x - m].i, before), labelBox(tDoc, q.i, last));
+    };
+    let m = 0;
+    while (m <= 2 && !fits(m)) {
+      m++;
+      if (s - m < 0 || T[s - m].key !== T[e - m].key) m = 3;
+    }
+    if (m > 2) {
+      out.push(h);
+      continue;
+    }
+    const [n, k] = [x - m, e - 1 - m];
+    const label: Hunk = ins ? { a0: n, a1: n + 1, b0: k, b1: k + 1 } : { a0: k, a1: k + 1, b0: n, b1: n + 1 };
+    out.push(ins ? { a0: n, a1: n, b0: s - 1 - m, b1: k } : { a0: s - 1 - m, a1: k, b0: n, b1: n }, label);
     labels.add(label);
-    drop.add(ins ? x : s - 1);
+    // The label's own tokens leave the inserted item's label; those after the number join the last one.
+    const toT = ins ? toB : toA;
+    for (let j = 0; j <= m; j++) {
+      toU[s - 1 - m + j] = -1;
+      toT[n + j] = -1;
+    }
+    for (let j = 1; j <= m; j++) {
+      toU[k + j] = n + j;
+      toT[n + j] = k + j;
+    }
+    moved = true;
   }
-  if (!drop.size) return { hunks, pairs, labels };
+  if (!moved) return { hunks, pairs, labels };
   const kept: number[] = [];
-  for (let p = 0; p < pairs.length; p += 2) if (!drop.has(pairs[p])) kept.push(pairs[p], pairs[p + 1]);
+  for (let a = 0; a < toB.length; a++) if (toB[a] >= 0) kept.push(a, toB[a]);
   return { hunks: out, pairs: Int32Array.from(kept), labels };
 }
 
@@ -1104,8 +1133,18 @@ function formatDiff(a: Token, b: Token): FormatDetail | null {
   return Object.keys(d).length ? d : null;
 }
 
-function detectFormatting(ctx: Ctx, ops: DiffOp[]): Change[] {
+/**
+ * Formatting changes of matched words. With `pairs` (the final pairing),
+ * a pair of `ops` that is no longer matched (a label relabel paired with
+ * another one) is not compared.
+ */
+function detectFormatting(ctx: Ctx, ops: DiffOp[], pairs?: Int32Array): Change[] {
   const out: Change[] = [];
+  let toB: Int32Array | undefined;
+  if (pairs) {
+    toB = new Int32Array(ctx.A.length).fill(-1);
+    for (let p = 0; p < pairs.length; p += 2) toB[pairs[p]] = pairs[p + 1];
+  }
   let group: { a: number[]; b: number[]; sig: string; detail: FormatDetail } | null = null;
   const flush = () => {
     if (!group) return;
@@ -1142,7 +1181,7 @@ function detectFormatting(ctx: Ctx, ops: DiffOp[]): Change[] {
       const ib = op.b0 + k;
       const a = ctx.A[ia];
       const b = ctx.B[ib];
-      const d = formatDiff(a, b);
+      const d = toB && toB[ia] !== ib ? null : formatDiff(a, b);
       if (!d) {
         // Punctuation inside a re-formatted phrase does not break the group.
         if (group && a.kind === 'punct') continue;
@@ -1335,7 +1374,7 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   const renumbered = extractRenumbering(changes, oldDoc, newDoc, newOfOld);
   aggregateReplacements(changes);
   if (options.detectFormatting) {
-    const formats = [...detectFormatting(ctx, ops), ...detectFormatting(ctx, moved.innerOps)];
+    const formats = [...detectFormatting(ctx, ops, relabelled.pairs), ...detectFormatting(ctx, moved.innerOps)];
     changes.push(...aggregateFormatting(formats, ctx, pairs));
     changes.push(...detectPositions(ctx, pairs));
   }
