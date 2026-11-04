@@ -122,3 +122,25 @@ test('R5-V03: a thin rule recoloured at the same width is changed, not removed',
     assert.ok(hits(r.changes[0], 'old', 1, 300, 150) && hits(r.changes[0], 'new', 1, 300, 150), JSON.stringify(r.changes[0]));
   }
 });
+
+test('R3-V01: words added or deleted in a shaded cell or a filled field are not also a graphic change; a fill put there is', { skip }, async () => {
+  // reportlab: "Pump service" → "Pump service and replacement of the shaft
+  // seal" in a zebra-shaded row, and the same in a form field with a light
+  // blue fill. Before: "Graphic or image removed" where the new words
+  // stand (the fill under them faces their glyphs), "added" for a deletion.
+  for (const [a, b, d] of [
+    ['probe8-R3-V01-cell-before.pdf', 'probe8-R3-V01-cell-after.pdf', 'Added “and replacement of the shaft seal”'],
+    ['probe8-R3-V01-cell-after.pdf', 'probe8-R3-V01-cell-before.pdf', 'Deleted “and replacement of the shaft seal”'],
+    ['probe8-R3-V01-field-before.pdf', 'probe8-R3-V01-field-after.pdf', 'Added “and replacement of the shaft seal” (form field)'],
+    ['probe8-R3-V01-field-after.pdf', 'probe8-R3-V01-field-before.pdf', 'Deleted “and replacement of the shaft seal” (form field)'],
+  ]) {
+    const r = await run(a, b);
+    assert.deepEqual(list(r.changes), [d], `${a} → ${b}`);
+  }
+  // Controls (synthetic, pypdf overlays): a red fill drawn where the words
+  // were deleted, and a red tint over part of the added words, are listed.
+  const red = await run('probe8-R3-V01-cell-after.pdf', 'probe8-R3-V01-cell-deleted-red.pdf');
+  assert.ok(graphics(red).some((c) => hits(c, 'new', 1, 190, 154)), list(red.changes).join(' | '));
+  const tint = await run('probe8-R3-V01-cell-before.pdf', 'probe8-R3-V01-cell-added-tint.pdf');
+  assert.ok(graphics(tint).some((c) => hits(c, 'new', 1, 310, 154)), list(tint.changes).join(' | '));
+});

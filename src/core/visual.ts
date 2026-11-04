@@ -2203,6 +2203,44 @@ function compareAligned(
   const toOld = mapWith(ownB);
   const toNewBelow = mapWith(ownF, true);
   const toOldBelow = mapWith(ownB, true);
+  // Words of a text change on the other page drawn over the same fill as
+  // this page shows there (words added in a shaded cell or a filled form
+  // field, the old ones deleted): the fill under them differs from the
+  // glyphs, which are not compared. The region on this page must be of one
+  // colour, and the other page around those words of the same colour.
+  const textOn = (side: 'old' | 'new', page: number) =>
+    result.changes.filter((c) => c.category === 'text' && c.kind !== 'position' && c.kind !== 'format').flatMap((c) => c[side].rects.filter((q) => q.page === page).map((q) => expand(q.rect, 2)));
+  const words = { old: textOn('old', oldPage), new: textOn('new', newPage) };
+  const fillOf = (P: Prepared, q: Rect, accept: (k: number) => boolean, share = 0.9): number[] | null => {
+    const s = P.r.scale;
+    const x0 = Math.max(0, Math.floor(q.x * s));
+    const y0 = Math.max(0, Math.floor(q.y * s));
+    const x1 = Math.min(P.r.width, Math.ceil((q.x + q.w) * s));
+    const y1 = Math.min(P.r.height, Math.ceil((q.y + q.h) * s));
+    const step = Math.max(1, Math.round(Math.sqrt(((x1 - x0) * (y1 - y0)) / 2000)));
+    const px: number[] = [];
+    for (let y = y0; y < y1; y += step) for (let x = x0; x < x1; x += step) if (accept(P.mask[y * P.r.width + x])) px.push(y * P.r.width + x);
+    if (px.length < 20) return null;
+    const med = P.planes.map((c) => px.map((i) => c[i]).sort((u, v) => u - v)[px.length >> 1]);
+    const alike = px.filter((i) => P.planes.every((c, k) => Math.abs(c[i] - med[k]) <= THRESH)).length;
+    return alike >= share * px.length ? med : null;
+  };
+  const fillUnderText = (r: Rect, side: 'old' | 'new') => {
+    const o = side === 'old' ? 'new' : 'old';
+    if (!words[o].length) return false;
+    const [S, O] = side === 'old' ? [A, B] : [B, A];
+    const maps = side === 'old' ? [toNew, toNewBelow] : [toOld, toOldBelow];
+    const spots = maps.map((f) => f(r)).filter((m) => coveredShare(m, words[o]) >= 0.6);
+    if (!spots.length) return false;
+    const here = fillOf(S, r, (k) => k !== GLYPH && k !== PAD);
+    if (!here) return false;
+    return spots.some((m) => {
+      // Around the words, the fill is the most common colour; their
+      // anti-aliased edges reach into it.
+      const there = fillOf(O, expand(m, 3), (k) => k !== GLYPH, 0.5);
+      return !!there && there.every((v, k) => Math.abs(v - here[k]) <= THRESH);
+    });
+  };
   // `loose`: the regions of each side that nothing explains, as found
   // before any is folded into a text change (see the row bands below).
   let loose: { old: Rect[]; new: Rect[] } | null = null;
@@ -2212,7 +2250,7 @@ function compareAligned(
     const [src, dst] = side === 'old' ? [A, B] : [B, A];
     const [map, mapBelow] = side === 'old' ? [toNew, toNewBelow] : [toOld, toOldBelow];
     return rects.filter((r) => {
-      if (coveredShare(r, explained) >= 0.6 || covered(r, along[side]) >= 0.6) return false;
+      if (coveredShare(r, explained) >= 0.6 || covered(r, along[side]) >= 0.6 || fillUnderText(r, side)) return false;
       // A change bar in the margin beside the lines of a change.
       const bar = real ? changeBar(result, side, page, r, src.r.scale, appearance) : null;
       if (bar) {
