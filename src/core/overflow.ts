@@ -106,7 +106,9 @@ function sharedEdge(edges: (number | undefined)[], old: number | undefined): num
  * Find text in the new document that is cut off by the page edge, or that
  * sticks out into the margin — further than anything in the old document
  * and out of the page's own text block. Typically a table or a long line
- * that no longer fits; a new template with narrower margins is not.
+ * that no longer fits; a new template with narrower margins is not. One
+ * change per page and edge; text in the margin joins the cut at its side
+ * of the page.
  */
 export function findOverflow(oldDoc: DocModel, newDoc: DocModel, A: Token[], B: Token[], pairs: Int32Array): Change[] {
   const matchedOld = new Map<number, Token>();
@@ -138,7 +140,9 @@ export function findOverflow(oldDoc: DocModel, newDoc: DocModel, A: Token[], B: 
   const ends = new Map(pages.map((p) => [p, block(p).right ?? measureEnd(newDoc, p)]));
   const templateRight = sharedEdge([...ends.values()], oldEnd);
 
-  const perPage = new Map<number, { edge: Edge; toks: Token[]; idx: number[] }>();
+  // Tokens at an edge, per page and edge, and tokens in the margin per page.
+  const groups = new Map<string, { page: number; edge: Edge; idx: number[] }>();
+  const margin = new Map<number, number[]>();
   B.forEach((t, k) => {
     const pg = newDoc.pages[t.page];
     let edge: Edge | null = null;
@@ -163,17 +167,36 @@ export function findOverflow(oldDoc: DocModel, newDoc: DocModel, A: Token[], B: 
       if (t.rects.some((r) => r.x + r.w > right + MARGIN_TOL || r.x < left - MARGIN_TOL)) edge = 'margin';
     }
     if (!edge || wasOverflowing(k)) return;
-    const cur = perPage.get(t.page);
-    if (!cur) perPage.set(t.page, { edge, toks: [t], idx: [k] });
-    else {
-      cur.toks.push(t);
-      cur.idx.push(k);
-      if (cur.edge === 'margin' && edge !== 'margin') cur.edge = edge;
+    if (edge === 'margin') {
+      const list = margin.get(t.page);
+      if (list) list.push(k);
+      else margin.set(t.page, [k]);
+      return;
     }
+    const key = `${t.page}:${edge}`;
+    const g = groups.get(key) ?? { page: t.page, edge, idx: [] };
+    groups.set(key, g);
+    // A mark cut at the edge ("1,000," with its comma across it) is shown
+    // with the figure it is written onto.
+    if (t.kind === 'punct' && !t.spaceBefore && k > 0 && B[k - 1].line === t.line) g.idx.push(k - 1);
+    g.idx.push(k);
   });
+  // Text in the margin joins the cut at its side of the page, else any cut on the page.
+  for (const [page, idx] of margin) {
+    const pg = newDoc.pages[page];
+    for (const k of idx) {
+      const r = B[k].rects[0];
+      const side = r.x + r.w / 2 > pg.width / 2 ? 'right' : 'left';
+      const g = groups.get(`${page}:${side}`) ?? [...groups.values()].find((x) => x.page === page) ?? groups.get(`${page}:margin`);
+      if (g) g.idx.push(k);
+      else groups.set(`${page}:margin`, { page, edge: 'margin', idx: [k] });
+    }
+  }
 
   const out: Change[] = [];
-  for (const [page, { edge, toks, idx }] of perPage) {
+  for (const { page, edge, idx: unsorted } of groups.values()) {
+    const idx = [...new Set(unsorted)].sort((x, y) => x - y);
+    const toks = idx.map((k) => B[k]);
     // A single stray glyph in the margin is not worth reporting.
     if (edge === 'margin' && toks.filter((t) => t.kind !== 'punct').length < 2) continue;
     const pg = newDoc.pages[page];

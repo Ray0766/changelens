@@ -49,13 +49,15 @@ test('R2-01: the same on a landscape page made with /Rotate 90 (turned-back cont
   assert.deepEqual(texts(r.changes[0]), ['4,800', '4,8']);
 });
 
-test('R2-01: LibreOffice schedule, a limit shortened 3 pt inside the edge', async () => {
+test('R2-01, R2-V02: LibreOffice schedule, a limit shortened 3 pt inside the edge; cut figures show their visible digits', async () => {
   const r = await run('R2-01-lo-before', 'R2-01-lo-edit');
   assert.deepEqual(listed(r), [RIGHT, 'Number changed: 2,500,000 → 2,500 (-100%)']);
-  assert.equal(r.changes[0].old.text, '1,000,000 5,000,000');
+  // The comma that crosses the edge is shown with its figure, not as ",,".
+  assert.deepEqual(texts(r.changes[0]), ['1,000,000 5,000,000', '1,000, 5,000,']);
+  assert.ok(r.changes[0].new.rects.every((x) => x.rect.w > 25), JSON.stringify(r.changes[0].new.rects));
   const c = await run('R2-01-lo-before', 'R2-01-lo-cut');
   assert.deepEqual(listed(c), [RIGHT]);
-  assert.equal(c.changes[0].old.text, '1,000,000 2,500,000 5,000,000');
+  assert.deepEqual(texts(c.changes[0]), ['1,000,000 2,500,000 5,000,000', '1,000, 2,500, 5,000,']);
 });
 
 test('R2-02: a sign and a leading digit removed at a new left edge are number changes, beside a real cut', async () => {
@@ -134,6 +136,22 @@ test('R2-08: on a page turned by /Rotate 90, a figure cut at the bottom is part 
   assert.deepEqual(listed(r), [BOTTOM, 'Number changed: 4,800 → 4,300 (-10%)']);
   assert.deepEqual(texts(r.changes[0]), ['4,800', '4,80']);
   assert.ok(!r.changes.some((c) => c.numeric?.to === '4,80'));
+});
+
+test('R2-12: a page cut on both sides gets one item per edge, each with its own text', async () => {
+  const r = await run('R2-12-before', 'R2-12-after');
+  assert.deepEqual(listed(r), [RIGHT, 'Number changed: 4,800 → 4,300 (-10%)', LEFT]);
+  assert.deepEqual(texts(cut(r, 'right')[0]), ['4,800', '4,8']);
+  assert.deepEqual(texts(cut(r, 'left')[0]), ['Note', 'ote']);
+  // A centred heading cut on both sides.
+  const h = await run('R2-07-top-before', 'R2-12-centred');
+  assert.deepEqual(texts(cut(h, 'left')[0]), ['Annual', 'nual']);
+  assert.deepEqual(texts(cut(h, 'right')[0]), ['2029', '20']);
+  assert.ok(cut(h, 'left')[0].new.rects.every((x) => x.rect.x < 100));
+  // A delivery note cropped on both sides: the right-edge "p" (of "pcs") stays in the right item.
+  const v = await run('R7-07-v-before', 'R7-07-v-after');
+  assert.deepEqual(texts(cut(v, 'right')[0]), ['pcs pcs pcs pcs pcs', 'p p p p p']);
+  assert.deepEqual(texts(cut(v, 'left')[0]), ['Pallet Carton Crate Bundle Box', 'allet arton rate undle ox']);
 });
 
 test('R7-07: a page cropped on both sides, where a cut line end and the next cut line start form one hunk', async () => {
