@@ -86,3 +86,41 @@ test('N3: a chart page that gains a vertical label or a diagonal watermark is st
     assert.ok(!r.coverage?.old.visualSkipped?.length && !r.coverage?.new.visualSkipped?.length, file);
   }
 });
+
+test('N4: a mark in the band of an added watermark, or just beyond a stamp frame, is listed', { skip }, async () => {
+  // Chromium quotation (R5-08) with a light grey DRAFT added at 40°: a red
+  // tick drawn between its letters "A" and "F", above its capitals and
+  // below its baseline. Before: only 'Added “DRAFT”' (the letters' band was
+  // masked whole).
+  for (const [file, x, y] of [
+    ['probe8-N4-wm-tick-gap.pdf', 332, 236],
+    ['probe8-N4-wm-tick-above.pdf', 412, 136],
+    ['probe8-N4-wm-tick-below.pdf', 356, 336],
+  ] as const) {
+    const r = await run('probe8-R5-08-wm-before.pdf', file);
+    assert.ok(list(r.changes).includes('Added “DRAFT”'), list(r.changes).join(' | '));
+    assert.ok(graphics(r).some((c) => hits(c, 'new', 1, x, y)), `${file}: ${list(r.changes).join(' | ')} ${JSON.stringify(graphics(r).map((c) => c.new.rects))}`);
+  }
+  // A PAID stamp added at -18° with a 6 pt tick against its frame, above or
+  // below. Before: the tick went with the frame's region, which the stamp
+  // explains.
+  for (const [file, x, y] of [
+    ['probe8-N4-stamp-tick-above.pdf', 458, 182],
+    ['probe8-N4-stamp-tick-below.pdf', 458, 238],
+  ] as const) {
+    const r = await run('probe8-R5-08-stamp-before.pdf', file);
+    assert.ok(graphics(r).some((c) => hits(c, 'new', 1, x, y)), `${file}: ${list(r.changes).join(' | ')}`);
+  }
+  // SYNTHETIC (pypdf overlay on the R5-V02 Chromium stock sheet): the same
+  // 30 % grey DRAFT on both versions, the table moved down 42 pt by two
+  // notes, and a tick drawn next to the "F" in the new one.
+  const both = await run('probe8-N4-b-wmt.pdf', 'probe8-N4-n-wmt-tick.pdf');
+  assert.deepEqual(list(both.changes), ['Added 2 paragraphs', 'Graphic or image added'], list(both.changes).join(' | '));
+  assert.ok(hits(graphics(both)[0], 'new', 1, 210, 155));
+  // Controls: the watermark alone, added or on both re-flowed versions,
+  // gives no graphic item (see also R5-08 in visual8-appearance).
+  const reflow = await run('probe8-N4-b-wmt.pdf', 'probe8-N4-n-wmt.pdf');
+  assert.deepEqual(list(reflow.changes), ['Added 2 paragraphs']);
+  const added = await run('probe8-R5-V02-before.pdf', 'probe8-N4-b-wmt.pdf');
+  assert.deepEqual(graphics(added), [], list(added.changes).join(' | '));
+});

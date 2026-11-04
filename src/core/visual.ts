@@ -159,13 +159,43 @@ const RULE = 3;
 /** Luminance at or below which a pixel counts as dark ink. */
 const DARK = 191;
 
+/** A run set at an angle that is not a quarter turn (a DRAFT watermark, a stamp). */
+function slantedRun(run: TextRun): boolean {
+  return !!run.rot && run.angle % 90 !== 0;
+}
+
+/**
+ * The band of a run set at an angle: its letters' box along the text
+ * direction (the advance, ascent and descent), padded by `pad` points. Its
+ * bounding box on the page, and a test for page points.
+ */
+function slantBand(run: TextRun, pad: number): { box: Rect; inside: (x: number, y: number) => boolean } {
+  const a = (run.angle * Math.PI) / 180;
+  const cos = Math.cos(a);
+  const sin = Math.sin(a);
+  const u0 = run.rot!.x * cos + run.baseline * sin - pad;
+  const v0 = -run.rot!.x * sin + run.baseline * cos;
+  const u1 = u0 + run.rot!.len + 2 * pad;
+  const top = v0 - run.rot!.ascent - pad;
+  const bottom = v0 + run.rot!.descent + pad;
+  return {
+    box: expand(run, pad),
+    inside: (x, y) => {
+      const u = x * cos + y * sin;
+      const w = -x * sin + y * cos;
+      return u >= u0 && u <= u1 && w >= top && w <= bottom;
+    },
+  };
+}
+
 /**
  * Where the text is. Each run's box is masked, plus a padding for glyph parts
  * outside it. A long thin horizontal line inside that padding — a rule above
  * a paragraph, an underline below a run, a table border close to the text —
- * is not text, so it is taken out of the mask again and compared.
+ * is not text, so it is taken out of the mask again and compared. With
+ * `angled` false, text set at an angle is left out (see refineSlanted).
  */
-function textMask(doc: DocModel, page: number, r: Raster, lum: Uint8Array): Uint8Array {
+function textMask(doc: DocModel, page: number, r: Raster, lum: Uint8Array, angled = true): Uint8Array {
   const W = r.width;
   const H = r.height;
   const s = r.scale;
@@ -182,17 +212,10 @@ function textMask(doc: DocModel, page: number, r: Raster, lum: Uint8Array): Uint
   };
   // Text set at an angle (a DRAFT watermark, a stamp) is masked along its
   // letters only: its bounding box can cover half the page.
-  const slanted = (run: TextRun) => !!run.rot && run.angle % 90 !== 0;
+  const slanted = slantedRun;
   const fillSlanted = (run: TextRun, pad: number, v: number, onlyEmpty: boolean) => {
-    const a = (run.angle * Math.PI) / 180;
-    const cos = Math.cos(a);
-    const sin = Math.sin(a);
-    const u0 = run.rot!.x * cos + run.baseline * sin - pad;
-    const v0 = -run.rot!.x * sin + run.baseline * cos;
-    const u1 = u0 + run.rot!.len + 2 * pad;
-    const top = v0 - run.rot!.ascent - pad;
-    const bottom = v0 + run.rot!.descent + pad;
-    const b = expand(run, pad);
+    const band = slantBand(run, pad);
+    const b = band.box;
     const x0 = Math.max(0, Math.floor(b.x * s));
     const y0 = Math.max(0, Math.floor(b.y * s));
     const x1 = Math.min(W, Math.ceil((b.x + b.w) * s));
@@ -200,16 +223,13 @@ function textMask(doc: DocModel, page: number, r: Raster, lum: Uint8Array): Uint
     for (let y = y0; y < y1; y++) {
       const py = (y + 0.5) / s;
       for (let x = x0; x < x1; x++) {
-        const px = (x + 0.5) / s;
-        const u = px * cos + py * sin;
-        const w = -px * sin + py * cos;
-        if (u < u0 || u > u1 || w < top || w > bottom) continue;
+        if (!band.inside((x + 0.5) / s, py)) continue;
         const i = y * W + x;
         if (!onlyEmpty || !m[i]) m[i] = v;
       }
     }
   };
-  const runs = (doc.runs[page] ?? []).filter((run) => run.str.trim());
+  const runs = (doc.runs[page] ?? []).filter((run) => run.str.trim() && (angled || !slanted(run)));
   for (const run of runs) {
     if (slanted(run)) fillSlanted(run, 0.12 * run.fontSize + 1, PAD, true);
     else fill(expand(run, 0.12 * run.fontSize + 1), PAD, true);
@@ -259,12 +279,233 @@ interface Prepared {
   planes: Uint8Array[];
   /** 3×3 minimum and maximum of the blurred planes. */
   range: [Uint8Array, Uint8Array][];
+  /** Text set at an angle on the page (see slantedRun), and the mask without it. */
+  slanted?: { runs: TextRun[]; base: Uint8Array };
 }
 
 function prepare(doc: DocModel, page: number, r: Raster): Prepared {
   const lum = luminance(r);
   const p = planes(r).map((c) => blur(c, r.width, r.height));
-  return { r, lum, mask: textMask(doc, page, r, lum), planes: p, range: p.map((c) => minMax(c, r.width, r.height)) };
+  const runs = (doc.runs[page] ?? []).filter((run) => slantedRun(run) && run.str.trim());
+  return {
+    r,
+    lum,
+    mask: textMask(doc, page, r, lum),
+    planes: p,
+    range: p.map((c) => minMax(c, r.width, r.height)),
+    ...(runs.length ? { slanted: { runs, base: textMask(doc, page, r, lum, false) } } : {}),
+  };
+}
+
+/**
+ * What a region `r` of page `S` holds besides what explains it: pixels that
+ * are not text, not explained (`explained`, by pixel index of S), and of
+ * another colour than page `O` at the same place of the region mapped there
+ * (`m`), in a patch at least 3 pixels thick (not the anti-aliased edge of a
+ * fill or a line that sits a pixel off) and of 2 pt² or more. The box of
+ * those patches, or null.
+ */
+function apartFrom(S: Prepared, O: Prepared, r: Rect, m: Rect, explained: (p: number, x: number, y: number) => boolean): Rect | null {
+  const s = S.r.scale;
+  const so = O.r.scale;
+  const W = S.r.width;
+  const x0 = Math.max(0, Math.floor(r.x * s));
+  const y0 = Math.max(0, Math.floor(r.y * s));
+  const x1 = Math.min(W, Math.ceil((r.x + r.w) * s));
+  const y1 = Math.min(S.r.height, Math.ceil((r.y + r.h) * s));
+  const w = x1 - x0;
+  const h = y1 - y0;
+  if (w < 3 || h < 3) return null;
+  const off = new Uint8Array(w * h);
+  for (let y = y0; y < y1; y++) {
+    const qy = Math.floor(((y + 0.5) / s + m.y - r.y) * so);
+    for (let x = x0; x < x1; x++) {
+      const p = y * W + x;
+      const k = S.mask[p];
+      if (k === GLYPH || k === PAD || explained(p, x, y)) continue;
+      const qx = Math.floor(((x + 0.5) / s + m.x - r.x) * so);
+      if (qx >= 0 && qy >= 0 && qx < O.r.width && qy < O.r.height) {
+        const q = qy * O.r.width + qx;
+        if (S.planes.every((c, j) => Math.abs(c[p] - O.planes[j][q]) <= THRESH)) continue;
+      }
+      off[(y - y0) * w + (x - x0)] = 1;
+    }
+  }
+  // Patches: pixels whose eight neighbours are all off, with their neighbours.
+  let n = 0;
+  let bx0 = Infinity;
+  let by0 = Infinity;
+  let bx1 = -Infinity;
+  let by1 = -Infinity;
+  for (let y = 1; y < h - 1; y++)
+    for (let x = 1; x < w - 1; x++) {
+      let all = true;
+      for (let dy = -1; dy <= 1 && all; dy++) for (let dx = -1; dx <= 1 && all; dx++) all = off[(y + dy) * w + x + dx] === 1;
+      if (!all) continue;
+      n++;
+      bx0 = Math.min(bx0, x - 1);
+      by0 = Math.min(by0, y - 1);
+      bx1 = Math.max(bx1, x + 2);
+      by1 = Math.max(by1, y + 2);
+    }
+  if (!n) return null;
+  let area = 0;
+  for (let y = by0; y < by1; y++) for (let x = bx0; x < bx1; x++) area += off[y * w + x];
+  if (area < 2 * s * s) return null;
+  return { x: (x0 + bx0) / s, y: (y0 + by0) / s, w: (bx1 - bx0) / s, h: (by1 - by0) / s };
+}
+
+/** A pixel's colour composited on white, not blurred. */
+function rgb(r: Raster, i: number): [number, number, number] {
+  const d = r.data;
+  const a = d[i * 4 + 3] / 255;
+  const w = 255 * (1 - a);
+  return [d[i * 4] * a + w, d[i * 4 + 1] * a + w, d[i * 4 + 2] * a + w];
+}
+
+/** The colour of a run set at an angle, and how far a pixel may be from it (see slantInks). */
+interface SlantInk {
+  run: TextRun;
+  colour: number[];
+  tol: number;
+}
+
+/**
+ * The colour of each run set at an angle on page `X` (a light grey DRAFT, a
+ * red stamp): the most common colour of its letters' band that is not
+ * paper and not other text. It must be at least a quarter of those pixels
+ * and darker than paper by 12 levels or more. Runs without such a colour
+ * are left out (their whole band stays masked).
+ */
+function slantInks(X: Prepared): SlantInk[] {
+  if (!X.slanted) return [];
+  const out: SlantInk[] = [];
+  const s = X.r.scale;
+  const W = X.r.width;
+  const paper = (P: Prepared, i: number) => P.planes.every((c) => c[i] >= 243);
+  for (const run of X.slanted.runs) {
+    const band = slantBand(run, 0);
+    const b = band.box;
+    const x0 = Math.max(0, Math.floor(b.x * s));
+    const y0 = Math.max(0, Math.floor(b.y * s));
+    const x1 = Math.min(W, Math.ceil((b.x + b.w) * s));
+    const y1 = Math.min(X.r.height, Math.ceil((b.y + b.h) * s));
+    const px: number[] = [];
+    for (let y = y0; y < y1; y++)
+      for (let x = x0; x < x1; x++) {
+        const i = y * W + x;
+        if (!X.slanted.base[i] && !paper(X, i) && band.inside((x + 0.5) / s, (y + 0.5) / s)) px.push(i);
+      }
+    if (px.length < 40) continue;
+    const bins = new Map<number, number>();
+    const key = (i: number) => {
+      const [r, g, b] = rgb(X.r, i);
+      return ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+    };
+    for (const i of px) bins.set(key(i), (bins.get(key(i)) ?? 0) + 1);
+    let best = -1;
+    let n = 0;
+    for (const [k, v] of bins) if (v > n) [best, n] = [k, v];
+    if (n < 0.25 * px.length) continue;
+    const mode = px.filter((i) => key(i) === best).map((i) => rgb(X.r, i));
+    const colour = [0, 1, 2].map((c) => mode.map((v) => v[c]).sort((u, v) => u - v)[mode.length >> 1]);
+    const dev = 255 - Math.min(...colour);
+    if (dev < 12) continue;
+    // The letters' inside is of one colour; their anti-aliased edges, and
+    // those of a darker mark of the same hue, are not (see slantHeld).
+    out.push({ run, colour, tol: Math.min(20, Math.max(8, dev / 4)) });
+  }
+  return out;
+}
+
+/**
+ * Pixels of page `P` in the pixel box [x0, x1) × [y0, y1) that belong to the
+ * letters of text set at an angle (see slantInks): inside them (of their
+ * colour), within three pixels of that (anti-aliased edges, the blur), or
+ * enclosed by it (a rule or a glyph they are drawn over). A map of the box.
+ */
+function slantHeld(P: Prepared, inks: SlantInk[], x0: number, y0: number, x1: number, y1: number): Uint8Array {
+  const w = x1 - x0;
+  const h = y1 - y0;
+  const n = w * h;
+  const ink = new Uint8Array(n);
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const v = rgb(P.r, y * P.r.width + x);
+      if (inks.some((k) => v.every((c, j) => Math.abs(c - k.colour[j]) <= k.tol))) ink[(y - y0) * w + x - x0] = 1;
+    }
+  // Square dilation and erosion by r pixels (separable).
+  const grow = (src: Uint8Array, r: number, v: number) => {
+    const tmp = new Uint8Array(n);
+    const out = new Uint8Array(n);
+    for (let j = 0; j < h; j++)
+      for (let i = 0; i < w; i++) {
+        let hit = 0;
+        for (let u = Math.max(0, i - r); u <= Math.min(w - 1, i + r) && !hit; u++) if (src[j * w + u] === v) hit = 1;
+        tmp[j * w + i] = hit ? v : 1 - v;
+      }
+    for (let j = 0; j < h; j++)
+      for (let i = 0; i < w; i++) {
+        let hit = 0;
+        for (let u = Math.max(0, j - r); u <= Math.min(h - 1, j + r) && !hit; u++) if (tmp[u * w + i] === v) hit = 1;
+        out[j * w + i] = hit ? v : 1 - v;
+      }
+    return out;
+  };
+  // Grown from the inside of the letters only (ink whose neighbours are
+  // ink too): the anti-aliased edge of a darker mark of the same hue passes
+  // through their colour, without an inside of it.
+  const inside = grow(ink, 1, 0);
+  const closed = grow(grow(inside, 2, 1), 2, 0);
+  return grow(closed, 3, 1);
+}
+
+/**
+ * Text set at an angle on one side only, or on both, is masked over its
+ * letters' band (see textMask), so what lies in that band is not compared:
+ * a tick drawn between the letters of a DRAFT watermark, above its capitals
+ * or below its baseline. Here the band is masked only where it holds the
+ * letters (see slantHeld) or where the other page `Y` shows something where
+ * it is compared (displaced like the nearest matched line, `anchors`): its
+ * own watermark's letters there, or content under them. A pixel of `X` that
+ * is neither paper nor the letters, where `Y` shows paper, is compared as
+ * any other graphic.
+ */
+function refineSlanted(X: Prepared, Y: Prepared, inks: SlantInk[], anchors: Anch[]): void {
+  if (!X.slanted || !inks.length) return;
+  const s = X.r.scale;
+  const W = X.r.width;
+  const blank = (P: Prepared, i: number) => P.planes.every((c) => c[i] + THRESH >= 255);
+  // Where a row of X is compared on Y: displaced like its nearest matched
+  // line (see unmatched), or at the same place.
+  const own = anchors.filter((a) => a.own);
+  const shift = (ypt: number) => {
+    let best: Anch | null = null;
+    for (const a of own) if (!best || Math.abs(a.y - ypt) < Math.abs(best.y - ypt)) best = a;
+    return best ?? { y: ypt, dx: 0, dy: 0, own: true };
+  };
+  for (const k of inks) {
+    const band = slantBand(k.run, 0.12 * k.run.fontSize + 1);
+    const b = band.box;
+    const x0 = Math.max(0, Math.floor(b.x * s));
+    const y0 = Math.max(0, Math.floor(b.y * s));
+    const x1 = Math.min(W, Math.ceil((b.x + b.w) * s));
+    const y1 = Math.min(X.r.height, Math.ceil((b.y + b.h) * s));
+    if (x1 <= x0 || y1 <= y0) continue;
+    const held = slantHeld(X, inks, x0, y0, x1, y1);
+    const w = x1 - x0;
+    for (let y = y0; y < y1; y++) {
+      const a = shift((y + 0.5) / s);
+      const qy = Math.floor(((y + 0.5) / s + a.dy) * Y.r.scale);
+      for (let x = x0; x < x1; x++) {
+        const i = y * W + x;
+        if (X.mask[i] === X.slanted.base[i] || held[(y - y0) * w + x - x0] || blank(X, i)) continue;
+        const qx = Math.floor(((x + 0.5) / s + a.dx) * Y.r.scale);
+        if (qx < 0 || qy < 0 || qx >= Y.r.width || qy >= Y.r.height || !blank(Y, qy * Y.r.width + qx)) continue;
+        X.mask[i] = X.slanted.base[i];
+      }
+    }
+  }
 }
 
 interface Anch {
@@ -2162,6 +2403,11 @@ function compareAligned(
   const whole = !!options.whole;
   let fwd = anchorsFor(result, oldPage, newPage, false);
   let bwd = anchorsFor(result, oldPage, newPage, true);
+  // Text set at an angle (a watermark, a stamp): masked over its letters
+  // only, where they can be told (see refineSlanted).
+  const inks = { old: slantInks(A), new: slantInks(B) };
+  refineSlanted(A, B, inks.old, fwd);
+  refineSlanted(B, A, inks.new, bwd);
   const identity = !fwd.some((a) => a.own);
   if (identity) {
     // No shared text: only compare when the pages are paired as a whole.
@@ -2262,6 +2508,26 @@ function compareAligned(
   const slanted = { old: slantedRuns('old', oldPage), new: slantedRuns('new', newPage) };
   const alongSlanted = (side: 'old' | 'new', page: number) => (slanted[side].length ? overlays(result, side, page, { pad: () => 9 }).filter((f) => slanted[side].some((x) => coveredShare(f.box, [expand(x, 9)]) >= 0.9)) : []);
   const along = { old: alongSlanted('old', oldPage), new: alongSlanted('new', newPage) };
+  // What such letters, or a stamp's band, do not explain in a region that
+  // lies along them: what is neither the letters (see slantHeld) nor what
+  // the other page shows at the mapped place (see apartFrom). A tick drawn
+  // between a watermark's letters, or a few points beyond a stamp's frame,
+  // which the frame's region took in.
+  const offInk = (r: Rect, side: 'old' | 'new'): Rect | null => {
+    const ks = inks[side];
+    if (!ks.length) return null;
+    const [S, O] = side === 'old' ? [A, B] : [B, A];
+    const s = S.r.scale;
+    const x0 = Math.max(0, Math.floor(r.x * s));
+    const y0 = Math.max(0, Math.floor(r.y * s));
+    const x1 = Math.min(S.r.width, Math.ceil((r.x + r.w) * s));
+    const y1 = Math.min(S.r.height, Math.ceil((r.y + r.h) * s));
+    if (x1 - x0 < 3 || y1 - y0 < 3) return null;
+    const held = slantHeld(S, ks, x0, y0, x1, y1);
+    const w = x1 - x0;
+    const paper = (p: number) => S.planes.every((c) => c[p] + THRESH >= 255);
+    return apartFrom(S, O, r, (side === 'old' ? toNew : toOld)(r), (p, x, y) => !!held[(y - y0) * w + x - x0] || paper(p));
+  };
   const zones = (side: 'old' | 'new', page: number) => {
     const out: Rect[] = [];
     // Text that is cut off or sticks out (overflow) explains the graphics
@@ -2310,60 +2576,9 @@ function compareAligned(
     return alike >= share * px.length ? med : null;
   };
   // What else the region holds on its own page (a status square removed
-  // where the new words go): pixels of another colour than the fill that
-  // differ from the other page at the mapped place too, in a patch at
-  // least 3 pixels thick (not the anti-aliased edge of a fill that sits a
-  // pixel off) and of 2 pt² or more. The box of those patches, or null.
-  const notFill = (S: Prepared, O: Prepared, r: Rect, m: Rect, fill: number[]): Rect | null => {
-    const s = S.r.scale;
-    const so = O.r.scale;
-    const W = S.r.width;
-    const x0 = Math.max(0, Math.floor(r.x * s));
-    const y0 = Math.max(0, Math.floor(r.y * s));
-    const x1 = Math.min(W, Math.ceil((r.x + r.w) * s));
-    const y1 = Math.min(S.r.height, Math.ceil((r.y + r.h) * s));
-    const w = x1 - x0;
-    const h = y1 - y0;
-    if (w < 3 || h < 3) return null;
-    const off = new Uint8Array(w * h);
-    for (let y = y0; y < y1; y++) {
-      const qy = Math.floor(((y + 0.5) / s + m.y - r.y) * so);
-      for (let x = x0; x < x1; x++) {
-        const p = y * W + x;
-        const k = S.mask[p];
-        if (k === GLYPH || k === PAD) continue;
-        if (S.planes.every((c, j) => Math.abs(c[p] - fill[j]) <= THRESH)) continue;
-        const qx = Math.floor(((x + 0.5) / s + m.x - r.x) * so);
-        if (qx >= 0 && qy >= 0 && qx < O.r.width && qy < O.r.height) {
-          const q = qy * O.r.width + qx;
-          if (S.planes.every((c, j) => Math.abs(c[p] - O.planes[j][q]) <= THRESH)) continue;
-        }
-        off[(y - y0) * w + (x - x0)] = 1;
-      }
-    }
-    // Patches: pixels whose eight neighbours are all off, with their neighbours.
-    let n = 0;
-    let bx0 = Infinity;
-    let by0 = Infinity;
-    let bx1 = -Infinity;
-    let by1 = -Infinity;
-    for (let y = 1; y < h - 1; y++)
-      for (let x = 1; x < w - 1; x++) {
-        let all = true;
-        for (let dy = -1; dy <= 1 && all; dy++) for (let dx = -1; dx <= 1 && all; dx++) all = off[(y + dy) * w + x + dx] === 1;
-        if (!all) continue;
-        n++;
-        bx0 = Math.min(bx0, x - 1);
-        by0 = Math.min(by0, y - 1);
-        bx1 = Math.max(bx1, x + 2);
-        by1 = Math.max(by1, y + 2);
-      }
-    if (!n) return null;
-    let area = 0;
-    for (let y = by0; y < by1; y++) for (let x = bx0; x < bx1; x++) area += off[y * w + x];
-    if (area < 2 * s * s) return null;
-    return { x: (x0 + bx0) / s, y: (y0 + by0) / s, w: (bx1 - bx0) / s, h: (by1 - by0) / s };
-  };
+  // where the new words go): see apartFrom, with the fill as what explains.
+  const notFill = (S: Prepared, O: Prepared, r: Rect, m: Rect, fill: number[]): Rect | null =>
+    apartFrom(S, O, r, m, (p) => S.planes.every((c, j) => Math.abs(c[p] - fill[j]) <= THRESH));
   /**
    * The region is the fill under a text change's words on the other page
    * (see above): true. When it also holds something that is not that fill
@@ -2427,7 +2642,9 @@ function compareAligned(
         const l = looseOf();
         return (side === 'old' ? l.new : l.old).some((q) => intersects(expand(map(r), 6), q) || intersects(expand(mapBelow(r), 6), q));
       };
-      const row = rows[side].find((x) => (x.angled ? covered(r, x.angled) >= 0.6 : coveredShare(r, [x.rect]) >= 0.6 && (x.change.consequence === 'repeatedLine' || r.w >= 0.5 * x.rect.w)) && !matched(x));
+      const row = rows[side].find(
+        (x) => (x.angled ? covered(r, x.angled) >= 0.6 && !offInk(r, side) : coveredShare(r, [x.rect]) >= 0.6 && (x.change.consequence === 'repeatedLine' || r.w >= 0.5 * x.rect.w)) && !matched(x),
+      );
       if (row && dry) return false;
       if (row) {
         const s = row.change[side];
@@ -2455,8 +2672,16 @@ function compareAligned(
       return true;
     };
     const out: Rect[] = [];
-    for (const found of rects) {
-      if (coveredShare(found, explained) >= 0.6 || covered(found, along[side]) >= 0.6) continue;
+    for (let found of rects) {
+      if (coveredShare(found, explained) >= 0.6) continue;
+      // Along the letters of text set at an angle, or in a stamp's band (see
+      // rowBands): only what they do not explain is left.
+      if (covered(found, along[side]) >= 0.6) {
+        const off = offInk(found, side);
+        if (!off) continue;
+        found = off;
+      }
+      if (rows[side].some((x) => x.angled && covered(found, x.angled) >= 0.6)) found = offInk(found, side) ?? found;
       // The fill under the other page's new words: only what is not that
       // fill is left.
       const fill = fillUnderText(found, side);
