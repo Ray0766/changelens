@@ -40,3 +40,12 @@ test('a moved clause labelled with a number that repeats its new section’s fir
   assert.deepEqual(minor(v06c), ['2.4 → 5.3']);
   assert.deepEqual(listed(await probe('r1-06-v06x', 'r1-06-v06')), ['Moved and edited a paragraph', 'Number changed: 2.4 → 5.4']);
 });
+
+test('a table row pushed past a page break and renumbered on the way is not a move (R1-13)', async () => {
+  // Word numbered list in the first column, header row repeated on page 2: a row inserted as 4,
+  // so "25. Archive of working papers" moves to the top of page 2 as 26.
+  const q09 = await probe('r1-13-q09');
+  assert.deepEqual(listed(q09), ['Added “4. Interview notes, IT team 4”']);
+  assert.ok(minor(q09).includes('25 → 26'), JSON.stringify(minor(q09)));
+  assert.equal(q09.ignored.renumbered, 27);
+});

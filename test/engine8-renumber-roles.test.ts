@@ -105,14 +105,13 @@ test('figures in another column of a numbered table are not row numbers (R1-03)'
     assert.equal(r.changes.length, 1, `${id}: ${JSON.stringify(listed(r))}`);
     assert.equal(r.ignored.renumbered, 10, id);
   }
-  // python-docx via LibreOffice: 30 rows, a row inserted as 4. The row that crossed the page
-  // break is still a move (R1-13), but no row number is listed on its own.
+  // python-docx via LibreOffice: 30 rows, a row inserted as 4; the row pushed past the page
+  // break, under the repeated header row, is renumbered too (R1-13).
   const q09t = await probe('r1-03-q09t');
-  assert.deepEqual(r1_03Loose(q09t), []);
-  assert.equal(q09t.ignored.renumbered, 26);
+  assert.equal(q09t.changes.length, 1, JSON.stringify(listed(q09t)));
   assert.ok(q09t.changes[0].new.text.startsWith('4 Interview notes, IT team'), q09t.changes[0].new.text);
+  assert.equal(q09t.ignored.renumbered, 27);
 });
-const r1_03Loose = (r: CompareResult) => r.changes.filter((c) => c.numeric && c.inMove === undefined).map((c) => describeChange('en', c));
 
 test('a figure that starts a wrapped line in the text column does not break the clause list (R6-02)', async () => {
   // reportlab, 500 clauses with hanging labels: clause 6 wraps before "50."; a clause inserted as 3, 30 → 45 days.

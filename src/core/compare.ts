@@ -800,13 +800,21 @@ function relabel(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: Hunk[]; p
  * and gives the heading up on both sides ("Deleted “Motors”" + "Added
  * “Motors”"). Only text that reads the same, of at most a few lines, right
  * before the repeated line in one version and right after it in the other
- * is paired again (matched text; nothing changed but the page break). The
+ * is paired again (matched text; nothing changed but the page break). A
+ * line-start label renumbered on the way (a table row "25." that became
+ * "26.") is left as a change of its own, for extractRenumbering. The
  * repeated line must stand at the top of its page in both versions and
  * also as whole lines on an earlier page, like the header rows of
  * repeatedAtPageTop.
  */
-function crossedPageBreak(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: Hunk[]; pairs: number[] } {
-  const { A, B } = ctx;
+function crossedPageBreak(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: Hunk[]; pairs: number[]; labels: Set<Hunk> } {
+  const { A, B, oldDoc, newDoc } = ctx;
+  /** A[a] and B[b] are line-start labels of one kind, one renumbered from the other ("25." → "26."). */
+  const renumbered = (a: number, b: number) => {
+    const x = labelAt(oldDoc, A[a].i) ?? rowNumberAt(oldDoc, A[a].i);
+    const y = labelAt(newDoc, B[b].i) ?? rowNumberAt(newDoc, B[b].i);
+    return !!x && !!y && x.len === y.len && !!labelShift(x, y, Infinity);
+  };
   const toB = new Int32Array(A.length).fill(-1);
   for (let p = 0; p < pairs.length; p += 2) toB[pairs[p]] = pairs[p + 1];
   const lineStart = (T: Token[], k: number) => k === 0 || T[k - 1].line !== T[k].line;
@@ -833,20 +841,27 @@ function crossedPageBreak(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: 
     const n = ins.a0 - d.a1;
     if (n < 1 || n > 60 || ins.b0 - d.b0 !== n || ins.b1 - ins.b0 !== d.a1 - d.a0) return false;
     for (let k = 0; k < n; k++) if (toB[d.a1 + k] !== d.b0 + k) return false;
-    for (let k = 0; k < d.a1 - d.a0; k++) if (A[d.a0 + k].key !== B[ins.b0 + k].key) return false;
+    for (let k = 0; k < d.a1 - d.a0; k++) if (A[d.a0 + k].key !== B[ins.b0 + k].key && !(k === 0 && renumbered(d.a0, ins.b0))) return false;
     const [x0, x1, y0, y1] = [d.a1, ins.a0, d.b0, ins.b0];
     if (A[x0].page === A[d.a1 - 1].page || !pageTop(A, x0) || !pageTop(B, y0) || B[y1 - 1].page !== B[ins.b0].page) return false;
     if (!lineStart(A, d.a0) || !lineEnd(A, d.a1) || !lineStart(B, ins.b0) || !lineEnd(B, ins.b1) || !lineStart(A, x0) || !lineEnd(A, x1)) return false;
     return repeatedEarlier(A, x0, x1) && repeatedEarlier(B, y0, y1);
   };
+  // A row's label renumbered on the way ("25." → "26."): the two numbers
+  // are left as a change of their own, for extractRenumbering.
+  const labels = new Map<Hunk, Hunk>();
   for (const d of dels) {
     const ins = hunks.find((h) => h.a0 === h.a1 && h.a0 > d.a1 && h.a0 - d.a1 <= 60 && !gone.has(h) && crossing(d, h));
     if (!ins) continue;
-    for (let k = 0; k < d.a1 - d.a0; k++) out.push(d.a0 + k, ins.b0 + k);
+    for (let k = 0; k < d.a1 - d.a0; k++) {
+      if (A[d.a0 + k].key === B[ins.b0 + k].key) out.push(d.a0 + k, ins.b0 + k);
+      else labels.set(d, { a0: d.a0, a1: d.a0 + 1, b0: ins.b0, b1: ins.b0 + 1 });
+    }
     gone.add(d);
     gone.add(ins);
   }
-  return { hunks: gone.size ? hunks.filter((h) => !gone.has(h)) : hunks, pairs: out };
+  if (!gone.size) return { hunks, pairs: out, labels: new Set() };
+  return { hunks: hunks.flatMap((h) => labels.get(h) ?? (gone.has(h) ? [] : [h])), pairs: out, labels: new Set(labels.values()) };
 }
 
 /**
@@ -1374,7 +1389,7 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   moved.inPlace.push(...crossed.pairs);
   // A label paired by relabel stays one change even across a block or page boundary.
   const changes: Change[] = [
-    ...moved.rest.flatMap((h) => (relabelled.labels.has(h) ? [h] : splitHunk(ctx, h))).map((h) => textChange(ctx, h)),
+    ...moved.rest.flatMap((h) => (relabelled.labels.has(h) || crossed.labels.has(h) ? [h] : splitHunk(ctx, h))).map((h) => textChange(ctx, h)),
     ...moved.moves,
     ...moved.inner,
   ];
