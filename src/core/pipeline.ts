@@ -109,7 +109,9 @@ export async function addVisualChanges(
   const cacheOld = new Map<number, Promise<Raster>>();
   const cacheNew = new Map<number, Promise<Raster>>();
   const found: Change[] = [];
-  const sizes = new Map<string, { pair: VisualPair; count: number }>();
+  // Page size and orientation changes by kind (see below); `turned`: the
+  // turn of every page of the kind (0 for none), -1 when they differ.
+  const sizes = new Map<string, { pair: VisualPair; count: number; turned: number }>();
   for (let k = 0; k < pairs.length; k++) {
     const pair = pairs[k];
     const { old: op, new: np } = pair;
@@ -118,11 +120,17 @@ export async function addVisualChanges(
     // A page turned to another orientation (/Rotate) is a page change too,
     // also when its size stays (turned upside down).
     const turn = pageTurn(result, op, np);
-    if (pair.whole && (Math.abs(a.width - b.width) > 1 || Math.abs(a.height - b.height) > 1 || turn)) {
-      const key = `${Math.round(a.width)}x${Math.round(a.height)}:${Math.round(b.width)}x${Math.round(b.height)}:${turn?.deg ?? 0}`;
+    const resized = Math.abs(a.width - b.width) > 1 || Math.abs(a.height - b.height) > 1;
+    if (pair.whole && (resized || turn)) {
+      // One item per change of size; a page turned upside down (same size)
+      // is one of its own. Pages turned a quarter either way read alike
+      // ("Page size changed: W × H → H × W") and are one item.
+      const key = `${Math.round(a.width)}x${Math.round(a.height)}:${Math.round(b.width)}x${Math.round(b.height)}:${resized ? '' : (turn?.deg ?? 0)}`;
       const cur = sizes.get(key);
-      if (cur) cur.count++;
-      else sizes.set(key, { pair, count: 1 });
+      if (cur) {
+        cur.count++;
+        if (cur.turned !== (turn?.deg ?? 0)) cur.turned = -1;
+      } else sizes.set(key, { pair, count: 1, turned: turn?.deg ?? 0 });
     }
     // Words that run another way on the new page, without a turn that maps
     // one page onto the other (see turnedUnmapped): the graphics cannot be
@@ -297,10 +305,9 @@ export async function addVisualChanges(
   // A change of page size or orientation, once per kind of change. On a
   // page turned by /Rotate, the graphics are compared turned back (see
   // compareRasters), so what is found there is a change of its own.
-  for (const { pair, count } of sizes.values()) {
+  for (const { pair, count, turned } of sizes.values()) {
     const c = wholePage('resized', result, pair.new, undefined, [pair.old, pair.new], false);
-    const turn = pageTurn(result, pair.old, pair.new);
-    if (turn) c.turned = turn.deg;
+    if (turned === 90 || turned === 180 || turned === 270) c.turned = turned;
     if (count > 1) c.places = count;
     pageChanges.push(c);
   }

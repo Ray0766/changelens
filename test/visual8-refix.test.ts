@@ -138,3 +138,13 @@ test('N5: a tick on the row of an added stamp, and a red cell under a watermark,
   const cell = await run('probe8-R5-08-wm-before.pdf', 'probe8-R5-08-wm-cell.pdf');
   assert.ok(graphics(cell).some((c) => hits(c, 'new', 1, 400, 238) && hits(c, 'new', 1, 520, 238)), JSON.stringify(graphics(cell).map((c) => c.new.rects)));
 });
+
+test('N6: two pages turned a quarter each way are one page item', { skip }, async () => {
+  // reportlab (R5-01 base): p. 2 turned by /Rotate 90, p. 3 by /Rotate 270.
+  // Before: "Page size changed: 595 × 842 pt → 842 × 595 pt" twice, the
+  // same text for p. 2 and p. 3.
+  const r = await run('probe8-R5-01-before.pdf', 'probe8-N6-mixed.pdf');
+  assert.deepEqual(list(r.changes), ['Page size changed: 595 × 842 pt → 842 × 595 pt (in 2 places)']);
+  // Turned differently: no single turn to name.
+  assert.equal(r.changes[0].turned, undefined);
+});
