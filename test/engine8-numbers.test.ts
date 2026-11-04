@@ -7,7 +7,7 @@ import { openPdf } from '../src/node/pdf.ts';
 import { extractText } from '../src/pdf/extract.ts';
 import { buildDocModel } from '../src/core/tokenize.ts';
 import { compareDocs } from '../src/core/compare.ts';
-import { describeChange } from '../src/core/describe.ts';
+import { describeChange, excerpt } from '../src/core/describe.ts';
 import type { CompareResult } from '../src/core/types.ts';
 import { makeDoc, model } from './helpers.ts';
 
@@ -45,4 +45,15 @@ test('R7-01 control: cross-references keep no percentage, also after "as per" or
   assert.deepEqual(text(['Payment is made as per clause 3.2 below.'], ['Payment is made as per clause 3.3 below.']), ['Number changed: 3.2 → 3.3']);
   assert.deepEqual(text(['The limits are set out in Schedule 2 page 4 of the policy.'], ['The limits are set out in Schedule 2 page 5 of the policy.']), ['Number changed: 4 → 5']);
   assert.deepEqual(text(['See No. 12 in the register.'], ['See No. 14 in the register.']), ['Number changed: 12 → 14']);
+});
+
+test('R2-10: the excerpt keeps the words just before a change, with the currency', async () => {
+  const r = await run('R2-09-before', 'R2-09-after');
+  const eur = r.changes.find((c) => c.numeric?.from === '12.500,00')!;
+  assert.equal(excerpt(eur).before, '…sämtlicher Reisekosten beträgt EUR');
+  const v = await run('R2-10-before', 'R2-10-after');
+  assert.deepEqual(
+    v.changes.map((c) => excerpt(c).before),
+    ['…je Schadensereignis beträgt EUR', '…liability extension amount to USD'],
+  );
 });

@@ -7,6 +7,20 @@ export function truncate(s: string, n: number): string {
   return chars.length <= n ? chars.join('') : chars.slice(0, n - 1).join('') + '…';
 }
 
+/**
+ * The end of `s` in at most `n` characters, after "…", starting at a word
+ * where there are spaces: the context just before a change keeps the words
+ * next to it ("…beträgt EUR", not "Die Gesamtvergütung einschl…").
+ */
+export function truncateStart(s: string, n: number): string {
+  const chars = Array.from(s.replace(/\s+/g, ' ').trim());
+  if (chars.length <= n) return chars.join('');
+  let tail = chars.slice(chars.length - (n - 1)).join('');
+  const space = tail.indexOf(' ');
+  if (chars[chars.length - n] !== ' ' && space > 0 && space < tail.length - 1) tail = tail.slice(space + 1);
+  return '…' + tail.trimStart();
+}
+
 export function pageLabel(lang: Lang, pages: number[]): string {
   if (pages.length === 0) return '';
   const a = pages[0] + 1;
@@ -193,7 +207,7 @@ export function kindLabel(lang: Lang, c: Change): string {
  */
 export function excerpt(c: Change): { before: string; old: string; new: string; after: string } {
   return {
-    before: truncate(c.contextBefore, 40),
+    before: truncateStart(c.contextBefore, 40),
     old: truncate(c.old.text, 160),
     new: truncate(c.new.text, 160),
     after: truncate(c.contextAfter, 40),
