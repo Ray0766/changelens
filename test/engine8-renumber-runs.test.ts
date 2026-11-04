@@ -112,3 +112,19 @@ test('a large jump with one sibling inserted is listed (R1-11 control)', () => {
   assert.deepEqual(r.changes.filter((c) => c.numeric).map((c) => describeChange('en', c)), ['Number changed: 5 → 10', 'Number changed: 6 → 7']);
   assert.deepEqual(minor(r), ['2 → 3', '3 → 4', '4 → 5']);
 });
+
+test('a sub-clause shifted at two levels follows its renumbered clause and an inserted sub-clause (R1-12)', async () => {
+  // Clause 4.3 inserted, and a first sub-clause added under the old 4.3 (now 4.4): 4.3.1–4.3.3 → 4.4.2–4.4.4.
+  const r = await probe('r1-12-p06');
+  assert.deepEqual(listed(r), ['Added a paragraph', 'Added a paragraph']);
+  assert.deepEqual(minor(r), ['4.3 → 4.4', '4.3.1 → 4.4.2', '4.3.2 → 4.4.3', '4.3.3 → 4.4.4', '4.4 → 4.5']);
+});
+
+test('a sub-clause shifted at two levels with no sub-clause added is listed (R1-12 control)', () => {
+  // 4.2 inserted; 4.2 → 4.3 follows, but its sub-clause 4.2.1 was typed as 4.3.2.
+  const old: [string, string][] = [['4.1', P[0]], ['4.2', P[1]], ['4.2.1', P[2]], ['4.3', P[3]]];
+  const grown: [string, string][] = [['4.1', P[0]], ['4.2', 'Each party names a contact for notices.'], ['4.3', P[1]], ['4.3.2', P[2]], ['4.4', P[3]]];
+  const r = compare(items('a', old), items('b', grown));
+  assert.deepEqual(r.changes.filter((c) => c.numeric).map((c) => describeChange('en', c)), ['Number changed: 4.2.1 → 4.3.2']);
+  assert.deepEqual(minor(r), ['4.2 → 4.3', '4.3 → 4.4']);
+});

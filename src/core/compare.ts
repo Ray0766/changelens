@@ -1928,6 +1928,9 @@ const REDLINE_LABEL = /^(?:(\d{1,3}(?:\.\d{1,3})*)\.?)?\[(\d{1,3}(?:\.\d{1,3})*)
  *   numbers headed "Qty" (or similar) is a column of figures.
  * - Sub-clauses that follow their clause ("8.4.1" → "8.5.1"): the clause
  *   label above it at the level that changed is itself such a consequence.
+ *   When the last level changed too ("8.4.1" → "8.5.2"), its shift must
+ *   also equal the net number of sub-clauses added under the new clause,
+ *   as in (2).
  * - The label at the start of a moved passage (and its sub-clauses), which
  *   takes the number of its new place ("7.2" → "3.4"): both numbers number
  *   on from 1 among their siblings (as in (1)), and the new one fits its
@@ -2021,6 +2024,14 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
 
   type Cand = { c: Change; a: Sibling; b: Sibling; level: number; delta: number };
   const cands: Cand[] = [];
+  /** Labels whose last level and one level above it changed ("4.3.1" → "4.4.2"). */
+  const twos: (Cand & { parent: number })[] = [];
+  const twoLevelShift = (a: Label, b: Label) => {
+    if (a.style !== b.style || a.parts.length !== b.parts.length || a.parts.length < 2) return null;
+    const last = a.parts.length - 1;
+    const diff = a.parts.map((v, k) => (v !== b.parts[k] ? k : -1)).filter((k) => k >= 0);
+    return diff.length === 2 && diff[1] === last ? { parent: diff[0], level: last, delta: b.parts[last] - a.parts[last] } : null;
+  };
   for (const c of changes) {
     if (c.kind !== 'replace' || !c.numeric || c.consequence || c.inMove !== undefined || !single(c)) continue;
     const a = oldLabels.at.get(c.old.start!);
@@ -2028,6 +2039,10 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     // Any shift: the net number of added siblings must equal it (see net).
     const shift = a && b && labelShift(a.label, b.label, Infinity);
     if (shift) cands.push({ c, a: a!, b: b!, ...shift });
+    else if (a && b) {
+      const two = twoLevelShift(a.label, b.label);
+      if (two) twos.push({ c, a, b, ...two });
+    }
   }
   /**
    * The siblings above x's label in one version and not the other (see (2)
@@ -2088,6 +2103,13 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     const pa = ancestor(oldLabels, x.a, x.level);
     const pb = ancestor(newLabels, x.b, x.level);
     if (pa && pb && accepted.get(pa.tok) === pb.tok) take(x.c);
+  }
+  // Both: the clause above it renumbered (accepted), and sub-clauses added
+  // or removed above it under that clause explain the last level.
+  for (const x of twos) {
+    const pa = ancestor(oldLabels, x.a, x.parent);
+    const pb = ancestor(newLabels, x.b, x.parent);
+    if (pa && pb && accepted.get(pa.tok) === pb.tok && net(x) === x.delta) take(x.c);
   }
 
   // Tracked-change displays of list labels: insertions (or deletions) of
