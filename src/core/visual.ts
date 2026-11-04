@@ -2109,6 +2109,27 @@ export function sameGraphic(result: CompareResult, oldPage: number, newPage: num
 }
 
 /**
+ * A graphic lies in `rect` of a page: ink that is not text (darker than
+ * paper by more than the comparison's tolerance) covering 1 pt² or more.
+ */
+export function inkAt(doc: DocModel, page: number, r: Raster, rect: Rect): boolean {
+  const s = r.scale;
+  const mask = maskOf(doc, page, r);
+  const x0 = Math.max(0, Math.floor(rect.x * s));
+  const y0 = Math.max(0, Math.floor(rect.y * s));
+  const x1 = Math.min(r.width, Math.ceil((rect.x + rect.w) * s));
+  const y1 = Math.min(r.height, Math.ceil((rect.y + rect.h) * s));
+  let n = 0;
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const i = y * r.width + x;
+      if (mask[i] === GLYPH || mask[i] === PAD) continue;
+      if (Math.min(...rgb(r, i)) < 255 - THRESH) n++;
+    }
+  return n >= s * s;
+}
+
+/**
  * How a page turned to another orientation (/Rotate) maps the old page onto
  * the new one: a turn by 90°, 180° or 270° and a shift, fitted to the
  * centres of the words matched between the two pages. Null when fewer than

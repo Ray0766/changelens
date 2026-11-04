@@ -148,3 +148,16 @@ test('N6: two pages turned a quarter each way are one page item', { skip }, asyn
   // Turned differently: no single turn to name.
   assert.equal(r.changes[0].turned, undefined);
 });
+
+test('N7: a rule recoloured on a Writer repeated header copy is a graphic changed, with both places', { skip }, async () => {
+  // LibreOffice Writer: two paragraphs added at the top; the rule under the
+  // header copy at new p. 2 made red. Before: "Graphic or image added" with
+  // the new place only (the old copy at the same place has its grey rule).
+  const r = await run('probe8-R5-06-before.pdf', 'probe8-R5-05-writer-rule.pdf');
+  const g = graphics(r).filter((c) => hits(c, 'new', 2, 300, 95.5));
+  assert.equal(g.length, 1, list(r.changes).join(' | '));
+  assert.equal(describeChange('en', g[0]), 'Graphic or image changed');
+  assert.ok(hits(g[0], 'old', 2, 300, 95.5), JSON.stringify(g[0].old.rects));
+  // A tick put on the copy (nothing there in the old copy) keeps its own
+  // label and place (R5-06 in visual8-rows).
+});
