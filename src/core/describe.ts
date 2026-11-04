@@ -85,9 +85,17 @@ function describeReplace(lang: Lang, c: Change, countKey: CountKey): string {
 
 /** One-line, plain-language description of a change. */
 export function describeChange(lang: Lang, c: Change): string {
+  const text = describeKind(lang, c);
+  // A value typed into a form field, not page text.
+  return c.field ? t(lang, 'inFormField', { text }) : text;
+}
+
+function describeKind(lang: Lang, c: Change): string {
   const short = 48;
   const countKey = (words: 'addedWords' | 'deletedWords' | 'rewrote') =>
     c.cjk ? (({ addedWords: 'addedChars', deletedWords: 'deletedChars', rewrote: 'rewroteChars' }) as const)[words] : words;
+  // A list label shown as a tracked change ("4.3[4.4]").
+  if (c.consequence === 'renumber' && c.kind !== 'replace') return t(lang, 'renumberedRedline', { text: truncate(c.kind === 'delete' ? c.old.text : c.new.text, short) });
   if (c.consequence === 'repeatedLine')
     return t(lang, c.kind === 'insert' ? 'repeatedLineAdded' : 'repeatedLineRemoved', { text: truncate(c.kind === 'insert' ? c.new.text : c.old.text, short) });
   switch (c.kind) {
@@ -231,6 +239,12 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
       out.push({ level: 'warn', text: t(lang, 'noticeUnreadable', { side: side(s), pages: pageRuns(lang, cov.unreadable.map((u) => u.page)), n: cov.unreadable.reduce((n, u) => n + u.count, 0) }) });
     if (cov.privateUse?.length)
       out.push({ level: 'info', text: t(lang, 'noticePrivateUse', { side: side(s), pages: pageRuns(lang, cov.privateUse.map((u) => u.page)), n: cov.privateUse.reduce((n, u) => n + u.count, 0) }) });
+    // Form fields whose values were compared as images only.
+    const fields = (cov.fieldsUnread ?? []).filter((u) => u.count > 0);
+    if (fields.length)
+      out.push({ level: 'warn', text: t(lang, 'noticeFieldsUnread', { side: side(s), pages: pageRuns(lang, fields.map((u) => u.page)), n: fields.reduce((n, u) => n + u.count, 0) }) });
+    const unreadable = (cov.fieldsUnread ?? []).filter((u) => u.count < 0);
+    if (unreadable.length) out.push({ level: 'warn', text: t(lang, 'noticeFieldsUnreadable', { side: side(s), pages: pageRuns(lang, unreadable.map((u) => u.page)) }) });
   }
   for (const s of ['old', 'new'] as const) {
     const skipped = r.coverage?.[s]?.visualSkipped ?? [];

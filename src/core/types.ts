@@ -39,6 +39,12 @@ export interface TextRun {
    * worked out along the text direction.
    */
   rot?: { x: number; len: number; ascent: number; descent: number };
+  /**
+   * The value shown in a form field (an AcroForm text or choice field),
+   * which a widget annotation draws, not the page content. Its box is the
+   * widget's; glyph positions inside it are estimated.
+   */
+  field?: true;
 }
 
 export interface PageText {
@@ -49,6 +55,12 @@ export interface PageText {
   runs: TextRun[];
   /** Glyphs drawn without a Unicode mapping (their text cannot be compared). */
   unmapped?: number;
+  /**
+   * Form fields (text or choice) whose value could not be read as text, so
+   * they are compared as images only; -1 when the page's annotations could
+   * not be read at all.
+   */
+  fieldsUnread?: number;
 }
 
 export interface Coverage {
@@ -62,6 +74,8 @@ export interface Coverage {
   uncertain?: { page: number; matched: number }[];
   /** Pages whose graphics were not compared: too large to render, or rendering failed. */
   visualSkipped?: number[];
+  /** Pages with form fields whose values could not be compared as text (count -1: the page's form fields could not be read). */
+  fieldsUnread?: { page: number; count: number }[];
 }
 
 export interface DocText {
@@ -98,6 +112,8 @@ export interface Token {
    * versions are compared (syncHyphenation in tokenize.ts).
    */
   hyphenParts?: [string, string];
+  /** Part of a form field's value (see TextRun.field). */
+  field?: true;
 }
 
 export interface Line {
@@ -122,7 +138,7 @@ export interface DocModel {
    * word boxes follow that direction; positions are in page space, so they are
    * not comparable with a page of the other version that has another angle.
    */
-  pages: { index: number; width: number; height: number; unmapped: number; textAngle?: number }[];
+  pages: { index: number; width: number; height: number; unmapped: number; textAngle?: number; fieldsUnread?: number }[];
   /** All tokens, including furniture, in reading order. */
   tokens: Token[];
   lines: Line[];
@@ -240,6 +256,8 @@ export interface Change {
   moveEdits?: number;
   /** An edit inside a moved passage: id of that move change. */
   inMove?: string;
+  /** (Text changes) The changed text is a form field's value (see TextRun.field). */
+  field?: true;
   /**
    * (Changes aggregated over several places, see `places`) each place's own
    * text and location; `old.rects` / `new.rects` cover all of them.

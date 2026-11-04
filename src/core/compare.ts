@@ -415,6 +415,9 @@ function textChange(ctx: Ctx, h: Hunk): Change {
     order: sideOrder(newSide, ctx.newDoc),
   };
   if (whole > 0 && kind !== 'replace') change.wholeParagraphs = whole;
+  // A form field's value (see TextRun.field): said so in the description.
+  const changed = [...delToks, ...insToks].filter((t) => t.kind !== 'punct');
+  if (changed.length && changed.every((t) => t.field)) change.field = true;
   if (kind === 'replace' && isNumericPhrase(delToks.map((t) => t.text)) && isNumericPhrase(insToks.map((t) => t.text))) {
     // Show the unchanged unit or currency sign that is written onto the
     // number ("4%" → "8%", "€62.40"), so the description keeps its meaning.
@@ -444,6 +447,7 @@ function textChange(ctx: Ctx, h: Hunk): Change {
       balanced(from) &&
       balanced(to) &&
       !(isListLabel(A, h.a0, h.a1, from) && isListLabel(B, h.b0, h.b1, to)) &&
+      !(h.a1 - h.a0 === 1 && h.b1 - h.b0 === 1 && labelAt(ctx.oldDoc, A[h.a0].i)?.style === 'list' && labelAt(ctx.newDoc, B[h.b0].i)?.style === 'list') &&
       sameUnit(from, to) &&
       !halfOfGroupedNumber(ctx, h);
     const decimal = decimalMark(from) ?? decimalMark(to) ?? undefined;
@@ -453,8 +457,25 @@ function textChange(ctx: Ctx, h: Hunk): Change {
       fromValue: value ? parseNumber(from, decimalMark(from) ?? decimal) : null,
       toValue: value ? parseNumber(to, decimalMark(to) ?? decimal) : null,
     };
+  } else if (kind === 'replace' && numberedIdentifier(delToks, insToks)) {
+    // "V2.3" → "V2.4", "R-15" → "R-16": a version or reference number. A
+    // number change, without a percentage (the value is a label, not an amount).
+    change.numeric = { from: oldSide.text, to: newSide.text, fromValue: null, toValue: null };
   }
   return change;
+}
+
+/**
+ * One word on each side, written alike except for its digits: a version,
+ * revision or reference number ("V2.3" → "V2.4", "R-15" → "R-16", "AL.150"
+ * → "AL.151"). The letters around the digits are the same, so only the
+ * number changed. A different word ("2a" → "2b", "V2" → "W2") is not.
+ */
+function numberedIdentifier(a: Token[], b: Token[]): boolean {
+  if (a.length !== 1 || b.length !== 1 || a[0].kind !== 'word' || b[0].kind !== 'word') return false;
+  const skeleton = (s: string) => s.normalize('NFKC').replace(/\p{Nd}+/gu, '#');
+  const sa = skeleton(a[0].text);
+  return sa.includes('#') && /\p{L}/u.test(sa) && sa === skeleton(b[0].text) && a[0].text !== b[0].text;
 }
 
 /**
@@ -492,7 +513,8 @@ const sameUnit = (a: string, b: string) => !unitOf(a) || !unitOf(b) || unitOf(a)
  * "(3)", "3)" or a bare "3" followed by "." or ")" at the start of a line
  * look like list labels. When both sides do ("(1)" → "(2)"), no sign change
  * or percentage is computed; a plain figure at the start of a line (a
- * table's first column) keeps them.
+ * table's first column) keeps them. Clause numbers set apart at the start
+ * of a line ("8.4" → "8.5", see labelAt) get none either.
  */
 function isListLabel(T: Token[], s: number, e: number, text: string): boolean {
   if (s > 0 && T[s - 1].line === T[s].line) return false;
@@ -627,6 +649,194 @@ function slideToBoundaries(ops: DiffOp[], A: Token[], B: Token[]): void {
   for (let i = ops.length - 1; i >= 0; i--) if (ops[i].type === 'equal' && ops[i].a1 === ops[i].a0) ops.splice(i, 1);
 }
 
+// ------------------------------------------------------------ relabel ---
+
+/**
+ * A clause inserted into a numbered list ("4.3 New clause." before the old
+ * 4.3, which becomes 4.4) is often aligned so that the old label "4.3"
+ * matches the inserted clause's label, and the old clause's new label
+ * "4.4" ends the insertion: "Added “… new clause. 4.4”" and no trace of the
+ * renumbering. When an insertion lies between two line-start labels of the
+ * same kind, the first matched to the old label just before it, the last
+ * followed by the old clause's own text, the old label is paired with the
+ * last one instead ("4.3" → "4.4", a renumbering for extractRenumbering) and
+ * the insertion starts at the inserted clause's label. Deletions likewise.
+ * The pairing of the words around it is unchanged.
+ */
+function relabel(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: Hunk[]; pairs: Int32Array; labels: Set<Hunk> } {
+  const { A, B, oldDoc, newDoc } = ctx;
+  const toB = new Int32Array(A.length).fill(-1);
+  const toA = new Int32Array(B.length).fill(-1);
+  for (let p = 0; p < pairs.length; p += 2) {
+    toB[pairs[p]] = pairs[p + 1];
+    toA[pairs[p + 1]] = pairs[p];
+  }
+  const drop = new Set<number>();
+  const out: Hunk[] = [];
+  const labels = new Set<Hunk>();
+  const same = (x: Label | null, y: Label | null) => !!x && !!y && x.style === y.style && x.parts.length === y.parts.length;
+  for (const h of hunks) {
+    const ins = h.a0 === h.a1 && h.b1 - h.b0 >= 2;
+    const del = h.b0 === h.b1 && h.a1 - h.a0 >= 2;
+    if (!ins && !del) {
+      out.push(h);
+      continue;
+    }
+    // T: the side with the inserted (or deleted) text; U: the other one.
+    const [T, U, tDoc, uDoc, toU, s, e] = ins ? [B, A, newDoc, oldDoc, toA, h.b0, h.b1] : [A, B, oldDoc, newDoc, toB, h.a0, h.a1];
+    const x = s > 0 ? toU[s - 1] : -1;
+    const ok =
+      x >= 0 &&
+      e < T.length &&
+      toU[e] === x + 1 &&
+      T[s - 1].line !== T[e - 1].line &&
+      same(labelAt(tDoc, T[s - 1].i), labelAt(tDoc, T[e - 1].i)) &&
+      (() => {
+        const before = labelAt(uDoc, U[x].i);
+        const after = labelAt(tDoc, T[e - 1].i);
+        return !!before && !!after && !!(ins ? labelShift(before, after) : labelShift(after, before));
+      })();
+    if (!ok) {
+      out.push(h);
+      continue;
+    }
+    const label: Hunk = ins ? { a0: x, a1: x + 1, b0: e - 1, b1: e } : { a0: e - 1, a1: e, b0: x, b1: x + 1 };
+    out.push(ins ? { a0: x, a1: x, b0: s - 1, b1: e - 1 } : { a0: s - 1, a1: e - 1, b0: x, b1: x }, label);
+    labels.add(label);
+    drop.add(ins ? x : s - 1);
+  }
+  if (!drop.size) return { hunks, pairs, labels };
+  const kept: number[] = [];
+  for (let p = 0; p < pairs.length; p += 2) if (!drop.has(pairs[p])) kept.push(pairs[p], pairs[p + 1]);
+  return { hunks: out, pairs: Int32Array.from(kept), labels };
+}
+
+/**
+ * A line at the foot of a page that flowed to the top of the next page,
+ * where the next page starts with a repeated line (a table's header row):
+ * the old version reads "… heading | header row | rows …", the new one
+ * "… | header row | heading | rows …". The alignment keeps the header row
+ * and gives the heading up on both sides ("Deleted “Motors”" + "Added
+ * “Motors”"). Only text that reads the same, of at most a few lines, right
+ * before the repeated line in one version and right after it in the other
+ * is paired again (matched text; nothing changed but the page break). The
+ * repeated line must stand at the top of its page in both versions and
+ * also as whole lines on an earlier page, like the header rows of
+ * repeatedAtPageTop.
+ */
+function crossedPageBreak(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: Hunk[]; pairs: number[] } {
+  const { A, B } = ctx;
+  const toB = new Int32Array(A.length).fill(-1);
+  for (let p = 0; p < pairs.length; p += 2) toB[pairs[p]] = pairs[p + 1];
+  const lineStart = (T: Token[], k: number) => k === 0 || T[k - 1].line !== T[k].line;
+  const lineEnd = (T: Token[], k: number) => k === T.length || T[k].line !== T[k - 1].line;
+  const pageTop = (T: Token[], k: number) => {
+    for (let j = k - 1; j >= 0 && T[j].page === T[k].page; j--) if (!T[j].furniture) return false;
+    return true;
+  };
+  /** T[s, e) also stands as whole lines on an earlier page. */
+  const repeatedEarlier = (T: Token[], s: number, e: number) => {
+    for (let q = 0; q + (e - s) <= s && T[q].page < T[s].page; q++) {
+      if (T[q].key !== T[s].key || !lineStart(T, q) || T[q + e - s - 1].page >= T[s].page || !lineEnd(T, q + e - s)) continue;
+      let k = 1;
+      while (k < e - s && T[q + k].key === T[s + k].key) k++;
+      if (k === e - s) return true;
+    }
+    return false;
+  };
+  const dels = hunks.filter((h) => h.b0 === h.b1 && h.a1 > h.a0 && h.a1 - h.a0 <= 40);
+  const out: number[] = [];
+  const gone = new Set<Hunk>();
+  const crossing = (d: Hunk, ins: Hunk) => {
+    // Between them, the repeated line: matched word for word, nothing else.
+    const n = ins.a0 - d.a1;
+    if (n < 1 || n > 60 || ins.b0 - d.b0 !== n || ins.b1 - ins.b0 !== d.a1 - d.a0) return false;
+    for (let k = 0; k < n; k++) if (toB[d.a1 + k] !== d.b0 + k) return false;
+    for (let k = 0; k < d.a1 - d.a0; k++) if (A[d.a0 + k].key !== B[ins.b0 + k].key) return false;
+    const [x0, x1, y0, y1] = [d.a1, ins.a0, d.b0, ins.b0];
+    if (A[x0].page === A[d.a1 - 1].page || !pageTop(A, x0) || !pageTop(B, y0) || B[y1 - 1].page !== B[ins.b0].page) return false;
+    if (!lineStart(A, d.a0) || !lineEnd(A, d.a1) || !lineStart(B, ins.b0) || !lineEnd(B, ins.b1) || !lineStart(A, x0) || !lineEnd(A, x1)) return false;
+    return repeatedEarlier(A, x0, x1) && repeatedEarlier(B, y0, y1);
+  };
+  for (const d of dels) {
+    const ins = hunks.find((h) => h.a0 === h.a1 && h.a0 > d.a1 && h.a0 - d.a1 <= 60 && !gone.has(h) && crossing(d, h));
+    if (!ins) continue;
+    for (let k = 0; k < d.a1 - d.a0; k++) out.push(d.a0 + k, ins.b0 + k);
+    gone.add(d);
+    gone.add(ins);
+  }
+  return { hunks: gone.size ? hunks.filter((h) => !gone.has(h)) : hunks, pairs: out };
+}
+
+/**
+ * A deleted passage of whole lines that reappears word for word inside an
+ * inserted passage (or the other way round) is cut out of it, so it can be
+ * paired with its other copy: a move, or, at the same place on the page,
+ * no change at all (see detectMoves). This is what happens to a footnote
+ * the alignment passed over when body text flowed onto the next page past
+ * it: it came out as "deleted" and was part of the insertion around it.
+ * Whole lines of at least three words are required, so a phrase that
+ * merely recurs inside a new paragraph is left alone.
+ */
+function splitEmbedded(ctx: Ctx, hunks: Hunk[]): Hunk[] {
+  const { A, B, ka, kb } = ctx;
+  const words = (T: Token[], s: number, e: number) => {
+    let n = 0;
+    for (let k = s; k < e; k++) if (T[k].kind !== 'punct') n++;
+    return n;
+  };
+  const whole = (T: Token[], s: number, e: number) => e > s && (s === 0 || T[s - 1].line !== T[s].line) && (e === T.length || T[e].line !== T[e - 1].line);
+  let list = hunks;
+  // Bounds the search on documents with very many edits.
+  let budget = 20_000_000;
+  for (const side of ['a', 'b'] as const) {
+    // Needles: pure hunks on one side; haystacks: pure hunks on the other.
+    const [N, H, kn, kh] = side === 'a' ? [A, B, ka, kb] : [B, A, kb, ka];
+    const range = (h: Hunk, onN: boolean): [number, number] => ((side === 'a') === onN ? [h.a0, h.a1] : [h.b0, h.b1]);
+    const isNeedle = (h: Hunk) => (side === 'a' ? h.b0 === h.b1 && h.a1 > h.a0 : h.a0 === h.a1 && h.b1 > h.b0);
+    const isHay = (h: Hunk) => (side === 'a' ? h.a0 === h.a1 && h.b1 > h.b0 : h.b0 === h.b1 && h.a1 > h.a0);
+    const cuts = new Map<Hunk, [number, number][]>();
+    const hay = list.filter(isHay);
+    for (const d of list) {
+      if (!isNeedle(d)) continue;
+      const [s, e] = range(d, true);
+      const len = e - s;
+      if (len > 400 || words(N, s, e) < 3 || !whole(N, s, e)) continue;
+      found: for (const h of hay) {
+        const [hs, he] = range(h, false);
+        if (he - hs <= len) continue;
+        budget -= he - hs;
+        if (budget < 0) break found;
+        for (let j = hs; j + len <= he; j++) {
+          if (kh[j] !== kn[s]) continue;
+          let k = 1;
+          while (k < len && kh[j + k] === kn[s + k]) k++;
+          if (k < len || !whole(H, j, j + len)) continue;
+          const taken = cuts.get(h) ?? [];
+          if (taken.some(([u, v]) => j < v && u < j + len)) continue;
+          taken.push([j, j + len]);
+          cuts.set(h, taken);
+          break found;
+        }
+      }
+    }
+    if (!cuts.size) continue;
+    list = list.flatMap((h) => {
+      const c = cuts.get(h);
+      if (!c) return [h];
+      const [hs, he] = range(h, false);
+      const bounds = [hs, ...c.sort((x, y) => x[0] - y[0]).flat(), he];
+      const parts: Hunk[] = [];
+      for (let k = 0; k + 1 < bounds.length; k++) {
+        if (bounds[k + 1] <= bounds[k]) continue;
+        parts.push(side === 'a' ? { a0: h.a0, a1: h.a1, b0: bounds[k], b1: bounds[k + 1] } : { a0: bounds[k], a1: bounds[k + 1], b0: h.b0, b1: h.b1 });
+      }
+      return parts;
+    });
+  }
+  return list;
+}
+
 // ---------------------------------------------------------------- moves ---
 
 interface Moves {
@@ -635,6 +845,8 @@ interface Moves {
   inner: Change[];
   /** Equal ops pairing the unchanged words of each moved passage. */
   innerOps: DiffOp[];
+  /** Pairs [a, b, a, b, …] of text that did not move on the page, only in the reading order. */
+  inPlace: number[];
   rest: Hunk[];
 }
 
@@ -651,7 +863,7 @@ interface Moves {
  * than six words) is a move only when it is whole lines in both versions
  * and matches nearly word for word.
  */
-function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, after: Span) => boolean): Moves {
+function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, after: Span) => boolean, oldToNew: number[]): Moves {
   const MIN = 6;
   const SIM = 0.8;
   const SHORT_SIM = 0.7;
@@ -723,7 +935,26 @@ function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, aft
   /** Hunks whose old side (A) or new side (B) became part of a move. */
   const movedA = new Set<number>();
   const movedB = new Set<number>();
-  const out: Moves = { moves: [], inner: [], innerOps: [], rest: [] };
+  const out: Moves = { moves: [], inner: [], innerOps: [], inPlace: [], rest: [] };
+  /**
+   * The passage stands at the same place on the page in both versions (each
+   * word within 2 pt, on pages the page map pairs) and reads the same: it
+   * only comes at another point of the content stream, e.g. a repeated
+   * table header row written after the rows of the page before, or a
+   * footnote that the alignment passed over. Nothing moved, so nothing is
+   * reported: it is matched text.
+   */
+  const inPlace = (d: Hunk, ins: Hunk) => {
+    if (d.a1 - d.a0 !== ins.b1 - ins.b0) return false;
+    for (let k = 0; k < d.a1 - d.a0; k++) {
+      const a = ctx.A[d.a0 + k];
+      const b = ctx.B[ins.b0 + k];
+      if (a.key !== b.key || oldToNew[a.page] !== b.page || a.rects.length !== b.rects.length) return false;
+      for (let r = 0; r < a.rects.length; r++)
+        if (Math.abs(a.rects[r].x - b.rects[r].x) > 2 || Math.abs(a.rects[r].y - b.rects[r].y) > 2) return false;
+    }
+    return true;
+  };
   for (const c of candidates) {
     if (usedD.has(c.d) || usedI.has(c.i)) continue;
     const d = dels[c.d];
@@ -754,6 +985,11 @@ function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, aft
       .filter((h) => !edgeMark(h))
       .flatMap((h) => splitHunk(ctx, h))
       .map((h) => textChange(ctx, h));
+    if (inPlace(d.h, ins.h)) {
+      for (let k = 0; k < d.h.a1 - d.h.a0; k++) out.inPlace.push(d.h.a0 + k, ins.h.b0 + k);
+      out.innerOps.push({ type: 'equal', a0: d.h.a0, a1: d.h.a1, b0: ins.h.b0, b1: ins.h.b1 });
+      continue;
+    }
     for (const e of edits) e.inMove = '';
     out.inner.push(...edits);
     out.innerOps.push(...ops.filter((o) => o.type === 'equal'));
@@ -1031,17 +1267,26 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   // Final matched pairs after clean-up.
   const pairList: number[] = [];
   for (const op of ops) if (op.type === 'equal') for (let k = 0; k < op.a1 - op.a0; k++) pairList.push(op.a0 + k, op.b0 + k);
-  const pairs = Int32Array.from(pairList);
+  let pairs: Int32Array = Int32Array.from(pairList);
 
   // Split at paragraph boundaries first, so a paragraph moved next to an
   // edit of the paragraph before it is still a pure insertion.
   // A header row repeated at a page top that came or went with a page
   // break is set aside first, so it is not paired with another copy as a
   // move either.
-  const hunks = hunksOf(ops).flatMap((h) => splitAtBlocks(ctx, h));
+  const relabelled = relabel(ctx, hunksOf(ops).flatMap((h) => splitAtBlocks(ctx, h)), pairs);
+  pairs = relabelled.pairs;
+  const crossed = crossedPageBreak(ctx, splitEmbedded(ctx, relabelled.hunks), pairs);
+  const hunks = crossed.hunks;
   const repeated = repeatedAtPageTop(ctx, hunks, pairs);
-  const moved = detectMoves(ctx, hunks.filter((h) => !repeated.has(h)), fold);
-  const changes: Change[] = [...moved.rest.flatMap((h) => splitHunk(ctx, h)).map((h) => textChange(ctx, h)), ...moved.moves, ...moved.inner];
+  const moved = detectMoves(ctx, hunks.filter((h) => !repeated.has(h)), fold, pageMap(oldDoc, newDoc, A, B, pairs).oldToNew);
+  moved.inPlace.push(...crossed.pairs);
+  // A label paired by relabel stays one change even across a block or page boundary.
+  const changes: Change[] = [
+    ...moved.rest.flatMap((h) => (relabelled.labels.has(h) ? [h] : splitHunk(ctx, h))).map((h) => textChange(ctx, h)),
+    ...moved.moves,
+    ...moved.inner,
+  ];
   const repeatedLines = [...repeated].map((h) => {
     const c = textChange(ctx, h);
     c.minor = true;
@@ -1050,7 +1295,11 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   });
   mergeNearby(changes, oldDoc, newDoc);
   markDuplicates(changes, B);
-  const renumbered = extractRenumbering(changes, oldDoc, newDoc);
+  // The old line facing a new token: that of the nearest matched token before it.
+  const oldLineOf = new Int32Array(newDoc.tokens.length + 1).fill(-1);
+  for (let p = 0; p < pairs.length; p += 2) oldLineOf[B[pairs[p + 1]].i] = A[pairs[p]].line;
+  for (let k = 1; k < oldLineOf.length; k++) if (oldLineOf[k] < 0) oldLineOf[k] = oldLineOf[k - 1];
+  const renumbered = extractRenumbering(changes, oldDoc, newDoc, (k) => oldLineOf[k]);
   aggregateReplacements(changes);
   if (options.detectFormatting) {
     const formats = [...detectFormatting(ctx, ops), ...detectFormatting(ctx, moved.innerOps)];
@@ -1064,7 +1313,9 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
     map.newToOld[n] = o;
     map.links.push({ oldPage: o, newPage: n, weight: 0, manual: true });
   }
-  changes.push(...findOverflow(oldDoc, newDoc, A, B, pairs));
+  const overflow = findOverflow(oldDoc, newDoc, A, B, pairs);
+  foldClipped(changes, overflow, oldDoc, newDoc);
+  changes.push(...overflow);
 
   sortAndNumber(changes);
   // Consequences kept apart (shown on request), numbered like the visual stage numbers them.
@@ -1079,7 +1330,9 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
     oldToNew: map.oldToNew,
     newToOld: map.newToOld,
     anchors: withManualAnchors(buildAnchors(A, B, pairs), manual, oldDoc, newDoc),
-    matches: Int32Array.from(pairs, (v, k) => (k % 2 === 0 ? A[v].i : B[v].i)),
+    // Text that only stands elsewhere in the reading order, at the same
+    // place on the page (see detectMoves), is matched text too.
+    matches: Int32Array.from([...pairs, ...moved.inPlace], (v, k) => (k % 2 === 0 ? A[v].i : B[v].i)),
     options,
     coverage: {
       old: coverageOf(oldDoc),
@@ -1272,53 +1525,241 @@ function aggregateFormatting(changes: Change[], ctx: Ctx, pairs: Int32Array): Ch
   return out;
 }
 
+/** A clause, list or row label at the start of a line (see labelAt). */
+interface Label {
+  /** The levels of the number: "8.4.1" → [8, 4, 1]. */
+  parts: number[];
+  /** 'list': "4." / "4)" / "8.4" set apart from its text; 'cell': a bare row number in a table's first column. */
+  style: 'list' | 'cell';
+  line: number;
+}
+
 /**
- * List numbers that changed only because an item was added or removed above
- * them ("4." → "5.", "5." → "6.", …). They are consequences, not edits:
- * taken out of the change list (shown on request) and counted.
+ * The label that token k (a document token index) is, if any: the first
+ * token of its line and set apart from the text after it.
+ * - "4." "4)" "4、": a bare integer followed by that mark (as before).
+ * - "8.4", "8.4.1": a multi-level clause number followed by a gap (a tab,
+ *   at least half an em) and either starting its paragraph or hanging (the
+ *   paragraph's other lines start where the text after the label starts).
+ *   A wrapped line that happens to start with a figure ("8.4 percent") is
+ *   neither, so it stays an ordinary number.
+ * - "7": a bare integer that starts a paragraph (a table row) and stands in
+ *   a cell of its own (the next text is at least an em away, or there is
+ *   none). Only runs of such numbers can be a renumbering (see
+ *   extractRenumbering).
  */
-function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocModel): Change[] {
-  const label = (doc: DocModel, start: number | undefined, end: number | undefined) => {
-    if (start === undefined || end !== start + 1) return null;
-    const t = doc.tokens[start];
-    const line = doc.lines[t.line];
-    const next = doc.tokens[start + 1];
-    // A bare integer at the start of a line, followed by "." ")" or "、".
-    if (!/^\d{1,3}$/.test(t.text) || line.start !== start || !next || next.line !== t.line || !/^[.)、．]$/.test(next.text)) return null;
-    return { value: Number(t.text), line: t.line };
+function labelAt(doc: DocModel, k: number | undefined): Label | null {
+  if (k === undefined) return null;
+  const t = doc.tokens[k];
+  if (!t || t.kind !== 'number') return null;
+  const line = doc.lines[t.line];
+  if (!line || line.start !== k) return null;
+  const next = k + 1 < line.end ? doc.tokens[k + 1] : undefined;
+  const r = t.rects[t.rects.length - 1];
+  const gap = next ? next.rects[0].x - (r.x + r.w) : Infinity;
+  const blockStart = k === 0 || doc.tokens[k - 1].block !== t.block;
+  if (/^\d{1,3}$/.test(t.text)) {
+    if (next && !next.spaceBefore && /^[.)、．]$/.test(next.text)) return { parts: [Number(t.text)], style: 'list', line: t.line };
+    if (blockStart && gap >= t.size) return { parts: [Number(t.text)], style: 'cell', line: t.line };
+    return null;
+  }
+  const m = /^(\d{1,3}(?:\.\d{1,3}){1,4})\.?$/.exec(t.text);
+  if (!m || gap < 0.5 * t.size) return null;
+  const hanging = () => {
+    if (!next) return false;
+    const x = next.rects[0].x;
+    for (let j = Math.max(0, t.line - 12); j < Math.min(doc.lines.length, t.line + 12); j++) {
+      const l = doc.lines[j];
+      if (j !== t.line && l.block === t.block && Math.abs(l.rect.x - x) < 1.5) return true;
+    }
+    return false;
   };
-  type Cand = { c: Change; delta: number; line: number };
-  const cands: Cand[] = [];
+  if (!blockStart && !hanging()) return null;
+  return { parts: m[1].split('.').map(Number), style: 'list', line: t.line };
+}
+
+/**
+ * How label a became label b when it was renumbered: exactly one level
+ * changed, by at most 3, and every deeper level is the same ("8.4" → "8.5"
+ * and "8.4.1" → "8.5.1" shift the same level of the same parent, so they
+ * share a key).
+ */
+function labelShift(a: Label, b: Label): { key: string; delta: number } | null {
+  if (a.style !== b.style || a.parts.length !== b.parts.length) return null;
+  let level = -1;
+  for (let i = 0; i < a.parts.length; i++) {
+    if (a.parts[i] === b.parts[i]) continue;
+    if (level >= 0) return null;
+    level = i;
+  }
+  if (level < 0) return null;
+  const delta = b.parts[level] - a.parts[level];
+  if (Math.abs(delta) > 3) return null;
+  return { key: `${a.style}:${a.parts.slice(0, level).join('.')}:${level}:${delta}`, delta };
+}
+
+/** A redline display of a list label: "4.3[4.4]" (renumbered, old number in brackets) or "[4.3]" (the label of a deleted item). */
+const REDLINE_LABEL = /^(?:\d{1,3}(?:\.\d{1,3})*\.?)?\[\d{1,3}(?:\.\d{1,3})*\.?\]$/;
+
+/**
+ * List numbers that changed only because an item was added, removed or
+ * moved above them. They are consequences, not edits: taken out of the
+ * change list (shown on request) and counted.
+ * - List and clause labels ("4." → "5.", "8.4" → "8.5", "8.4.1" → "8.5.1"):
+ *   two or more nearby labels with the same shift (the same level of the
+ *   same parent, by the same amount), or one right after an insertion,
+ *   deletion or move. Clause numbering is automatic in word processors, so
+ *   inserting clause 8.3 shifts 8.4 and all its sub-clauses alike.
+ * - Row numbers in a table's first column ("7" → "8", "8" → "9", …): only a
+ *   run of at least two rows whose numbers are consecutive in both versions
+ *   and shift by the same amount, right after an inserted, deleted or moved
+ *   row. A column of figures does not look like that by chance.
+ * - The label at the start of a moved passage (and its sub-clauses), which
+ *   takes the number of its new place ("7.2" → "3.4"): the move stays
+ *   "Moved", not "Moved and edited".
+ * - A tracked-change display of a renumbered label ("4.3[4.4]", "[4.3]" in a
+ *   PDF exported with changes shown): the brackets and numbers inserted
+ *   around a line-start label.
+ * A label edited by hand that is not part of such a shift (a single label
+ * with no insertion, deletion or move just above it, a label that changed
+ * two levels at once or by more than 3, a cross-reference in running text)
+ * is still listed.
+ */
+function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocModel, toOldLine: (newToken: number) => number): Change[] {
+  const out: Change[] = [];
+  const take = (c: Change) => {
+    c.minor = true;
+    c.consequence = 'renumber';
+    out.push(c);
+  };
+  const moves = changes.filter((c) => c.kind === 'move');
+  const inside = (s: Side, m: Side) => s.start !== undefined && m.start !== undefined && m.start <= s.start && s.start < m.end!;
+  const moveOf = (c: Change) => (c.inMove === undefined ? undefined : moves.find((m) => (c.old.start !== undefined ? inside(c.old, m.old) : inside(c.new, m.new))));
+
+  // The label at the head of a moved passage, and labels inside it that
+  // keep their tail below the head's number ("7.2.1" → "3.4.1").
+  const heads = new Map<Change, { a: number[]; b: number[] }>();
   for (const c of changes) {
     if (c.kind !== 'replace' || !c.numeric) continue;
-    const a = label(oldDoc, c.old.start, c.old.end);
-    const b = label(newDoc, c.new.start, c.new.end);
-    if (!a || !b || a.value === b.value || Math.abs(b.value - a.value) > 3) continue;
-    cands.push({ c, delta: b.value - a.value, line: a.line });
+    const m = moveOf(c);
+    if (!m || c.old.start !== m.old.start || c.new.start !== m.new.start) continue;
+    const a = labelAt(oldDoc, c.old.start);
+    const b = labelAt(newDoc, c.new.start);
+    if (!a || !b || c.old.end !== c.old.start! + 1 || c.new.end !== c.new.start! + 1 || a.style !== 'list' || b.style !== 'list' || a.parts.length !== b.parts.length) continue;
+    heads.set(m, { a: a.parts, b: b.parts });
+    take(c);
   }
-  cands.sort((x, y) => x.line - y.line);
-  // Lines (old document) where something was inserted or deleted.
-  const structural = changes
-    .filter((c) => c.kind === 'insert' || c.kind === 'delete')
-    .map((c) => (c.old.start !== undefined ? oldDoc.tokens[c.old.start].line : c.old.caret ? lineAt(oldDoc, c.old.caret.page, c.old.caret.y) : -1));
-  const out: Change[] = [];
-  let k = 0;
-  while (k < cands.length) {
-    let j = k + 1;
-    while (j < cands.length && cands[j].delta === cands[k].delta && cands[j].line - cands[j - 1].line <= 6) j++;
-    const group = cands.slice(k, j);
-    const first = group[0].line;
-    const follows = structural.some((l) => l >= 0 && l <= first && first - l <= 8);
-    if (group.length >= 2 || follows) {
-      for (const g of group) {
-        g.c.minor = true;
-        g.c.consequence = 'renumber';
-        out.push(g.c);
-      }
+  for (const c of changes) {
+    if (c.kind !== 'replace' || !c.numeric || c.consequence) continue;
+    const m = moveOf(c);
+    const head = m && heads.get(m);
+    if (!head || c.old.end !== c.old.start! + 1 || c.new.end !== c.new.start! + 1) continue;
+    const a = labelAt(oldDoc, c.old.start);
+    const b = labelAt(newDoc, c.new.start);
+    const n = head.a.length;
+    if (!a || !b || a.parts.length <= n || a.parts.length !== b.parts.length) continue;
+    const same = (x: number[], y: number[]) => x.length === y.length && x.every((v, i) => v === y[i]);
+    if (same(a.parts.slice(0, n), head.a) && same(b.parts.slice(0, n), head.b) && same(a.parts.slice(n), b.parts.slice(n))) take(c);
+  }
+  for (const [m] of heads) {
+    const own = out.filter((c) => moveOf(c) === m).length;
+    if (m.moveEdits) m.moveEdits = m.moveEdits - own || undefined;
+  }
+
+  // Where text was inserted, deleted or moved (old document lines).
+  const lineOfOld = (k: number) => oldDoc.tokens[k].line;
+  const structural: number[] = [];
+  for (const c of changes) {
+    if (c.consequence || c.inMove !== undefined) continue;
+    if (c.kind !== 'insert' && c.kind !== 'delete' && c.kind !== 'move') continue;
+    if (c.old.start !== undefined) structural.push(lineOfOld(c.old.start), lineOfOld(c.old.end! - 1));
+    else if (c.old.caret) structural.push(lineAt(oldDoc, c.old.caret.page, c.old.caret.y));
+    if (c.new.start !== undefined) structural.push(toOldLine(c.new.start), toOldLine(c.new.end! - 1));
+  }
+  const follows = (line: number) => structural.some((l) => l >= 0 && l <= line && line - l <= 8);
+
+  type Cand = { c: Change; a: Label; b: Label; key: string };
+  const cands: Cand[] = [];
+  for (const c of changes) {
+    if (c.kind !== 'replace' || !c.numeric || c.consequence || c.inMove !== undefined) continue;
+    if (c.old.end !== c.old.start! + 1 || c.new.end !== c.new.start! + 1) continue;
+    const a = labelAt(oldDoc, c.old.start);
+    const b = labelAt(newDoc, c.new.start);
+    const shift = a && b && labelShift(a, b);
+    if (shift) cands.push({ c, a: a!, b: b!, key: shift.key });
+  }
+  cands.sort((x, y) => x.a.line - y.a.line);
+  // Runs of the same shift, each label within 6 lines of the one before (40
+  // for clause numbers with sub-levels, whose clauses run longer).
+  const groups: Cand[][] = [];
+  const open = new Map<string, Cand[]>();
+  for (const cand of cands) {
+    let g = open.get(cand.key);
+    const last = g?.[g.length - 1];
+    const consecutive = (x: Cand, y: Cand) => y.a.parts[0] === x.a.parts[0] + 1 && y.b.parts[0] === x.b.parts[0] + 1;
+    const window = cand.a.style === 'list' && (cand.a.parts.length > 1 || last?.a.parts.length !== 1) ? 40 : 6;
+    const fits = !!last && cand.a.line - last.a.line <= window && (cand.a.style !== 'cell' || consecutive(last, cand));
+    if (!g || !fits) {
+      g = [];
+      groups.push(g);
+      open.set(cand.key, g);
     }
-    k = j;
+    g.push(cand);
   }
-  for (const c of out) changes.splice(changes.indexOf(c), 1);
+  for (const g of groups) {
+    const after = follows(g[0].a.line);
+    const ok = g[0].a.style === 'cell' ? g.length >= 2 && after : g.length >= 2 || after;
+    if (ok) for (const x of g) take(x.c);
+  }
+
+  // Tracked-change displays of list labels: insertions (or deletions) of
+  // brackets and numbers inside a line-start label cluster such as
+  // "4.3[4.4]". One consequence per label.
+  const clusters = new Map<string, Change[]>();
+  for (const c of changes) {
+    if (c.consequence || (c.kind !== 'insert' && c.kind !== 'delete')) continue;
+    const doc = c.kind === 'insert' ? newDoc : oldDoc;
+    const side = c.kind === 'insert' ? c.new : c.old;
+    if (side.start === undefined) continue;
+    const first = doc.tokens[side.start];
+    const line = doc.lines[first.line];
+    let end = line.start + 1;
+    while (end < line.end && !doc.tokens[end].spaceBefore) end++;
+    if (side.end! > end || !REDLINE_LABEL.test(doc.tokens.slice(line.start, end).map((t) => t.text).join(''))) continue;
+    const k = `${c.kind}:${first.line}`;
+    let list = clusters.get(k);
+    if (!list) clusters.set(k, (list = []));
+    list.push(c);
+  }
+  const absorbed = new Set<Change>();
+  for (const [k, list] of clusters) {
+    const c = list[0];
+    const doc = c.kind === 'insert' ? newDoc : oldDoc;
+    const line = doc.lines[Number(k.split(':')[1])];
+    let end = line.start + 1;
+    while (end < line.end && !doc.tokens[end].spaceBefore) end++;
+    // The label itself is in both versions ("4.4" in "4.3[4.4]"): only its
+    // display changed. A bracketed label that is wholly new ("[1]" put in
+    // front of a reference) is an edit.
+    const sideOf = (x: Change) => (x.kind === 'insert' ? x.new : x.old);
+    const changed = (i: number) => list.some((x) => sideOf(x).start! <= i && i < sideOf(x).end!);
+    let kept = false;
+    for (let i = line.start; i < end; i++) if (doc.tokens[i].kind === 'number' && !changed(i)) kept = true;
+    if (!kept) continue;
+    const toks = doc.tokens.slice(line.start, end);
+    const rects = rectsOf(toks);
+    const side: Side = { pages: [line.page], rects, text: joinTokens(toks), start: line.start, end };
+    if (c.kind === 'insert') c.new = side;
+    else c.old = side;
+    c.size = 0;
+    c.wholeParagraphs = undefined;
+    take(c);
+    for (const o of list.slice(1)) absorbed.add(o);
+  }
+  for (const c of [...out, ...absorbed]) {
+    const at = changes.indexOf(c);
+    if (at >= 0) changes.splice(at, 1);
+  }
   return out;
 }
 
@@ -1482,6 +1923,7 @@ function coverageOf(doc: DocModel): Coverage {
   const textless: number[] = [];
   const unreadable: { page: number; count: number }[] = [];
   const privateUse: { page: number; count: number }[] = [];
+  const fieldsUnread: { page: number; count: number }[] = [];
   for (const pg of doc.pages) {
     const toks = byPage.get(pg.index) ?? [];
     if (toks.length === 0) textless.push(pg.index);
@@ -1499,8 +1941,14 @@ function coverageOf(doc: DocModel): Coverage {
       }
     if (count > 0) unreadable.push({ page: pg.index, count });
     if (own > 0) privateUse.push({ page: pg.index, count: own });
+    if (pg.fieldsUnread) fieldsUnread.push({ page: pg.index, count: pg.fieldsUnread });
   }
-  return privateUse.length ? { textless, unreadable, privateUse } : { textless, unreadable };
+  return {
+    textless,
+    unreadable,
+    ...(privateUse.length ? { privateUse } : {}),
+    ...(fieldsUnread.length ? { fieldsUnread } : {}),
+  };
 }
 
 /** Number of differing header/footer lines (shown as "ignored", not hidden silently). */
@@ -1580,6 +2028,64 @@ function mergeNearby(changes: Change[], oldDoc: DocModel, newDoc: DocModel): voi
   }
   if (absorbed.size) {
     const kept = changes.filter((c) => !absorbed.has(c));
+    changes.splice(0, changes.length, ...kept);
+  }
+}
+
+/**
+ * Text that only lost its end (or start) at the edge of a page that became
+ * narrower ("4,800" → "4,8", "EUR)" → "EU" after a new CropBox): PDF.js
+ * leaves out the glyphs outside the visible page, so the text comparison
+ * sees an edit, but the figures did not change; the page was cut. Such a
+ * replacement is folded into the overflow change ("Content is cut off at
+ * the right edge of the page") for that page and edge, which then also
+ * shows the uncut wording as its old side; without one it becomes such an
+ * overflow change itself. Required: the visible part is a prefix (right
+ * edge) or suffix (left edge) of the old text, it ends at the page edge
+ * (within 0.6 em), and the page is narrower than the old one (or, at the
+ * right edge, the old text runs past the new page's edge). A real edit that
+ * shortened a figure exactly at the edge of a page that was also cut there
+ * would be shown as cut off, still listed.
+ */
+function foldClipped(changes: Change[], overflow: Change[], oldDoc: DocModel, newDoc: DocModel): void {
+  const squash = (x: string) => x.replace(/\s+/g, '');
+  const folded = new Set<Change>();
+  for (const c of changes) {
+    if (c.kind !== 'replace' || c.category !== 'text' || c.inMove !== undefined || c.places) continue;
+    if (c.old.pages.length !== 1 || c.new.pages.length !== 1 || c.old.start === undefined || c.new.start === undefined) continue;
+    const op = oldDoc.pages[c.old.pages[0]];
+    const np = newDoc.pages[c.new.pages[0]];
+    if (!op || !np || (op.textAngle ?? 0) !== 0 || (np.textAngle ?? 0) !== 0) continue;
+    const a = squash(c.old.text);
+    const b = squash(c.new.text);
+    if (!b || b.length >= a.length) continue;
+    const last = newDoc.tokens[c.new.end! - 1];
+    const first = newDoc.tokens[c.new.start];
+    const oldLast = oldDoc.tokens[c.old.end! - 1];
+    const lr = last.rects[last.rects.length - 1];
+    const or = oldLast.rects[oldLast.rects.length - 1];
+    const narrower = op.width > np.width + 1;
+    let edge: 'left' | 'right' | null = null;
+    if (a.startsWith(b) && lr.x + lr.w >= np.width - 0.6 * last.size && (narrower || or.x + or.w > np.width + 0.5)) edge = 'right';
+    else if (a.endsWith(b) && first.rects[0].x <= 0.6 * first.size && narrower) edge = 'left';
+    if (!edge) continue;
+    const page = c.new.pages[0];
+    const o = overflow.find((x) => x.overflow?.edge === edge && x.new.pages[0] === page);
+    if (o) {
+      const rects = [...o.old.rects, ...c.old.rects];
+      o.old = { pages: [...new Set(rects.map((r) => r.page))].sort((x, y) => x - y), rects, text: o.old.text ? `${o.old.text} ${c.old.text}` : c.old.text };
+      folded.add(c);
+      continue;
+    }
+    c.kind = 'overflow';
+    c.category = 'visual';
+    c.overflow = { edge };
+    delete c.numeric;
+    c.contextBefore = '';
+    c.contextAfter = '';
+  }
+  if (folded.size) {
+    const kept = changes.filter((c) => !folded.has(c));
     changes.splice(0, changes.length, ...kept);
   }
 }

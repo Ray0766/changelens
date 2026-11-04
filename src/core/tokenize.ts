@@ -511,6 +511,7 @@ export function buildDocModel(doc: DocText): DocModel {
           size: main.fontSize,
           spaceBefore: t.spaceBefore,
           furniture: false,
+          ...(main.field ? { field: true as const } : {}),
         });
       }
       const line: Line = {
@@ -537,7 +538,14 @@ export function buildDocModel(doc: DocText): DocModel {
     name: doc.name,
     pages: doc.pages.map((p) => {
       const angle = textAngle(p.runs);
-      return { index: p.index, width: p.width, height: p.height, unmapped: p.unmapped ?? 0, ...(angle ? { textAngle: angle } : {}) };
+      return {
+        index: p.index,
+        width: p.width,
+        height: p.height,
+        unmapped: p.unmapped ?? 0,
+        ...(angle ? { textAngle: angle } : {}),
+        ...(p.fieldsUnread ? { fieldsUnread: p.fieldsUnread } : {}),
+      };
     }),
     tokens: joined.tokens,
     lines: joined.lines,
