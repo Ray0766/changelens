@@ -31,3 +31,20 @@ test('R6-11: a run with an infinite text matrix is counted as unreadable, not co
     assert.ok(notices('en', r).some((n) => /characters? could not be read as text/.test(n.text)));
   }
 });
+
+test('R6-09: font names come from the page content’s operator list, without the widgets’ appearances', async () => {
+  // A form of 2,000 fields took about 1 GB and 11 s per document when the
+  // operator list included every widget's appearance stream and fonts.
+  const calls: unknown[] = [];
+  const page = {
+    getViewport: () => ({ width: 595.28, height: 841.89, transform: [1, 0, 0, -1, 0, 841.89] }),
+    getTextContent: async () => ({ items: [{ str: 'Total', transform: [10, 0, 0, 10, 56, 700], width: 24, hasEOL: true, fontName: 'f1' }], styles: { f1: { fontFamily: 'sans-serif', ascent: 0.9, descent: -0.2 } } }),
+    getOperatorList: async (opts?: unknown) => void calls.push(opts),
+    getAnnotations: async () => [],
+    commonObjs: { get: () => ({ name: 'ABCDEF+Body-Bold' }) },
+  };
+  const { extractPage } = await import('../src/pdf/extract.ts');
+  const p = await extractPage(page as never, 0);
+  assert.deepEqual(calls, [{ annotationMode: 0 }]);
+  assert.equal(p.runs[0].font, 'Body-Bold');
+});

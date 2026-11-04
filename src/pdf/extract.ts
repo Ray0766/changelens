@@ -45,10 +45,12 @@ export async function extractPage(page: PDFPageProxy, index: number): Promise<Pa
   const viewport = page.getViewport({ scale: 1 });
   const tc = await page.getTextContent();
   // Loading the operator list makes PDF.js resolve font objects, which gives
-  // us their real names. It is also cached for the later render.
+  // us their real names. Only the page content's (annotationMode 0, DISABLE):
+  // with the widgets' appearance streams, a form of 2,000 fields took 1 GB
+  // and 11 s per document here, for fonts the text content never names.
   let fontNames = new Map<string, string>();
   try {
-    await page.getOperatorList();
+    await page.getOperatorList({ annotationMode: 0 });
     fontNames = new Map(
       Object.keys(tc.styles).map((id) => {
         let name = '';
