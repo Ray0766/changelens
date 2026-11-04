@@ -325,9 +325,13 @@ interface Unmatched {
  * points. Each source row is tried with the displacement of the nearest
  * anchor above and below it. With `whole` (the two pages correspond as a
  * whole), parts of the source page that lie outside the other, smaller page
- * are compared with blank paper.
+ * are compared with blank paper. Rows in `fixed` (the running header rows
+ * of a page compared with its own counterpart, see furnitureRows) whose
+ * nearest line went to another page are compared with the same place of
+ * the other page: such a row stays where it is while the text under it
+ * re-flows.
  */
-function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean, identity = false): Unmatched {
+function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean, identity = false, fixed: Rect[] = []): Unmatched {
   const rs = src.r;
   const rd = dst.r;
   const ms = src.mask;
@@ -381,10 +385,11 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
     const aboveA = anchors[ai - 1];
     const belowA = anchors[ai];
     const nearest = !aboveA ? belowA : !belowA ? aboveA : ypt - aboveA.y <= belowA.y - ypt ? aboveA : belowA;
-    if (!nearest || !nearest.own) continue;
-    const above = aboveA?.own ? aboveA : undefined;
-    const below = belowA?.own ? belowA : undefined;
-    const c1 = nearest;
+    const still = (!nearest || !nearest.own) && fixed.some((f) => ypt >= f.y && ypt < f.y + f.h);
+    if (!still && (!nearest || !nearest.own)) continue;
+    const above = still ? undefined : aboveA?.own ? aboveA : undefined;
+    const below = still ? undefined : belowA?.own ? belowA : undefined;
+    const c1 = still ? { y: ypt, dx: 0, dy: 0, own: true } : nearest!;
     const c2 = (c1 === above ? below : above) ?? c1;
     const ox1 = Math.round(c1.dx * rd.scale);
     const oy1 = Math.round((ypt + c1.dy) * rd.scale);
@@ -1389,6 +1394,8 @@ interface Cover {
   atOther: (x: number, y: number) => number;
   /** The glyphs under the overlay show through it: it lies behind them, or is transparent. */
   clear: boolean;
+  /** Much of what differs next to the word is not the overlay's ink: the word cannot be measured outside it. */
+  partial: boolean;
 }
 
 /**
@@ -1507,11 +1514,29 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[])
     dark++;
     if (state[k] !== INK && X.lum[(y0 + ((k / w) | 0)) * W + x0 + (k % w)] < 128) through++;
   }
+  // The overlay's ink accounts for what differs around the word: the
+  // pixels next to it (outside its box, where the overlay lies) that differ
+  // from the other side are nearly all that ink or under it. A tint laid
+  // over a whole table row is not told from the row this way.
+  let differ = 0;
+  let explained = 0;
+  for (let k = 0; k < n; k++) {
+    if (!inShape[k]) continue;
+    const ux = (x0 + (k % w) + 0.5) / sx;
+    const uy = (y0 + ((k / w) | 0) + 0.5) / sx;
+    if (ux >= x.x && ux <= x.x + x.w && uy >= x.y && uy <= x.y + x.h) continue;
+    const p = ((y0 + ((k / w) | 0)) * W + x0 + (k % w)) * 4;
+    const q = other[k] * 4;
+    if (q >= 0 && Math.max(Math.abs(dx[p] - dy[q]), Math.abs(dx[p + 1] - dy[q + 1]), Math.abs(dx[p + 2] - dy[q + 2])) <= THRESH) continue;
+    differ++;
+    if (state[k]) explained++;
+  }
   const at = (px: number, py: number) => (px < x0 || py < y0 || px >= x1 || py >= y1 ? 0 : state[(py - y0) * w + px - x0]);
   return {
     at,
     atOther: (qx, qy) => at(Math.round(((qx + 0.5) / sy - y.x + x.x) * sx - 0.5), Math.round(((qy + 0.5) / sy - y.y + x.y) * sx - 0.5)),
     clear: !dark || through >= 0.4 * dark,
+    partial: explained < 0.8 * differ,
   };
 }
 
@@ -1545,6 +1570,38 @@ function coveredShare(r: Rect, by: Rect[]): number {
  * just move.
  */
 function movedWith(src: Pick<Prepared, 'r' | 'mask'>, dst: Pick<Prepared, 'r'>, r: Rect, dx: number, dy: number, inkOnly = false): boolean {
+  const ratio = dst.r.scale / src.r.scale;
+  return foundAt(src, dst, r, (x, y) => [x * ratio + dx * dst.r.scale, y * ratio + dy * dst.r.scale], inkOnly) === true;
+}
+
+/**
+ * The pixels of a region (src page points) are found in dst where `to`
+ * puts them (a src pixel → dst pixel coordinates), give or take SHIFT_PT
+ * and a pixel of stroke width, in the same colours; see movedWith. Null
+ * with `inkOnly` when the region has too little ink to tell.
+ */
+function foundAt(src: Pick<Prepared, 'r' | 'mask'>, dst: Pick<Prepared, 'r'>, r: Rect, to: (x: number, y: number) => [number, number], inkOnly: boolean, tol = 48): boolean | null {
+  const m = missing(src, dst, r, to, inkOnly, tol, 0.15);
+  return m && m.miss <= 0.15 * m.n;
+}
+
+/**
+ * The sampled pixels of a region not found where `to` puts them at the
+ * best offset within SHIFT_PT (see foundAt), counted up to `stop` of them
+ * (a share): the count, the number sampled, the area one sample stands
+ * for (pt²) and, with `where`, the box around them (src points). Text is
+ * left out where `src.mask` is given. Null when there is nothing to sample.
+ */
+function missing(
+  src: { r: Raster; mask: Uint8Array | null },
+  dst: Pick<Prepared, 'r'>,
+  r: Rect,
+  to: (x: number, y: number) => [number, number],
+  inkOnly: boolean,
+  tol: number,
+  stop = 1,
+  where = false,
+): { miss: number; n: number; area: number; box: Rect | null } | null {
   const rs = src.r;
   const rd = dst.r;
   const sd = rs.data;
@@ -1554,7 +1611,6 @@ function movedWith(src: Pick<Prepared, 'r' | 'mask'>, dst: Pick<Prepared, 'r'>, 
   const x1 = Math.min(rs.width, Math.ceil((r.x + r.w) * rs.scale));
   const y1 = Math.min(rs.height, Math.ceil((r.y + r.h) * rs.scale));
   const step = Math.max(1, Math.round(Math.sqrt(((x1 - x0) * (y1 - y0)) / (inkOnly ? 8000 : 2000))));
-  const ratio = rd.scale / rs.scale;
   const pts: number[] = [];
   // With `inkOnly`, paper is not sampled: a region that is mostly paper
   // would otherwise match anywhere.
@@ -1562,10 +1618,15 @@ function movedWith(src: Pick<Prepared, 'r' | 'mask'>, dst: Pick<Prepared, 'r'>, 
   for (let y = y0; y < y1; y += step) {
     for (let x = x0; x < x1; x += step) {
       const p = y * rs.width + x;
-      if (src.mask[p] !== GLYPH && src.mask[p] !== PAD && inked(p)) pts.push(x, y);
+      if ((!src.mask || (src.mask[p] !== GLYPH && src.mask[p] !== PAD)) && inked(p)) pts.push(x, y);
     }
   }
-  if (!pts.length || (inkOnly && pts.length < 2 * 12)) return false;
+  if (!pts.length || (inkOnly && pts.length < 2 * 12)) return null;
+  const at: number[] = [];
+  for (let k = 0; k < pts.length; k += 2) {
+    const [qx, qy] = to(pts[k], pts[k + 1]);
+    at.push(Math.round(qx), Math.round(qy));
+  }
   // The colour of p lies within the colours around q (unblurred, so a
   // thicker or thinner stroke of the same colour still matches).
   const near = (p: number, qx: number, qy: number) => {
@@ -1581,24 +1642,33 @@ function movedWith(src: Pick<Prepared, 'r' | 'mask'>, dst: Pick<Prepared, 'r'>, 
           if (v > hi) hi = v;
         }
       }
-      if (sd[a + ch] < lo - 48 || sd[a + ch] > hi + 48) return false;
+      if (sd[a + ch] < lo - tol || sd[a + ch] > hi + tol) return false;
     }
     return true;
   };
   const S = Math.round(SHIFT_PT * rd.scale);
-  const allowed = 0.15 * (pts.length / 2);
-  for (let oy = -S; oy <= S; oy++) {
-    for (let ox = -S; ox <= S; ox++) {
+  const n = pts.length / 2;
+  const allowed = stop * n;
+  let best = Infinity;
+  let bx = 0;
+  let by = 0;
+  for (let oy = -S; oy <= S && best > 0; oy++) {
+    for (let ox = -S; ox <= S && best > 0; ox++) {
       let miss = 0;
-      for (let k = 0; k < pts.length && miss <= allowed; k += 2) {
-        const x = pts[k];
-        const y = pts[k + 1];
-        if (!near(y * rs.width + x, Math.round(x * ratio + dx * rd.scale) + ox, Math.round(y * ratio + dy * rd.scale) + oy)) miss++;
+      for (let k = 0; k < pts.length && miss <= allowed && miss < best; k += 2) {
+        if (!near(pts[k + 1] * rs.width + pts[k], at[k] + ox, at[k + 1] + oy)) miss++;
       }
-      if (miss <= allowed) return true;
+      if (miss < best) [best, bx, by] = [miss, ox, oy];
     }
   }
-  return false;
+  let box: Rect | null = null;
+  if (where && best > 0) {
+    const missed: Rect[] = [];
+    for (let k = 0; k < pts.length; k += 2)
+      if (!near(pts[k + 1] * rs.width + pts[k], at[k] + bx, at[k + 1] + by)) missed.push({ x: pts[k] / rs.scale, y: pts[k + 1] / rs.scale, w: step / rs.scale, h: step / rs.scale });
+    box = union(missed);
+  }
+  return { miss: best, n, area: (step * step) / (rs.scale * rs.scale), box };
 }
 
 /** Page pair (old:new) each visual change was found on, for merging across pairs. */
@@ -1655,6 +1725,71 @@ export function sameGraphic(result: CompareResult, oldPage: number, newPage: num
 }
 
 /**
+ * How a page turned to another orientation (/Rotate) maps the old page onto
+ * the new one: a turn by 90°, 180° or 270° and a shift, fitted to the
+ * centres of the words matched between the two pages. Null when fewer than
+ * three words are matched there, or no such turn puts them within 3 pt of
+ * where they are.
+ */
+function turnOf(result: CompareResult, oldPage: number, newPage: number): { fwd: (x: number, y: number) => [number, number]; inv: (x: number, y: number) => [number, number] } | null {
+  const A = result.oldDoc.tokens;
+  const B = result.newDoc.tokens;
+  const m = result.matches;
+  const pts: [number, number, number, number][] = [];
+  for (let p = 0; p < m.length; p += 2) {
+    const a = A[m[p]];
+    const b = B[m[p + 1]];
+    if (a.page !== oldPage || b.page !== newPage) continue;
+    const u = a.rects[0];
+    const v = b.rects[0];
+    pts.push([u.x + u.w / 2, u.y + u.h / 2, v.x + v.w / 2, v.y + v.h / 2]);
+  }
+  if (pts.length < 3) return null;
+  const med = (v: number[]) => v.sort((p, q) => p - q)[v.length >> 1];
+  let best: { a: number; b: number; c: number; d: number; tx: number; ty: number } | null = null;
+  let err = Infinity;
+  // x' = a·x + b·y + tx, y' = c·x + d·y + ty
+  for (const [a, b, c, d] of [
+    [0, -1, 1, 0],
+    [-1, 0, 0, -1],
+    [0, 1, -1, 0],
+  ]) {
+    const tx = med(pts.map(([x, y, X]) => X - a * x - b * y));
+    const ty = med(pts.map(([x, y, , Y]) => Y - c * x - d * y));
+    const e = med(pts.map(([x, y, X, Y]) => Math.hypot(X - a * x - b * y - tx, Y - c * x - d * y - ty)));
+    if (e < err) [best, err] = [{ a, b, c, d, tx, ty }, e];
+  }
+  if (!best || err > 3) return null;
+  const { a, b, c, d, tx, ty } = best;
+  return {
+    fwd: (x, y) => [a * x + b * y + tx, c * x + d * y + ty],
+    // The inverse of a turn is its transpose.
+    inv: (x, y) => [a * (x - tx) + c * (y - ty), b * (x - tx) + d * (y - ty)],
+  };
+}
+
+/**
+ * A region found on one side of a pair of pages of which one was turned to
+ * another orientation (/Rotate) is only the same graphic turned with the
+ * page: nearly all of its ink (see movedWith) is found in the same colours
+ * where the turn (see turnOf) puts it on the other page. The same drawing
+ * turned by a quarter keeps its colours within a few levels, so a light
+ * fill that changed colour (green to pink) is told apart. Null when the
+ * turn cannot be told from the words of the two pages.
+ */
+export function turnedWith(result: CompareResult, oldPage: number, newPage: number, ra: Raster, rb: Raster, side: 'old' | 'new', rect: Rect): boolean | null {
+  const turn = turnOf(result, oldPage, newPage);
+  if (!turn) return null;
+  const [doc, page, rs, rd, map] = side === 'old' ? [result.oldDoc, oldPage, ra, rb, turn.fwd] : [result.newDoc, newPage, rb, ra, turn.inv];
+  return (
+    foundAt({ r: rs, mask: maskOf(doc, page, rs) }, { r: rd }, rect, (x, y) => {
+      const [X, Y] = map((x + 0.5) / rs.scale, (y + 0.5) / rs.scale);
+      return [X * rd.scale - 0.5, Y * rd.scale - 0.5];
+    }, true, 16) === true
+  );
+}
+
+/**
  * Compare one old page with one new page. Regions already explained by text
  * changes on these pages are not reported again; regions whose graphics only
  * moved by a few points are returned as `minor` changes. `whole` says that
@@ -1684,8 +1819,16 @@ export function compareRasters(
   }
   const ownF = fwd.filter((a) => a.own);
   const ownB = bwd.filter((a) => a.own);
-  const fwdDiff = unmatched(A, B, fwd, whole, identity);
-  const bwdDiff = unmatched(B, A, bwd, whole, identity);
+  // The running header rows of a page compared with its counterpart (see
+  // furnitureRows) are compared at the same place even where the text
+  // next to them came from, or went to, another page.
+  const fixedRows = (side: 'old' | 'new', page: number, other: number) => {
+    if ((side === 'old' ? result.oldToNew[page] : result.newToOld[page]) !== other) return [];
+    const lines = (side === 'old' ? result.oldDoc : result.newDoc).lines.filter((l) => l.page === page && l.end > l.start);
+    return lines.filter((l) => l.furniture).map((l) => rowAround([l], lines));
+  };
+  const fwdDiff = unmatched(A, B, fwd, whole, identity, identity ? [] : fixedRows('old', oldPage, newPage));
+  const bwdDiff = unmatched(B, A, bwd, whole, identity, identity ? [] : fixedRows('new', newPage, oldPage));
   if (debugHook) debugHook({ fwd, bwd, oldRaw: fwdDiff.real, newRaw: bwdDiff.real, oldShift: fwdDiff.shifted, newShift: bwdDiff.shifted });
   const oldRects = cluster(fwdDiff.real, ra.width / ra.scale);
   const newRects = cluster(bwdDiff.real, rb.width / rb.scale);
@@ -1712,7 +1855,7 @@ export function compareRasters(
       if (!sameShape(a.rects[0], b.rects[0])) return 'skip';
       const ga = na ? overlayInk(A, a.rects[0], B, b.rects[0], [diffShape(fwdDiff, ra, a.rects[0])]) : null;
       const gb = nb ? overlayInk(B, b.rects[0], A, a.rects[0], [diffShape(bwdDiff, rb, b.rects[0])]) : null;
-      return ga || gb ? [ga, gb] : 'skip';
+      return (ga || gb) && !ga?.partial && !gb?.partial ? [ga, gb] : 'skip';
     };
     // Text drawn over or behind the word that is on one side only (a DRAFT
     // watermark removed, a stamp added) changes its ink there: that belongs
@@ -1734,7 +1877,9 @@ export function compareRasters(
       if (!oa && !ob) return [null, null];
       // A word turned with its page cannot be laid over itself.
       if (!sameShape(a.rects[0], b.rects[0])) return 'skip';
-      return [oa ? overlayInk(A, a.rects[0], B, b.rects[0], coverOld) : null, ob ? overlayInk(B, b.rects[0], A, a.rects[0], coverNew) : null];
+      const ca = oa ? overlayInk(A, a.rects[0], B, b.rects[0], coverOld) : null;
+      const cb = ob ? overlayInk(B, b.rects[0], A, a.rects[0], coverNew) : null;
+      return ca?.partial || cb?.partial ? 'skip' : [ca, cb];
     };
     appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover));
   }
@@ -1771,7 +1916,16 @@ export function compareRasters(
       const row = rows[side].find((x) => coveredShare(r, [x.rect]) >= 0.6);
       if (row) {
         const s = row.change[side];
-        if (!s.rects.some((q) => q.page === page && coveredShare(r, [q.rect]) >= 0.6)) s.rects.push({ page, rect: r });
+        const place = { page, rect: r };
+        const pushed = !s.rects.some((q) => q.page === page && coveredShare(r, [q.rect]) >= 0.6);
+        if (pushed) s.rects.push(place);
+        // A header row repeated at a moved page top: checked against
+        // another copy of that row (see rowFolds).
+        if (real && row.change.consequence === 'repeatedLine') {
+          let list = folds.get(result);
+          if (!list) folds.set(result, (list = []));
+          list.push({ change: row.change, side, page, rect: r, pair: [oldPage, newPage], place: pushed ? place : null });
+        }
         return false;
       }
       if (coveredShare(r, runningRows[side]) >= 0.6) return false;
@@ -1862,6 +2016,153 @@ export function compareRasters(
 }
 
 /**
+ * A difference region shown with a header row repeated at the top of a page
+ * only because a page break moved (consequence 'repeatedLine', see
+ * rowBands), found on the page pair `pair`.
+ */
+export interface RowFold {
+  change: Change;
+  side: 'old' | 'new';
+  page: number;
+  rect: Rect;
+  pair: [number, number];
+  /** The place added to the consequence for it (null if one already covered it). */
+  place: { page: number; rect: Rect } | null;
+}
+const folds = new WeakMap<CompareResult, RowFold[]>();
+
+/**
+ * The regions that compareRasters showed with repeated header rows. Such a
+ * row's fill and rules come and go with it, but only what another copy of
+ * the same row also shows is part of it: the caller compares each row
+ * with its copies (see rowCopies and rowDiffers) and lists what differs as a
+ * graphic change of its own (see listRow). A stamp, a tint or a highlight
+ * put on one copy of a header row is so not hidden in the row's
+ * consequence.
+ */
+export function rowFolds(result: CompareResult): RowFold[] {
+  return folds.get(result) ?? [];
+}
+
+/** A header row repeated at a moved page top (consequence 'repeatedLine') on one page of one side. */
+export interface RepeatedRow {
+  change: Change;
+  side: 'old' | 'new';
+  page: number;
+  /** Its lines, and the row's width across the text block (see rowAround). */
+  lines: DocModel['lines'];
+  rect: Rect;
+}
+
+/** The header rows repeated at moved page tops, per page and side (see RepeatedRow). */
+export function repeatedRows(result: CompareResult): RepeatedRow[] {
+  const out: RepeatedRow[] = [];
+  for (const c of result.minor) {
+    if (c.consequence !== 'repeatedLine') continue;
+    for (const side of ['old', 'new'] as const) {
+      const s = c[side];
+      if (s.start === undefined || s.end === undefined) continue;
+      const doc = side === 'old' ? result.oldDoc : result.newDoc;
+      for (const page of s.pages) {
+        const all = doc.lines.filter((l) => l.page === page && l.end > l.start);
+        const own = all.filter((l) => l.start >= s.start! && l.end <= s.end!);
+        if (!own.length) continue;
+        const band = rowAround(own, all);
+        const u = union(own.map((l) => l.rect));
+        const lh = Math.max(...own.map((l) => l.rect.h));
+        // The row itself: its lines and a little of the fill around them,
+        // not the rows above and below, which differ between copies.
+        const top = Math.max(band.y, u.y - 0.3 * lh);
+        const bottom = Math.min(band.y + band.h, u.y + u.h + 0.3 * lh);
+        out.push({ change: c, side, page, lines: own, rect: { x: band.x, y: top, w: band.w, h: bottom - top } });
+      }
+    }
+  }
+  return out;
+}
+
+/** Another copy of a repeated header row (see rowCopies): its side and page, and how far it lies from the row (points). */
+export interface RowCopy {
+  side: 'old' | 'new';
+  page: number;
+  dx: number;
+  dy: number;
+}
+
+/**
+ * Other copies of a repeated header row, in either version: the same lines
+ * in the same order, with every word at the same place relative to the
+ * first (within 1.5 pt: the same table, not another one with the same
+ * headings and other column widths). Copies at the same place on their page
+ * (another page top, drawn alike: a program may draw the rule under a
+ * repeated row unlike the one under the table's first row) come first,
+ * then the nearest pages, this version before the other; at most `max`.
+ */
+export function rowCopies(result: CompareResult, row: RepeatedRow, max = 4): RowCopy[] {
+  const own = row.side === 'old' ? result.oldDoc : result.newDoc;
+  const keyOf = (doc: DocModel, l: DocModel['lines'][number]) => doc.tokens.slice(l.start, l.end).map((t) => t.key).join(' ');
+  const words = row.lines.map((l) => keyOf(own, l)).join(' | ');
+  const first = row.lines[0];
+  const mine = row.lines.flatMap((c) => own.tokens.slice(c.start, c.end));
+  const out: (RowCopy & { rank: number })[] = [];
+  for (const side of ['old', 'new'] as const) {
+    const doc = side === 'old' ? result.oldDoc : result.newDoc;
+    doc.lines.forEach((l, at) => {
+      if (l.end <= l.start || (side === row.side && l.page === row.page)) return;
+      const copy = doc.lines.slice(at, at + row.lines.length);
+      if (copy.length !== row.lines.length || copy.some((c) => c.page !== l.page) || copy.map((c) => keyOf(doc, c)).join(' | ') !== words) return;
+      const dx = l.rect.x - first.rect.x;
+      const dy = l.rect.y - first.rect.y;
+      const theirs = copy.flatMap((c) => doc.tokens.slice(c.start, c.end));
+      if (theirs.length !== mine.length || mine.some((t, k) => Math.abs(theirs[k].rects[0].x - t.rects[0].x - dx) > 1.5 || Math.abs(theirs[k].rects[0].y - t.rects[0].y - dy) > 1.5)) return;
+      const rank = (Math.abs(dy) <= 2 ? 0 : 100000) + Math.abs(l.page - row.page) * 2 + (side === row.side ? 0 : 1);
+      out.push({ side, page: l.page, dx, dy, rank });
+    });
+  }
+  return out
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, max)
+    .map(({ side, page, dx, dy }) => ({ side, page, dx, dy }));
+}
+
+/**
+ * Where a repeated header row has ink that a copy (see rowCopies) does not
+ * show: the box around the ink of the row, glyphs included, that is not
+ * found in the same colours at the copy (see movedWith), when it covers at
+ * least 2 pt². Two copies of one row drawn by the same program match all
+ * but a few pixels; a tick, a tint or a highlight put on one copy does not.
+ * Null when the copy shows all of it.
+ */
+export function rowDiffers(row: RepeatedRow, r: Raster, copy: RowCopy, rc: Raster): Rect | null {
+  const m = missing({ r, mask: null }, { r: rc }, row.rect, (x, y) => [(x * rc.scale) / r.scale + copy.dx * rc.scale, (y * rc.scale) / r.scale + copy.dy * rc.scale], true, 48, 1, true);
+  return m?.box && m.miss * m.area >= 2 ? m.box : null;
+}
+
+/**
+ * A repeated header row that does not look like any of its copies (at
+ * `rect`, see rowDiffers), or has none (`rect` null: each region shown with
+ * it), is
+ * a graphic change of its own: the regions that compareRasters showed with
+ * the row there go with it and are taken off the row's consequence.
+ */
+export function listRow(result: CompareResult, row: RepeatedRow, rect: Rect | null): Change | null {
+  const mine = rowFolds(result).filter((f) => f.change === row.change && f.side === row.side && f.page === row.page && (!rect || intersects(expand(rect, 4), f.rect)));
+  if (!rect && !mine.length) return null;
+  for (const f of mine) {
+    if (!f.place) continue;
+    const s = f.change[f.side];
+    s.rects = s.rects.filter((q) => q !== f.place);
+  }
+  const place = union([...(rect ? [rect] : []), ...mine.map((f) => f.rect)]);
+  const counterpart = row.side === 'old' ? result.oldToNew[row.page] : result.newToOld[row.page];
+  const [op, np] = mine[0]?.pair ?? (row.side === 'old' ? [row.page, counterpart ?? -1] : [counterpart ?? -1, row.page]);
+  const c = graphicChange(op, np, row.side === 'old' ? [place] : [], row.side === 'new' ? [place] : [], place.y);
+  c.order = Math.max(0, np) * 100000 + place.y;
+  foundOn.set(c, `${op}:${np}`);
+  return c;
+}
+
+/**
  * The text change that a difference region is the change bar of: a narrow
  * vertical bar (at most 8 pt wide, at least twice as tall) in the margin
  * beside that change's lines — no line of text at its height reaches it, the
@@ -1922,10 +2223,12 @@ function changeBar(result: CompareResult, side: 'old' | 'new', page: number, r: 
  * they belong to that change (compareRasters adds them to its place); for a
  * consequence they are counted and shown with it. This holds for any table
  * whose rows are filled or ruled (Word, LibreOffice, Chromium, spreadsheet
- * print titles). A graphic deliberately added inside such a row is shown
- * with the row's change, not as an item of its own; the copies of a header
- * row that are matched on other pages are still compared, so a header
- * shading or rule changed throughout a table is still reported there.
+ * print titles). A graphic deliberately added inside a changed row is
+ * shown with the row's change, not as an item of its own. A repeated header
+ * row keeps only what another copy of it shows as well (see rowFolds): a
+ * stamp, a tint or a highlight put on one copy is listed. The copies of a
+ * header row that are matched on other pages are compared as usual, so a
+ * header shading or rule changed throughout a table is reported there.
  */
 function rowBands(result: CompareResult, side: 'old' | 'new', page: number): { rect: Rect; change: Change }[] {
   const doc = side === 'old' ? result.oldDoc : result.newDoc;

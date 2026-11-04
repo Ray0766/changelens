@@ -85,3 +85,64 @@ test('V08: a figure under an added semi-transparent stamp that turned blue or wa
   assert.deepEqual(list(stc.changes), ['Added “PAID”']);
   assert.equal(visual(stc).length, 0);
 });
+
+/** Graphic items (not text formatting, not page changes) with their new places, 1-based pages. */
+const graphics = (r: CompareResult) => r.changes.filter((c) => c.kind === 'graphic' && !c.format && !c.pageChange);
+const hits = (c: Change, side: 'old' | 'new', page: number, x: number, y: number) =>
+  c[side].rects.some((q) => q.page === page - 1 && x >= q.rect.x - 2 && x <= q.rect.x + q.rect.w + 2 && y >= q.rect.y - 2 && y <= q.rect.y + q.rect.h + 2);
+
+test('V11: a graphic edited on a page turned by /Rotate is listed beside the page change; the turn alone is one item', { skip }, async () => {
+  // The callout fill turned from green to pink and a tick was added on the
+  // turned page 2. Before: one "Page size changed" item, as for the turn alone.
+  const r = await run('probe6-turn-before.pdf', 'probe6-turn-after.pdf');
+  assert.deepEqual(list(visual(r)), ['Page size changed: 595 × 842 pt → 842 × 595 pt', 'Graphic or image changed', 'Graphic or image added']);
+  const g = graphics(r);
+  assert.ok(hits(g[0], 'new', 2, 550, 200) && hits(g[0], 'old', 2, 200, 280), JSON.stringify(g[0]));
+  assert.ok(hits(g[1], 'new', 2, 530, 490), JSON.stringify(g[1].new.rects));
+  // A figure partly whited out on the turned page.
+  const w = await run('probe6-turn-before.pdf', 'probe6-turn-whiteout.pdf');
+  assert.deepEqual(list(visual(w)), ['Page size changed: 595 × 842 pt → 842 × 595 pt', 'Graphic or image changed']);
+  // Control: the turn alone; the turned figure goes with the page change.
+  const c = await run('probe6-turn-before.pdf', 'probe6-turn-ctrl.pdf');
+  assert.deepEqual(list(c.changes), ['Page size changed: 595 × 842 pt → 842 × 595 pt']);
+});
+
+test('V12: a tick, a tint or an underline on a running table header row after a re-flow is listed with its new place', { skip }, async () => {
+  // Before: "Graphic or image removed" with the old page only.
+  for (const [file, page, x, y] of [
+    ['probe6-thead-tick.pdf', 3, 512, 66],
+    ['probe6-thead-tint.pdf', 3, 300, 66],
+    ['probe6-thead-underline.pdf', 4, 240, 74],
+  ] as const) {
+    const r = await run('probe6-thead-before.pdf', file);
+    const g = graphics(r);
+    assert.equal(g.length, 1, `${file}: ${list(r.changes).join(' | ')}`);
+    assert.ok(hits(g[0], 'new', page, x, y), `${file}: ${JSON.stringify(g[0].new.rects)}`);
+  }
+  // Control: the re-flow alone.
+  const c = await run('probe6-thead-before.pdf', 'probe6-thead-reflow.pdf');
+  assert.deepEqual(list(c.changes), ['Added a paragraph']);
+});
+
+test('V01: a stamp, a tint or a highlight on one copy of a repeated header row is listed; copies that only came or went with a page break are not', { skip }, async () => {
+  // The header row "Tank Volume (Ml) Bays" repeated at the top of new p. 3.
+  // Before: hidden in the row's consequence, output as for the re-flow alone.
+  for (const [file, x, y] of [
+    ['probe6-rows-stamp.pdf', 358, 48],
+    ['probe6-rows-tint.pdf', 200, 48],
+    ['probe6-rows-highlight.pdf', 318, 49],
+  ] as const) {
+    const r = await run('probe6-rows-before.pdf', file);
+    const g = graphics(r);
+    assert.equal(g.length, 1, `${file}: ${list(r.changes).join(' | ')}`);
+    assert.ok(hits(g[0], 'new', 3, x, y), `${file}: ${JSON.stringify(g[0].new.rects)}`);
+    assert.equal(r.ignored.repeatedLines, 7);
+  }
+  // Controls: the re-flow alone lists the paragraph only, the header rows
+  // are counted; the same stamp in a data row is listed as before.
+  const base = await run('probe6-rows-before.pdf', 'probe6-rows-reflow.pdf');
+  assert.deepEqual(list(base.changes), ['Added a paragraph']);
+  assert.equal(base.ignored.repeatedLines, 7);
+  const ctl = await run('probe6-rows-before.pdf', 'probe6-rows-ctl.pdf');
+  assert.deepEqual(list(graphics(ctl)), ['Graphic or image changed']);
+});

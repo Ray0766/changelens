@@ -1,7 +1,26 @@
 import type { Change, CompareResult, DocModel, Rect, Side } from './types.ts';
 import { sortAndNumber } from './compare.ts';
 import { union as unionRect } from './geometry.ts';
-import { alignPages, compareRasters, dedupeGraphics, foundOnPair, pageGraphics, pageSignature, planVisual, reappears, sameGraphic, tooLargeToCompare, type Raster, type VisualPair } from './visual.ts';
+import {
+  alignPages,
+  compareRasters,
+  dedupeGraphics,
+  foundOnPair,
+  pageGraphics,
+  pageSignature,
+  planVisual,
+  reappears,
+  repeatedRows,
+  rowCopies,
+  rowDiffers,
+  rowFolds,
+  listRow,
+  sameGraphic,
+  tooLargeToCompare,
+  turnedWith,
+  type Raster,
+  type VisualPair,
+} from './visual.ts';
 
 export type RenderFn = (page: number) => Promise<Raster>;
 
@@ -20,6 +39,8 @@ export async function addVisualChanges(
 ): Promise<Change[]> {
   const docs = { old: result.oldDoc, new: result.newDoc };
   const render = { old: renderOld, new: renderNew };
+  // Regions shown with repeated header rows by an earlier run on this result.
+  rowFolds(result).splice(0);
   const skipped = { old: new Set<number>(), new: new Set<number>() };
   const large = (side: 'old' | 'new', p: number) => {
     const pg = docs[side].pages[p];
@@ -115,6 +136,47 @@ export async function addVisualChanges(
     for (const p of [...cacheNew.keys()]) if (!rest.some((r) => r.new === p)) cacheNew.delete(p);
     onProgress?.(k + 1, pairs.length);
   }
+  // A header row repeated at a moved page top, and what was shown with it,
+  // belongs to that consequence only if it looks like another copy of the
+  // row (see rowCopies); what no copy shows (a stamp, a tint or a highlight
+  // put on this copy) is a graphic change of its own. A row without a copy
+  // that can be rendered gets the regions shown with it listed.
+  const pages = { old: new Map<number, Promise<Raster>>(), new: new Map<number, Promise<Raster>>() };
+  const page = (side: 'old' | 'new', p: number) => {
+    let r = pages[side].get(p);
+    if (!r) {
+      // Keep at most a few pages.
+      while (pages[side].size >= 4) pages[side].delete(pages[side].keys().next().value!);
+      pages[side].set(p, (r = render[side](p)));
+    }
+    return r;
+  };
+  for (const row of repeatedRows(result)) {
+    if (large(row.side, row.page)) continue;
+    let rect: Rect | null = null;
+    let same = false;
+    let compared = false;
+    for (const copy of rowCopies(result, row)) {
+      if (large(copy.side, copy.page)) continue;
+      try {
+        const [r, rc] = await Promise.all([page(row.side, row.page), page(copy.side, copy.page)]);
+        const d = rowDiffers(row, r, copy, rc);
+        compared = true;
+        if (!d) {
+          same = true;
+          break;
+        }
+        rect ??= d;
+      } catch {
+        // Not rendered: the next copy is tried.
+      }
+    }
+    if (same) continue;
+    const c = listRow(result, row, compared ? rect : null);
+    if (c) found.push(c);
+  }
+  pages.old.clear();
+  pages.new.clear();
   // A graphic found on one side of a page pair only may have gone to the
   // next or previous page with the text next to it (a figure pushed onto the
   // next page by added text). If it reappears unchanged on another page
@@ -180,15 +242,28 @@ export async function addVisualChanges(
     // A page turned to another orientation (/Rotate): its text runs another
     // way now, and every graphic on it turned with it, so the pixels of the
     // pair differ wherever there is ink. That is the turn the page change
-    // reports; the regions found on the pair are shown as part of it, not
-    // as graphic changes (or slight shifts) of their own. A graphic edited
-    // on the turned page is then only shown inside the page change, which
-    // covers the whole page. A page whose size changed but whose text still
-    // runs the same way (a new paper size, a page re-laid out in landscape)
-    // is compared as usual.
+    // reports; a region found on the pair that is only the same graphic
+    // turned with the page (see turnedWith) is shown as part of it, and so
+    // are slight shifts. A graphic that does not look the same turned (a
+    // figure edited, a stamp added on the turned page) stays a change of its
+    // own. Where the turn cannot be told from the words of the two pages,
+    // every region goes with the page change. A page whose size changed but
+    // whose text still runs the same way (a new paper size, a page re-laid
+    // out in landscape) is compared as usual.
     for (const p of same) {
       if ((docs.old.pages[p.old].textAngle ?? 0) === (docs.new.pages[p.new].textAngle ?? 0)) continue;
-      const turned = found.filter((f) => f.kind === 'graphic' && !f.format && !f.pageChange && foundOnPair(f)?.[0] === p.old && foundOnPair(f)?.[1] === p.new);
+      const onPair = found.filter((f) => f.kind === 'graphic' && !f.format && !f.pageChange && foundOnPair(f)?.[0] === p.old && foundOnPair(f)?.[1] === p.new);
+      if (!onPair.length) continue;
+      let rasters: [Raster, Raster] | null = null;
+      try {
+        if (!large('old', p.old) && !large('new', p.new)) rasters = await Promise.all([render.old(p.old), render.new(p.new)]);
+      } catch {
+        rasters = null;
+      }
+      const sameTurned = (f: Change) =>
+        !rasters ||
+        (['old', 'new'] as const).every((side) => f[side].rects.every((r) => turnedWith(result, p.old, p.new, rasters![0], rasters![1], side, r.rect) !== false));
+      const turned = onPair.filter((f) => f.minor || sameTurned(f));
       for (const f of turned) {
         for (const side of ['old', 'new'] as const) {
           c[side].rects.push(...f[side].rects);
