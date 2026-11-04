@@ -32,8 +32,11 @@ async function run(before: string, after: string, opts: { ignoreFurniture?: bool
 test('R5-07: a strike or a highlight on running-header words is counted with the ignored header and footer differences', { skip }, async () => {
   // "Service contract SC-2207 … Revision B - Confidential" on every page;
   // on p. 2 "Confidential" is struck in red, or "Revision" highlighted.
+  // The red line starts halfway through the "B": one strike over "B
+  // Confidential" since fix round 8 (before, the "B" was a colour change
+  // of its own).
   for (const [file, n] of [
-    ['probe8-R5-07-strike.pdf', 2],
+    ['probe8-R5-07-strike.pdf', 1],
     ['probe8-R5-07-highlight.pdf', 1],
   ] as const) {
     const r = await run('probe8-R5-07-before.pdf', file);
