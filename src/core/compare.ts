@@ -1391,6 +1391,9 @@ function buildAnchors(A: Token[], B: Token[], pairs: Int32Array): Anchor[] {
 export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<DiffOptions> = {}): CompareResult {
   const options: DiffOptions = { ...defaultOptions, ...opts };
   syncFurniture(oldDoc, newDoc);
+  // Furniture may have changed the lines a label's parent is looked up in.
+  parentAbove.delete(oldDoc);
+  parentAbove.delete(newDoc);
   syncHyphenation(oldDoc, newDoc);
   const include = (t: Token) =>
     !(options.ignoreFurniture && t.furniture) && !(options.ignorePunctuation && t.kind === 'punct');
@@ -1695,6 +1698,9 @@ interface Label {
  */
 const clauseLevels = (levels: string[]) => !levels.some((p) => Number(p) === 0) && !(levels[0].length > 1 && levels[0][0] === '0');
 
+/** Per document and line: whether a tight column's label has its parent clause above it (see labelAt). */
+const parentAbove = new WeakMap<DocModel, Map<number, boolean>>();
+
 /**
  * The label that token k (a document token index) is, if any: the first
  * token of its line and set apart from the text after it.
@@ -1757,24 +1763,35 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
   };
   /**
    * The clause these sub-clauses belong to stands above them: the nearest
-   * line above (up to 200 lines, furniture left out) that starts with a
-   * number of fewer levels starts with this label's parent ("5" or "5."
-   * above "5.3"). A number of fewer levels in this label's column that is
-   * not the parent ends the search.
+   * line above (furniture left out) that starts with a number of fewer
+   * levels starts with this label's parent ("5" or "5." above "5.3"). A
+   * number of fewer levels in this label's column that is not the parent
+   * ends the search. A sibling above in the column ("5.2") that was looked
+   * up already gives its answer, so a long list is read in one pass.
    */
   const parent = () => {
+    let known = parentAbove.get(doc);
+    if (!known) parentAbove.set(doc, (known = new Map()));
     const want = levels.slice(0, -1).join('.');
-    for (let j = t.line - 1; j >= Math.max(0, t.line - 200); j--) {
+    let found = false;
+    for (let j = t.line - 1; j >= 0; j--) {
       const l = doc.lines[j];
       if (l.furniture || l.end <= l.start) continue;
       const u = doc.tokens[l.start];
       if (u.kind !== 'number') continue;
       const v = u.text.normalize('NFKC').replace(/\.$/, '');
-      if (v.split('.').length >= levels.length) continue;
-      if (v === want) return true;
-      if (Math.abs(u.rects[0].x - t.rects[0].x) <= 1.5) return false;
+      const depth = v.split('.').length;
+      const column = Math.abs(u.rects[0].x - t.rects[0].x) <= 1.5;
+      if (depth === levels.length && column && known.has(j) && v.slice(0, v.lastIndexOf('.')) === want) {
+        found = known.get(j)!;
+        break;
+      }
+      if (depth >= levels.length) continue;
+      found = v === want;
+      if (found || column) break;
     }
-    return false;
+    known.set(t.line, found);
+    return found;
   };
   /**
    * A column of clause numbers: the nearest line above or below in the same

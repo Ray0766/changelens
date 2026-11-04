@@ -108,6 +108,36 @@ test('single-line clauses renumbered by hand are listed, without a percentage (R
   assert.deepEqual(listed(m), ['Number changed: 5.3 → 5.4 (+1.9%)', 'Number changed: 5.4 → 5.5 (+1.9%)']);
 });
 
+test('a long tight list is read as labels however far below its parent clause it runs (R1-14, second pass)', () => {
+  // "5. Charges" and then 300 single-line clauses 13 pt apart, over several pages; 5.3 inserted.
+  const doc = (name: string, ins: boolean): DocText => {
+    const pages: DocText['pages'] = [];
+    let runs: TextRun[] = [];
+    let y = 60;
+    const run = (str: string, x: number, yy: number, eol = false): TextRun => ({ str, x, y: yy - 9, w: str.length * 5, h: 11, baseline: yy, fontSize: 10, font: 'Body', family: 'sans-serif', eol, angle: 0 });
+    runs.push(run('5.', 56, y), run('Charges', 100, y, true));
+    y += 24;
+    const w = ['invoices', 'are', 'sent', 'monthly', 'payment', 'due', 'within', 'thirty', 'days', 'credit', 'notes', 'issued'];
+    const rows = Array.from({ length: 300 }, (_, k) => `${w[k % 12]} ${w[(k * 7) % 12]} ${w[(k * 5) % 12]} item ${k}`);
+    if (ins) rows.splice(2, 0, 'a new clause inserted here');
+    rows.forEach((t, k) => {
+      if (y > 800) {
+        pages.push({ index: pages.length, width: 595, height: 842, runs });
+        runs = [];
+        y = 60;
+      }
+      runs.push(run(`5.${k + 1}`, 56, y), run(t, 100, y, true));
+      y += 13;
+    });
+    pages.push({ index: pages.length, width: 595, height: 842, runs });
+    return { name, pages };
+  };
+  const r = compare(doc('a', false), doc('b', true));
+  assert.ok(listed(r).includes('Added “5.3 a new clause inserted here”'), JSON.stringify(listed(r).slice(0, 5)));
+  assert.deepEqual(r.changes.filter((c) => c.numeric).map((c) => describeChange('en', c)), []);
+  assert.ok(r.ignored.renumbered >= 296, String(r.ignored.renumbered));
+});
+
 test('a tight table of measures numbered on from 2.1 is not a clause list (R1-14, second pass)', async () => {
   // Chromium: board thickness by use, mm, a table without row spacing and with no clause 2
   // above it. A use is inserted as the third row and the thicknesses of the later rows are
