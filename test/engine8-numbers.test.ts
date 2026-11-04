@@ -47,6 +47,20 @@ test('R7-01 control: cross-references keep no percentage, also after "as per" or
   assert.deepEqual(text(['See No. 12 in the register.'], ['See No. 14 in the register.']), ['Number changed: 12 → 14']);
 });
 
+test('T2N6: "as per page 4" and "as per item 3" are references, while "EUR 0.12 per page" is a rate', async () => {
+  // Verifier counter-probe (synthetic; Chromium), copied to test/fixtures/probe8-T2N6-*.
+  assert.deepEqual(listed(await run('T2N6-before', 'T2N6-after')), [
+    'Number changed: 4 → 5',
+    'Number changed: 3 → 4',
+    'Number changed: 0.12 → 0.15 (+25%)',
+    'Number changed: 4500 → 4501',
+    'Number changed: A3 → A2',
+  ]);
+  assert.deepEqual(text(['Prices are as per page 4 of the offer.'], ['Prices are as per page 5 of the offer.']), ['Number changed: 4 → 5']);
+  // Without "as", the unit rule still applies ("per page 0.12" in R7-01).
+  assert.deepEqual(text(['Copies cost per page 0.12 in colour.'], ['Copies cost per page 0.15 in colour.']), ['Number changed: 0.12 → 0.15 (+25%)']);
+});
+
 test('R2-09: in a percentage range or ratio ("10%-20%", "10%/12%") the second figure keeps its sign and its own percent sign', async () => {
   const r = await run('R2-09-before', 'R2-09-after');
   const l = listed(r);

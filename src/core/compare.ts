@@ -668,13 +668,14 @@ function referenceNumber(T: Token[], s: number, e: number): boolean {
   const w = before?.text === '.' && !before.spaceBefore ? s - 2 : s - 1;
   const word = T[w];
   // Some of the words are units after a quantity ("48 no. 18,400.00", "12
-  // nr 383.33") or after "per" ("per page 0.12", "per item 2.50"), and an
-  // amount with thousands and cents ("1,250.00") is never a reference: the
-  // figure is then an amount.
+  // nr 383.33") or after "per" ("per page 0.12", "per item 2.50", but not
+  // "as per page 4", a reference), and an amount with thousands and cents
+  // ("1,250.00") is never a reference: the figure is then an amount.
   const prev = sameLine(T[w - 1]) ? T[w - 1] : undefined;
+  const asPer = !!prev && sameLine(T[w - 2]) && /^as$/i.test(T[w - 2].text);
   const unit =
     (!!prev && hasDigit(prev) && /^(?:no|nos|nr)\.?$/i.test(word?.text ?? '')) ||
-    (/^per$/i.test(prev?.text ?? '') && /^(?:page|pp?|item|no|nos|nr)\.?$/i.test(word?.text ?? '')) ||
+    (/^per$/i.test(prev?.text ?? '') && !asPer && /^(?:page|pp?|item|no|nos|nr)\.?$/i.test(word?.text ?? '')) ||
     /^\d{1,3}(?:[,.\u00a0\u202f ]\d{3})+[.,]\d{2}$/.test(t.text);
   if (sameLine(word) && REFERENCE_WORD.test(word.text) && !unit) return true;
   // An annex clause label written together at the start of a line ("A.3").
