@@ -721,9 +721,11 @@ function itemsIn(doc: DocModel, T: Token[], s: number, e: number, like: Label, k
  * The tokens on its line that both items start with after the number (up
  * to 8) move with it: the mark of a label "4." ("4" + "."), an opening
  * quote ("1.3 “Change”"), the words of a CJK item ("２． 従業員は、"). The
- * old label and the last one must be in the same role (see sameRole), so a
- * step inserted at the end of a step list does not take the label of the
- * heading after it. The pairing of the other words is unchanged.
+ * old label and the last one must be in the same column at the same size
+ * (see sameColumn; their weight may differ, as the label of one item can be
+ * made bold), so a step inserted at the end of a step list does not take the
+ * label of a larger heading after it. The pairing of the other words is
+ * unchanged.
  */
 function relabel(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: Hunk[]; pairs: Int32Array; labels: Set<Hunk> } {
   const { A, B, oldDoc, newDoc } = ctx;
@@ -765,7 +767,7 @@ function relabel(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: Hunk[]; p
       const before = labelAt(uDoc, U[x - m].i);
       if (!same(first, last) || !before || !last) return false;
       const shift = ins ? labelShift(before, last, Infinity) : labelShift(last, before, Infinity);
-      if (!shift || !sameRole(labelBox(uDoc, U[x - m].i, before), labelBox(tDoc, q.i, last))) return false;
+      if (!shift || !sameColumn(labelBox(uDoc, U[x - m].i, before), labelBox(tDoc, q.i, last))) return false;
       // A shift of more than 3: as many items of the label's kind are inserted.
       return Math.abs(shift.delta) <= 3 || itemsIn(tDoc, T, s - 1 - m, e - 1 - m, last, q.i) === Math.abs(shift.delta);
     };
@@ -1807,32 +1809,40 @@ function rowNumberAt(doc: DocModel, k: number): Label | null {
   return { parts: [Number(text)], style: 'cell', line: t.line, len: 1 };
 }
 
-/** Where a label stands on its page: its left and right edge (the mark included) and its font size. */
+/** Where a label stands on its page: its left and right edge (the mark included), its font size, and its weight and slant ("b", "i", "bi" or ""). */
 interface LabelBox {
   x0: number;
   x1: number;
   size: number;
+  face: string;
 }
 
 function labelBox(doc: DocModel, k: number, label: Label): LabelBox {
   const t = doc.tokens[k];
   const last = doc.tokens[k + label.len - 1];
   const r = last.rects[last.rects.length - 1];
-  return { x0: t.rects[0].x, x1: r.x + r.w, size: t.size };
+  const { bold, italic } = styleOf(t.font);
+  return { x0: t.rects[0].x, x1: r.x + r.w, size: t.size, face: (bold ? 'b' : '') + (italic ? 'i' : '') };
+}
+
+/** Set at the same size and in the same column: the same left edge, right edge or centre, within 2 pt (typed labels, right-aligned markers "9." / "10.", centred row numbers). */
+function sameColumn(p: LabelBox, q: LabelBox): boolean {
+  if (Math.abs(p.size - q.size) > 0.06 * Math.max(p.size, q.size)) return false;
+  return Math.abs(p.x0 - q.x0) <= 2 || Math.abs(p.x1 - q.x1) <= 2 || Math.abs(p.x0 + p.x1 - q.x0 - q.x1) <= 4;
 }
 
 /**
- * Two labels in the same role: set at the same size, and in the same column
- * (the same left edge, right edge or centre, within 2 pt: typed labels,
- * right-aligned markers "9." / "10.", centred row numbers). Headings and the
- * steps under them, an outer list and the list nested in one of its items,
- * a table's row numbers and the figures in another of its columns, and a
- * figure that a wrapped line starts with in the text column are different
- * lists even when their labels look alike.
+ * Two labels of one document in the same role: in the same column (see
+ * sameColumn) and in the same weight and slant. Headings and the steps
+ * under them (also bold headings at the steps' size in the steps' column),
+ * an outer list and the list nested in one of its items, a table's row
+ * numbers and the figures in another of its columns, and a figure that a
+ * wrapped line starts with in the text column are different lists even
+ * when their labels look alike. A list split this way only lists more: a
+ * run that breaks no longer numbers on from 1.
  */
 function sameRole(p: LabelBox, q: LabelBox): boolean {
-  if (Math.abs(p.size - q.size) > 0.06 * Math.max(p.size, q.size)) return false;
-  return Math.abs(p.x0 - q.x0) <= 2 || Math.abs(p.x1 - q.x1) <= 2 || Math.abs(p.x0 + p.x1 - q.x0 - q.x1) <= 4;
+  return p.face === q.face && sameColumn(p, q);
 }
 
 /**
@@ -1841,12 +1851,17 @@ function sameRole(p: LabelBox, q: LabelBox): boolean {
  * same number of levels under the same parent ("4.1", "4.2", "4.3" under
  * clause 4; "1.", "2.", "3." at the top level; a table's row numbers), in
  * the same role (see sameRole). A label joins the most recent list whose
- * last label is in its role.
+ * last label is in its column and whose labels are in its weight. A single
+ * label set in another weight (one item's label made bold) joins the list
+ * when it numbers on from the list's last label and no list is in its own
+ * role.
  */
 function labelSequences(doc: DocModel): { at: Map<number, Sibling>; all: Sibling[] } {
   const at = new Map<number, Sibling>();
   const all: Sibling[] = [];
   const lists = new Map<string, Sibling[][]>();
+  /** The weight and slant of a list's labels: those of its first label. */
+  const faces = new Map<Sibling[], string>();
   for (const line of doc.lines) {
     if (line.furniture || line.end <= line.start) continue;
     const label = labelAt(doc, line.start) ?? rowNumberAt(doc, line.start);
@@ -1857,15 +1872,21 @@ function labelSequences(doc: DocModel): { at: Map<number, Sibling>; all: Sibling
     if (!groups) lists.set(key, (groups = []));
     // The most recent lists; a few are enough.
     let list: Sibling[] | undefined;
+    let other: Sibling[] | undefined;
     let best = -1;
+    let bestOther = -1;
     for (let g = groups.length - 1; g >= Math.max(0, groups.length - 32); g--) {
       const last = groups[g][groups[g].length - 1];
-      if (last.pos > best && sameRole(last.box, box)) {
-        list = groups[g];
-        best = last.pos;
-      }
+      if (!sameColumn(last.box, box)) continue;
+      if (faces.get(groups[g]) === box.face) {
+        if (last.pos > best) [list, best] = [groups[g], last.pos];
+      } else if (last.pos > bestOther && lastLevel(last) + 1 === label.parts[label.parts.length - 1]) [other, bestOther] = [groups[g], last.pos];
     }
-    if (!list) groups.push((list = []));
+    list ??= other;
+    if (!list) {
+      groups.push((list = []));
+      faces.set(list, box.face);
+    }
     const s: Sibling = { tok: line.start, label, box, list, index: list.length, pos: all.length };
     list.push(s);
     at.set(line.start, s);

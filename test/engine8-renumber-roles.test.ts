@@ -58,6 +58,32 @@ test('a heading renumbered by hand is listed although steps were inserted or del
   assert.deepEqual(minor(p14), ['List renumbered: 2 → 3']);
 });
 
+test('bold headings at the steps’ size in the steps’ column are not siblings of the steps (R1-01, second pass)', async () => {
+  // Chromium: as P01, but the headings are bold 10.5 pt, the size and column of the steps.
+  // A step is inserted as 2 and the heading "3. Records" is typed "4." by hand.
+  const ca1 = await probe('r1-01-ca1');
+  assert.deepEqual(numbers(ca1), ['Number changed: 3 → 4']);
+  assert.deepEqual(minor(ca1), ['List renumbered: 2 → 3']);
+  // The same with the versions swapped.
+  const rev = compareDocs(
+    buildDocModel(await extractText(await openPdf(`${fixtures}probe8-r1-01-ca1-after.pdf`), 'after.pdf')),
+    buildDocModel(await extractText(await openPdf(`${fixtures}probe8-r1-01-ca1-before.pdf`), 'before.pdf')),
+  );
+  assert.deepEqual(numbers(rev), ['Number changed: 4 → 3']);
+  assert.deepEqual(minor(rev), ['List renumbered: 3 → 2']);
+  // Control: the step alone, the headings unchanged.
+  const ca1c = await probe('r1-01-ca1c', 'r1-01-ca1');
+  assert.equal(ca1c.changes.length, 1, JSON.stringify(listed(ca1c)));
+  assert.equal(ca1c.changes[0].kind, 'insert');
+  assert.deepEqual(minor(ca1c), ['List renumbered: 2 → 3']);
+  // Control: the label of one item made bold in a list of regular labels stays in that list
+  // (it numbers on from the label above), so the renumbering after an insertion is not listed.
+  const cb7 = await probe('r1-01-cb7');
+  assert.deepEqual(numbers(cb7), []);
+  assert.ok(cb7.changes[0].new.text.startsWith('2. Pay the deposit on signing'), cb7.changes[0].new.text);
+  assert.deepEqual(minor(cb7), ['List renumbered: 2 → 3', 'List renumbered: 3 → 4']);
+});
+
 test('headings after a step list are renumbered after an inserted section (R1-05)', async () => {
   // Word numbering via LibreOffice: headings at 62 pt, steps at 71 pt, the same size.
   const q08 = await probe('r1-05-q08');
