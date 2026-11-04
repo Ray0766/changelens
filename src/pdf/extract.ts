@@ -211,6 +211,13 @@ export interface FieldRuns {
   unread: number;
 }
 
+/** Ascent and descent (per unit of font size) of the standard fonts by family, as PDF.js reports them for page text. */
+const FIELD_METRICS: Record<string, [number, number]> = {
+  'sans-serif': [0.905, -0.212],
+  serif: [0.891, -0.216],
+  monospace: [0.833, -0.3],
+};
+
 /** Families of the standard form fonts ("Helv", "TiRo", "Cour", or a font resource name). */
 function fieldFamily(name: string | undefined): string {
   const s = (name ?? '').toLowerCase();
@@ -338,6 +345,10 @@ function apply(m: number[], x: number, y: number): [number, number] {
 /** Lay out a field's text lines in its widget box (user space), as runs in viewport space. */
 function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[]): TextRun[] {
   const family = fieldFamily(a.defaultAppearanceData?.fontName);
+  // The glyph box of the standard font of that family, as PDF.js measures
+  // page text set in it (Helvetica, Times and Courier are drawn with the
+  // Liberation fonts): a value burned into the page has the same box.
+  const [ascent, descent] = FIELD_METRICS[family];
   const font = a.defaultAppearanceData?.fontName || 'form field';
   const boxW = r[2] - r[0];
   const boxH = r[3] - r[1];
@@ -356,7 +367,7 @@ function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[]):
   const runs: TextRun[] = [];
   const comb = !!a.comb && (a.maxLen ?? 0) > 0;
   const at = (str: string, x: number, baseline: number, w: number, eol: boolean) =>
-    runs.push(makeRun(vt, [fs, 0, 0, fs, x, baseline], w, str, 0.8, -0.2, { font, family, eol, field: true, ...(comb ? { comb: true as const } : {}) }));
+    runs.push(makeRun(vt, [fs, 0, 0, fs, x, baseline], w, str, ascent, descent, { font, family, eol, field: true, ...(comb ? { comb: true as const } : {}) }));
   const xOf = (w: number) => (align === 1 ? r[0] + (boxW - w) / 2 : align === 2 ? r[2] - pad - w : r[0] + pad);
   if (!multi) {
     const str = visual[0] ?? '';
