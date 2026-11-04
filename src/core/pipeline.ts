@@ -18,6 +18,7 @@ import {
   listRow,
   pageTurn,
   sameGraphic,
+  turnedUnmapped,
   tooLargeToCompare,
   type Raster,
   type RepeatedRow,
@@ -123,10 +124,12 @@ export async function addVisualChanges(
       if (cur) cur.count++;
       else sizes.set(key, { pair, count: 1 });
     }
-    // Text that runs another way on the new page, without a turn that maps
-    // one page onto the other (see pageTurn): the graphics cannot be laid
-    // over each other, and the pages are named as not compared.
-    const unturned = !turn && (a.textAngle ?? 0) !== (b.textAngle ?? 0);
+    // Words that run another way on the new page, without a turn that maps
+    // one page onto the other (see turnedUnmapped): the graphics cannot be
+    // laid over each other, and the pages are named as not compared. Text
+    // added in another direction (a vertical label, a diagonal watermark)
+    // is compared as usual.
+    const unturned = !turn && turnedUnmapped(result, op, np);
     if (large('old', op) || large('new', np) || unturned) {
       if (large('old', op) || unturned) skipped.old.add(op);
       if (large('new', np) || unturned) skipped.new.add(np);

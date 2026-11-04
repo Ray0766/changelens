@@ -68,3 +68,21 @@ test('N2: an underline that runs a few points past its text is still an underlin
   // text after a split at the page foot, is no underline (R5-12, R5-V02 in
   // visual8-appearance).
 });
+
+test('N3: a chart page that gains a vertical label or a diagonal watermark is still compared visually', { skip }, async () => {
+  // reportlab chart page whose only words are "Figure 2" (the R5-03 base),
+  // with bar 5 made taller, and a 9 pt "Revision 3 - issued for review" set
+  // at 90° in the margin, or a 60 pt "CONFIDENTIAL" at 35°, added with
+  // pypdf. Most of the new page's characters run another way; the words
+  // both versions have do not. Before: "graphics and images were not
+  // compared" for both p. 2, and the bar edit not listed.
+  for (const [file, added] of [
+    ['probe8-N3-vlabel-bar.pdf', 'Added “Revision 3 - issued for review”'],
+    ['probe8-N3-wm-bar.pdf', 'Added “CONFIDENTIAL”'],
+  ]) {
+    const r = await run('probe8-R5-03-before.pdf', file);
+    assert.ok(list(r.changes).includes(added), list(r.changes).join(' | '));
+    assert.ok(graphics(r).some((c) => hits(c, 'old', 2, 270, 120) && hits(c, 'new', 2, 270, 120)), `${file}: ${list(r.changes).join(' | ')}`);
+    assert.ok(!r.coverage?.old.visualSkipped?.length && !r.coverage?.new.visualSkipped?.length, file);
+  }
+});

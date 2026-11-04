@@ -1916,9 +1916,10 @@ function turnOf(result: CompareResult, oldPage: number, newPage: number): Turn |
  * A page turned to another orientation (/Rotate): its text runs another way
  * in the new version. The turn maps the old page onto the new one, by a
  * quarter, a half or three quarters clockwise. It is the difference of the
- * directions the two pages' text runs in, with the page size turned with it
- * (a quarter turn swaps width and height, a half turn keeps them), which
- * holds even for a chart page with a one-word caption. Where three or more
+ * directions the words matched on the pair run in (see turnedBy), with the
+ * page size turned with it (a quarter turn swaps width and height, a half
+ * turn keeps them), which holds even for a chart page with a one-word
+ * caption. Where three or more
  * words are matched on the pair and that turn does not put them within 3 pt
  * of where they are, the turn fitted to them is taken (see turnOf). Null when
  * the text runs the same way, or neither gives a turn.
@@ -1935,7 +1936,7 @@ export function pageTurn(result: CompareResult, oldPage: number, newPage: number
   const a = result.oldDoc.pages[oldPage];
   const b = result.newDoc.pages[newPage];
   if (!a || !b) return null;
-  const deg = ((((b.textAngle ?? 0) - (a.textAngle ?? 0)) % 360) + 360) % 360;
+  const deg = turnedBy(result, oldPage, newPage);
   if (deg !== 90 && deg !== 180 && deg !== 270) return null;
   const near = (u: number, v: number) => Math.abs(u - v) <= 1.5;
   const W = a.width;
@@ -1952,6 +1953,61 @@ export function pageTurn(result: CompareResult, oldPage: number, newPage: number
   const fit = turnOf(result, oldPage, newPage);
   if (sized && (!fit || fit.deg === deg)) return exact;
   return fit;
+}
+
+/**
+ * By how many degrees clockwise the text of the pair turned: the difference
+ * of the directions most of the words matched between the two pages run in
+ * (by characters). A label set vertically in the margin, or a diagonal
+ * watermark, added to a chart page whose only words are "Figure 2", changes
+ * the direction most of the page's characters run in, but not that of the
+ * words both versions have. Without matched words on the pair, the
+ * directions of the two pages' text (DocModel textAngle).
+ */
+function turnedBy(result: CompareResult, oldPage: number, newPage: number): number {
+  const of = (deg: number) => ((deg % 360) + 360) % 360;
+  const pages = { a: result.oldDoc.pages[oldPage], b: result.newDoc.pages[newPage] };
+  const tilted = (doc: DocModel, page: number) => (doc.runs[page] ?? []).some((r) => r.angle !== 0);
+  if (!tilted(result.oldDoc, oldPage) && !tilted(result.newDoc, newPage)) return of((pages.b.textAngle ?? 0) - (pages.a.textAngle ?? 0));
+  const A = result.oldDoc.tokens;
+  const B = result.newDoc.tokens;
+  const m = result.matches;
+  const count = new Map<number, number>();
+  for (let p = 0; p < m.length; p += 2) {
+    const a = A[m[p]];
+    const b = B[m[p + 1]];
+    if (a.page !== oldPage || b.page !== newPage) continue;
+    const d = of(wordAngle(result.newDoc, b) - wordAngle(result.oldDoc, a));
+    count.set(d, (count.get(d) ?? 0) + [...b.text].length);
+  }
+  if (!count.size) return of((pages.b.textAngle ?? 0) - (pages.a.textAngle ?? 0));
+  let best = 0;
+  for (const [d, n] of count) if (n > (count.get(best) ?? 0)) best = d;
+  return best;
+}
+
+/** The direction of the run a word lies in: of the runs whose box holds its centre, the smallest. */
+function wordAngle(doc: DocModel, t: Token): number {
+  const r = t.rects[0];
+  const x = r.x + r.w / 2;
+  const y = r.y + r.h / 2;
+  let best: TextRun | null = null;
+  for (const run of doc.runs[t.page] ?? []) {
+    if (!run.str.trim() || x < run.x - 0.5 || x > run.x + run.w + 0.5 || y < run.y - 0.5 || y > run.y + run.h + 0.5) continue;
+    if (!best || run.w * run.h < best.w * best.h) best = run;
+  }
+  return best?.angle ?? 0;
+}
+
+/**
+ * The words matched on the pair turned by a quarter or a half turn, but no
+ * turn maps one page onto the other (see pageTurn): the page size did not
+ * turn with them, and they do not fit one. The graphics cannot be laid over
+ * each other.
+ */
+export function turnedUnmapped(result: CompareResult, oldPage: number, newPage: number): boolean {
+  const deg = turnedBy(result, oldPage, newPage);
+  return (deg === 90 || deg === 180 || deg === 270) && !pageTurn(result, oldPage, newPage);
 }
 
 /** The box of a rect mapped by a turn (see pageTurn). */
