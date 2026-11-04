@@ -1764,7 +1764,7 @@ export function sameGraphic(result: CompareResult, oldPage: number, newPage: num
  * three words are matched there, or no such turn puts them within 3 pt of
  * where they are.
  */
-function turnOf(result: CompareResult, oldPage: number, newPage: number): { fwd: (x: number, y: number) => [number, number]; inv: (x: number, y: number) => [number, number] } | null {
+function turnOf(result: CompareResult, oldPage: number, newPage: number): Turn | null {
   const A = result.oldDoc.tokens;
   const B = result.newDoc.tokens;
   const m = result.matches;
@@ -1795,6 +1795,7 @@ function turnOf(result: CompareResult, oldPage: number, newPage: number): { fwd:
   if (!best || err > 3) return null;
   const { a, b, c, d, tx, ty } = best;
   return {
+    deg: a === -1 ? 180 : b === -1 ? 90 : 270,
     fwd: (x, y) => [a * x + b * y + tx, c * x + d * y + ty],
     // The inverse of a turn is its transpose.
     inv: (x, y) => [a * (x - tx) + c * (y - ty), b * (x - tx) + d * (y - ty)],
@@ -1802,24 +1803,115 @@ function turnOf(result: CompareResult, oldPage: number, newPage: number): { fwd:
 }
 
 /**
- * A region found on one side of a pair of pages of which one was turned to
- * another orientation (/Rotate) is only the same graphic turned with the
- * page: nearly all of its ink (see movedWith) is found in the same colours
- * where the turn (see turnOf) puts it on the other page. The same drawing
- * turned by a quarter keeps its colours within a few levels, so a light
- * fill that changed colour (green to pink) is told apart. Null when the
- * turn cannot be told from the words of the two pages.
+ * A page turned to another orientation (/Rotate): its text runs another way
+ * in the new version. The turn maps the old page onto the new one, by a
+ * quarter, a half or three quarters clockwise. It is the difference of the
+ * directions the two pages' text runs in, with the page size turned with it
+ * (a quarter turn swaps width and height, a half turn keeps them), which
+ * holds even for a chart page with a one-word caption. Where three or more
+ * words are matched on the pair and that turn does not put them within 3 pt
+ * of where they are, the turn fitted to them is taken (see turnOf). Null when
+ * the text runs the same way, or neither gives a turn.
  */
-export function turnedWith(result: CompareResult, oldPage: number, newPage: number, ra: Raster, rb: Raster, side: 'old' | 'new', rect: Rect): boolean | null {
-  const turn = turnOf(result, oldPage, newPage);
-  if (!turn) return null;
-  const [doc, page, rs, rd, map] = side === 'old' ? [result.oldDoc, oldPage, ra, rb, turn.fwd] : [result.newDoc, newPage, rb, ra, turn.inv];
-  return (
-    foundAt({ r: rs, mask: maskOf(doc, page, rs) }, { r: rd }, rect, (x, y) => {
-      const [X, Y] = map((x + 0.5) / rs.scale, (y + 0.5) / rs.scale);
-      return [X * rd.scale - 0.5, Y * rd.scale - 0.5];
-    }, true, 16) === true
-  );
+export interface Turn {
+  /** Degrees clockwise. */
+  deg: 90 | 180 | 270;
+  /** Old page point → new page point. */
+  fwd: (x: number, y: number) => [number, number];
+  /** New page point → old page point. */
+  inv: (x: number, y: number) => [number, number];
+}
+export function pageTurn(result: CompareResult, oldPage: number, newPage: number): Turn | null {
+  const a = result.oldDoc.pages[oldPage];
+  const b = result.newDoc.pages[newPage];
+  if (!a || !b) return null;
+  const deg = ((((b.textAngle ?? 0) - (a.textAngle ?? 0)) % 360) + 360) % 360;
+  if (deg !== 90 && deg !== 180 && deg !== 270) return null;
+  const near = (u: number, v: number) => Math.abs(u - v) <= 1.5;
+  const W = a.width;
+  const H = a.height;
+  const sized = deg === 180 ? near(W, b.width) && near(H, b.height) : near(W, b.height) && near(H, b.width);
+  // x' = p·x + q·y + tx, y' = r·x + s·y + ty
+  const [p, q, r, s, tx, ty] = deg === 90 ? [0, -1, 1, 0, H, 0] : deg === 180 ? [-1, 0, 0, -1, W, H] : [0, 1, -1, 0, 0, W];
+  const exact: Turn = {
+    deg,
+    fwd: (x, y) => [p * x + q * y + tx, r * x + s * y + ty],
+    // The inverse of a turn is its transpose.
+    inv: (x, y) => [p * (x - tx) + r * (y - ty), q * (x - tx) + s * (y - ty)],
+  };
+  const fit = turnOf(result, oldPage, newPage);
+  if (sized && (!fit || fit.deg === deg)) return exact;
+  return fit;
+}
+
+/** The box of a rect mapped by a turn (see pageTurn). */
+function turnRect(r: Rect, map: (x: number, y: number) => [number, number]): Rect {
+  const [x0, y0] = map(r.x, r.y);
+  const [x1, y1] = map(r.x + r.w, r.y + r.h);
+  return { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+}
+
+/**
+ * The new page of a turned pair drawn back in the old page's orientation
+ * (`w` × `h` points, at the new raster's scale): each pixel is the new
+ * raster's pixel where the turn puts its centre, paper beyond its edge. A
+ * quarter turn moves whole pixels, so nothing is resampled.
+ */
+function unturnRaster(rb: Raster, turn: Turn, w: number, h: number): Raster {
+  const s = rb.scale;
+  const W = Math.max(1, Math.ceil(w * s));
+  const H = Math.max(1, Math.ceil(h * s));
+  const out = new Uint8ClampedArray(W * H * 4).fill(255);
+  const d = rb.data;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const [X, Y] = turn.fwd((x + 0.5) / s, (y + 0.5) / s);
+      const qx = Math.floor(X * s);
+      const qy = Math.floor(Y * s);
+      if (qx < 0 || qy < 0 || qx >= rb.width || qy >= rb.height) continue;
+      const q = (qy * rb.width + qx) * 4;
+      const p = (y * W + x) * 4;
+      out[p] = d[q];
+      out[p + 1] = d[q + 1];
+      out[p + 2] = d[q + 2];
+      out[p + 3] = d[q + 3];
+    }
+  }
+  return { width: W, height: H, data: out, scale: s };
+}
+
+/**
+ * The comparison's view of a result in which the new page `page` is turned
+ * back by `turn` (see pageTurn): its words, lines and runs in the old page's
+ * orientation, so that the pair is compared as an unturned one. Only that
+ * page's objects are copied; the changes are shared.
+ */
+function unturnedView(result: CompareResult, oldPage: number, page: number, turn: Turn): CompareResult {
+  const doc = result.newDoc;
+  const back = (r: Rect) => turnRect(r, turn.inv);
+  // A run's direction turned back; its origin (on the baseline) turned with it.
+  const angle = (a: number) => ((((a - turn.deg) % 360) + 540) % 360) - 180;
+  const runs = doc.runs.slice();
+  runs[page] = (doc.runs[page] ?? []).map((run) => {
+    const [ox, oy] = turn.inv(run.rot?.x ?? run.x, run.baseline);
+    const a = angle(run.angle);
+    const { rot, ...rest } = run;
+    return { ...rest, ...back(run), angle: a, baseline: oy, ...(rot && a !== 0 ? { rot: { ...rot, x: ox } } : {}) };
+  });
+  const pages = doc.pages.slice();
+  const p = doc.pages[page];
+  const [width, height] = turn.deg === 180 ? [p.width, p.height] : [p.height, p.width];
+  pages[page] = { ...p, width, height, textAngle: result.oldDoc.pages[oldPage].textAngle };
+  return {
+    ...result,
+    newDoc: {
+      ...doc,
+      pages,
+      runs,
+      tokens: doc.tokens.map((t) => (t.page === page ? { ...t, rects: t.rects.map(back) } : t)),
+      lines: doc.lines.map((l) => (l.page === page ? { ...l, rect: back(l.rect) } : l)),
+    },
+  };
 }
 
 /**
@@ -1829,6 +1921,15 @@ export function turnedWith(result: CompareResult, oldPage: number, newPage: numb
  * the two pages correspond as a whole (mutual best match, a page without
  * text, or paired by the reviewer): they are then compared even without
  * shared text, and areas outside the smaller page count as blank paper.
+ *
+ * A new page turned to another orientation (see pageTurn) is turned back
+ * first, with its words, lines and runs, and the changes listed on it are
+ * seen there in the same orientation: the pair is then compared as any
+ * other, so a graphic that only turned with the page matches itself, and a
+ * graphic edited, added or removed on the turned page is found at its place
+ * (a tick in the margin, a cell filled red), wherever the text is.
+ * Everything found, and every place added to a listed change, is turned
+ * forward again onto the new page.
  */
 export function compareRasters(
   result: CompareResult,
@@ -1837,6 +1938,58 @@ export function compareRasters(
   ra: Raster,
   rb: Raster,
   options: { appearance?: boolean; whole?: boolean } = {},
+): Change[] {
+  const turn = pageTurn(result, oldPage, newPage);
+  if (!turn) return compareAligned(result, oldPage, newPage, ra, rb, options);
+  const toFrame = (r: Rect) => turnRect(r, turn.inv);
+  const toReal = (r: Rect) => turnRect(r, turn.fwd);
+  const view = unturnedView(result, oldPage, newPage, turn);
+  // The listed changes as the comparison sees them (their places on the new
+  // page turned back), each with what it had before.
+  const copies = new Map<Change, { orig: Change; old: number; new: number }>();
+  const seen = (c: Change): Change => {
+    const k: Change = { ...c, old: { ...c.old, rects: c.old.rects.slice() }, new: { ...c.new, rects: c.new.rects.map((q) => (q.page === newPage ? { page: q.page, rect: toFrame(q.rect) } : q)) } };
+    copies.set(k, { orig: c, old: c.old.rects.length, new: c.new.rects.length });
+    return k;
+  };
+  view.changes = result.changes.map(seen);
+  view.minor = result.minor.map(seen);
+  const pv = view.newDoc.pages[newPage];
+  const out = compareAligned(view, oldPage, newPage, ra, unturnRaster(rb, turn, pv.width, pv.height), options);
+  const forward = (q: { page: number; rect: Rect }) => (q.page === newPage ? { page: q.page, rect: toReal(q.rect) } : q);
+  // Places the comparison added to listed changes (a row's fill, a change bar).
+  const placed = new Map<{ page: number; rect: Rect }, { page: number; rect: Rect }>();
+  for (const [k, { orig, old, new: n }] of copies) {
+    for (const q of k.old.rects.slice(old)) orig.old.rects.push(q);
+    for (const q of k.new.rects.slice(n)) {
+      const real = forward(q);
+      placed.set(q, real);
+      orig.new.rects.push(real);
+    }
+  }
+  const viewFolds = folds.get(view);
+  if (viewFolds?.length) {
+    let list = folds.get(result);
+    if (!list) folds.set(result, (list = []));
+    for (const f of viewFolds)
+      list.push({ ...f, change: copies.get(f.change)?.orig ?? f.change, rect: f.side === 'new' ? toReal(f.rect) : f.rect, place: f.place ? (placed.get(f.place) ?? null) : null });
+  }
+  for (const c of out) {
+    c.new.rects = c.new.rects.map(forward);
+    const first = c.new.rects[0]?.rect ?? (c.old.rects[0] ? toReal(c.old.rects[0].rect) : null);
+    if (first) c.order = newPage * 100000 + first.y;
+  }
+  return out;
+}
+
+/** Compare one old page with one new page drawn in the same orientation (see compareRasters). */
+function compareAligned(
+  result: CompareResult,
+  oldPage: number,
+  newPage: number,
+  ra: Raster,
+  rb: Raster,
+  options: { appearance?: boolean; whole?: boolean },
 ): Change[] {
   const A = prepare(result.oldDoc, oldPage, ra);
   const B = prepare(result.newDoc, newPage, rb);

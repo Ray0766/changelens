@@ -173,7 +173,8 @@ function describePage(lang: Lang, c: Change): string {
     const r = s.rects[0]?.rect;
     return r ? `${Math.round(r.w)} × ${Math.round(r.h)} pt` : '';
   };
-  const text = t(lang, 'pageResized', { from: size(c.old), to: size(c.new) });
+  // Turned without a change of size (upside down): the size says nothing.
+  const text = c.turned && size(c.old) === size(c.new) ? t(lang, 'pageTurned', { deg: c.turned }) : t(lang, 'pageResized', { from: size(c.old), to: size(c.new) });
   if (!c.places) return text;
   return lang === 'zh' ? `${text}（${t(lang, 'inPlaces', { n: c.places })}）` : `${text} (${t(lang, 'inPlaces', { n: c.places })})`;
 }
