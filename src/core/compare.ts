@@ -1855,9 +1855,10 @@ const REDLINE_LABEL = /^(?:(\d{1,3}(?:\.\d{1,3})*)\.?)?\[(\d{1,3}(?:\.\d{1,3})*)
  *   label above it at the level that changed is itself such a consequence.
  * - The label at the start of a moved passage (and its sub-clauses), which
  *   takes the number of its new place ("7.2" → "3.4"): both numbers number
- *   on from 1 among their siblings (as in (1)); the move stays "Moved", not
- *   "Moved and edited". A figure at the start of a moved table row ("0.8"
- *   → "1.5") is an edit inside the move.
+ *   on from 1 among their siblings (as in (1)), and the new one fits its
+ *   place (see fitsPlace: not "3.1" after "3.3"); the move stays "Moved",
+ *   not "Moved and edited". A figure at the start of a moved table row
+ *   ("0.8" → "1.5") is an edit inside the move.
  * - A tracked-change display of a renumbered label ("4.3[4.4]", "[4.3]" in a
  *   PDF exported with changes shown): brackets and numbers inserted around
  *   a line-start label, the bracketed number of the same shape as the label
@@ -1875,6 +1876,27 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
   const oldLabels = labelSequences(oldDoc);
   const newLabels = labelSequences(newDoc);
   const single = (c: Change) => c.old.start !== undefined && c.new.start !== undefined && c.old.end === c.old.start + 1 && c.new.end === c.new.start + 1;
+  /** A label of s's parent ("3" for "3.1") stands between siblings p and q: q may start again at 1. */
+  const newParent = (labels: { all: Sibling[] }, p: Sibling, q: Sibling) => {
+    for (let i = p.pos + 1; i < q.pos; i++) {
+      const parts = labels.all[i].label.parts;
+      if (parts.length < q.label.parts.length && parts.every((v, k) => v === q.label.parts[k])) return true;
+    }
+    return false;
+  };
+  /**
+   * A clause label that fits where it stands among its siblings: it does
+   * not start again at 1 right after siblings of the same parent ("3.1"
+   * after "3.3"), and the next sibling numbers on from it or starts again
+   * under a new parent. Single-level lists start again at 1 after any text.
+   */
+  const fitsPlace = (labels: { all: Sibling[] }, s: Sibling) => {
+    if (s.label.parts.length < 2) return true;
+    const p = s.list[s.index - 1];
+    if (p && lastLevel(s) === 1 && !newParent(labels, p, s)) return false;
+    const n = s.list[s.index + 1];
+    return !n || lastLevel(n) === lastLevel(s) + 1 || (lastLevel(n) === 1 && newParent(labels, s, n));
+  };
   const moves = changes.filter((c) => c.kind === 'move');
   const inside = (s: Side, m: Side) => s.start !== undefined && m.start !== undefined && m.start <= s.start && s.start < m.end!;
   const moveOf = (c: Change) => (c.inMove === undefined ? undefined : moves.find((m) => (c.old.start !== undefined ? inside(c.old, m.old) : inside(c.new, m.new))));
@@ -1889,7 +1911,7 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     const a = oldLabels.at.get(c.old.start!);
     const b = newLabels.at.get(c.new.start!);
     if (!a || !b || a.label.style !== 'list' || b.label.style !== 'list' || a.label.parts.length !== b.label.parts.length) continue;
-    if (!numberedRun(a) || !numberedRun(b)) continue;
+    if (!numberedRun(a) || !numberedRun(b) || !fitsPlace(newLabels, b)) continue;
     heads.set(m, { a: a.label.parts, b: b.label.parts });
     take(c);
   }
