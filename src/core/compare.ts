@@ -3056,7 +3056,9 @@ const REDLINE_LABEL = /^(?:(\d{1,3}(?:\.\d{1,3})*)\.?)?\[(\d{1,3}(?:\.\d{1,3})*)
  *   (one level apart by at most 3: "2.5[1]", a footnote marker on a value,
  *   is an edit), with the label kept from the other version as evidence
  *   (see redlineEvidence: "3" → "3[1]", a footnote marker on a row number,
- *   is an edit).
+ *   is an edit). The displays of one list must agree on whether the other
+ *   version is the original or has the changes accepted; one that reads it
+ *   otherwise than most of them is listed.
  * A cross-reference in running text is always listed.
  */
 function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocModel, newOfOld: Int32Array): Change[] {
@@ -3287,15 +3289,18 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
    * the label above it: one more than that label's former number ("[4.3]"
    * or "4.2[4.3]" above "4.3[4.4]"). A display above that was itself judged
    * an edit (a footnote marker "2[3]" listed as added) supplies no former
-   * number, and a display with no label above it is not one.
+   * number, and a display with no label above it is not one. Returns which
+   * of the two the other version is taken to be ('original', 'accepted'),
+   * 'either' for the label of a deleted item ("[4.2]", no number outside
+   * the brackets: it reads alike both ways), or null without evidence.
    */
-  const redlineEvidence = (doc: DocModel, line: number, end: number, changed: (i: number) => boolean) => {
+  const redlineEvidence = (doc: DocModel, line: number, end: number, changed: (i: number) => boolean): 'original' | 'accepted' | 'either' | null => {
     const l = doc.lines[line];
     const toks = doc.tokens.slice(l.start, end);
     const open = toks.findIndex((t) => t.text === '[');
     const outer = toks.slice(0, Math.max(0, open)).filter((t) => t.kind === 'number');
     const inner = toks.slice(open + 1).filter((t) => t.kind === 'number');
-    if (open < 0 || inner.length !== 1 || outer.length > 1) return false;
+    if (open < 0 || inner.length !== 1 || outer.length > 1) return null;
     const [matched, other] = doc === newDoc ? [oldOfNew, oldLabels] : [newOfOld, newLabels];
     const keptAs = (t: Token) => {
       if (changed(t.i)) return false;
@@ -3304,18 +3309,18 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
       return !!s && sameParts(s.label.parts, t.text.normalize('NFKC').split('.').map(Number));
     };
     const b = inner[0].text.normalize('NFKC').split('.').map(Number);
-    if (keptAs(inner[0])) return outer.every((t) => changed(t.i));
-    if (outer.length !== 1 || !keptAs(outer[0]) || !changed(inner[0].i)) return false;
+    if (keptAs(inner[0])) return !outer.every((t) => changed(t.i)) ? null : outer.length ? 'original' : 'either';
+    if (outer.length !== 1 || !keptAs(outer[0]) || !changed(inner[0].i)) return null;
     for (let j = line - 1; j >= Math.max(0, line - 60); j--) {
       const lj = doc.lines[j];
       if (lj.furniture || lj.end <= lj.start) continue;
       const prev = clusterAt(doc, lj);
       if (!prev || prev.before.length > b.length) continue;
-      if (listedDisplay.has(`${doc === newDoc ? 'insert' : 'delete'}:${j}`)) return false;
-      if (prev.before.length < b.length) return false;
-      return prev.before.slice(0, -1).every((v, k) => v === b[k]) && prev.before[b.length - 1] + 1 === b[b.length - 1];
+      if (listedDisplay.has(`${doc === newDoc ? 'insert' : 'delete'}:${j}`)) return null;
+      if (prev.before.length < b.length) return null;
+      return prev.before.slice(0, -1).every((v, k) => v === b[k]) && prev.before[b.length - 1] + 1 === b[b.length - 1] ? 'accepted' : null;
     }
-    return false;
+    return null;
   };
   const clusters = new Map<string, Change[]>();
   for (const c of changes) {
@@ -3334,6 +3339,8 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     list.push(c);
   }
   const absorbed = new Set<Change>();
+  /** The displays with evidence, in reading order, and how each reads the other version. */
+  const shown: { list: Change[]; reading: 'original' | 'accepted' | 'either'; group: string; side: Side }[] = [];
   /** The clusters judged edits ("kind:line"); a display below one may not take its former number from it. */
   const listedDisplay = new Set<string>();
   // In reading order, so a display above is judged before the one below it.
@@ -3350,13 +3357,45 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     // row number ("3" → "3[1]"): see redlineEvidence.
     const sideOf = (x: Change) => (x.kind === 'insert' ? x.new : x.old);
     const changed = (i: number) => list.some((x) => sideOf(x).start! <= i && i < sideOf(x).end!);
-    if (!redlineEvidence(doc, line.id, end, changed)) {
+    const reading = redlineEvidence(doc, line.id, end, changed);
+    if (!reading) {
       listedDisplay.add(k);
       continue;
     }
     const toks = doc.tokens.slice(line.start, end);
-    const rects = rectsOf(toks);
-    const side: Side = { pages: [line.page], rects, text: joinTokens(toks), start: line.start, end };
+    const b = clusterAt(doc, line)!.before;
+    shown.push({ list, reading, group: `${c.kind}:${b.length}:${b.slice(0, -1).join('.')}`, side: { pages: [line.page], rects: rectsOf(toks), text: joinTokens(toks), start: line.start, end } });
+  }
+  // The displays of one list (by the former numbers: "4.3[4.4]" and
+  // "4.4[4.5]" are clauses of 4) read the other version the same way: as
+  // the original, or as the version with the changes accepted. A display
+  // that reads it otherwise than most of them contradicts them and is
+  // listed ("4.3[4.4]" kept as 4.3 but "4.4[4.5]" kept as 4.5: the other
+  // version numbers the last clause 4.5 where the redline says it is now
+  // 4.4); when the two readings are as frequent, all of them are listed.
+  // The label of a deleted item ("[4.2]") reads alike both ways.
+  const readers = new Map<string, number>();
+  for (const x of shown) readers.set(`${x.group}:${x.reading}`, (readers.get(`${x.group}:${x.reading}`) ?? 0) + 1);
+  for (const { list, reading, group, side } of shown) {
+    const sideOf = (x: Change) => (x.kind === 'insert' ? x.new : x.old);
+    list.sort((x, y) => sideOf(x).start! - sideOf(y).start!);
+    const c = list[0];
+    if (reading !== 'either') {
+      const against = readers.get(`${group}:${reading === 'original' ? 'accepted' : 'original'}`) ?? 0;
+      if (against && against >= readers.get(`${group}:${reading}`)!) {
+        // One item for the display ("4.4[ … ]" deleted around the kept "4.5").
+        for (const o of list.slice(1)) {
+          const so = sideOf(o);
+          sideOf(c).rects.push(...so.rects);
+          sideOf(c).text += ' … ' + so.text;
+          sideOf(c).end = so.end;
+          c.size += o.size;
+          c.contextAfter = o.contextAfter;
+          absorbed.add(o);
+        }
+        continue;
+      }
+    }
     if (c.kind === 'insert') c.new = side;
     else c.old = side;
     c.size = 0;

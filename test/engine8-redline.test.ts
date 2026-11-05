@@ -97,3 +97,53 @@ test('a footnote marker on the next row is listed when the marker above it is li
   assert.deepEqual(listed(cr1), ['Added “[3]”', 'Added “[4]”', 'Added 2 paragraphs']);
   assert.deepEqual(minor(cr1), []);
 });
+
+/** Two of the T1-L4 probes compared, either way round. */
+async function pair(a: string, b: string, swap: boolean): Promise<CompareResult> {
+  const [x, y] = swap ? [b, a] : [a, b];
+  const A = buildDocModel(await extractText(await openPdf(`${fixtures}probe8-T1L4-${x}.pdf`), 'a.pdf'));
+  const B = buildDocModel(await extractText(await openPdf(`${fixtures}probe8-T1L4-${y}.pdf`), 'b.pdf'));
+  return compareDocs(A, B);
+}
+
+test('label displays of one list that read the other version both ways are listed (T1-L4)', async () => {
+  // reportlab: clause 4.2 deleted and shown as "[4.2]", the clauses after it shown as
+  // "4.2[4.3]", "4.3[4.4]", "4.4[4.5]". The clean version keeps the last clause at 4.5:
+  // "4.3[4.4]" reads it as the version with the changes accepted (kept as 4.3), "4.4[4.5]"
+  // as the original (kept as 4.5). Before, both displays were consequences and only the
+  // deleted clause was listed, so the wrong number 4.5 was hidden.
+  for (const swap of [false, true]) {
+    const r = await pair('redline', 'wrong', swap);
+    const verb = swap ? 'Added' : 'Deleted';
+    assert.deepEqual(listed(r), [`${verb} 11 words`, `${verb} “[4.4]”`, `${verb} “4.4[ … ]”`], `swap ${swap}`);
+    // The deleted clause's own label reads alike both ways.
+    assert.deepEqual(minor(r), ['List number shown as a tracked change: “[4.2]”'], `swap ${swap}`);
+  }
+  // Control: the changes accepted throughout, with a real edit in clause 4.2 beside the displays.
+  for (const swap of [false, true]) {
+    const r = await pair('redline', 'accepted', swap);
+    const verb = swap ? 'Added' : 'Deleted';
+    assert.deepEqual(listed(r), [`${verb} 11 words`, swap ? 'Changed “approval” → “review”' : 'Changed “review” → “approval”'], `swap ${swap}`);
+    assert.deepEqual(minor(r), ['List number shown as a tracked change: “[4.2]”', 'List number shown as a tracked change: “4.3[4.4]”', 'List number shown as a tracked change: “4.4[4.5]”'], `swap ${swap}`);
+  }
+});
+
+test('label displays read the other version one way per list (T1-L4, built in code)', () => {
+  const T = ['Records are kept for six years.', 'Paper records may be scanned after review.', 'Working copies are kept only while needed.', 'A record under a legal hold is not destroyed.', 'Backups are tested every quarter.', 'Access is logged and reviewed monthly.'];
+  const U = ['Visitors sign in at the front desk.', 'Badges are returned on leaving the site.', 'Contractors are escorted at all times.', 'Lost badges are reported within one day.'];
+  const red: [string, string][] = [['4.1', T[0]], ['[4.2]', T[3]], ['4.2[4.3]', T[1]], ['4.3[4.4]', T[2]], ['4.4[4.5]', T[4]]];
+  const run = (a: [string, string][], b: [string, string][]) => compareDocs(buildDocModel(clauses('a', a)), buildDocModel(clauses('b', b)));
+  // Compared with the original, which numbers the last clause 4.4 by mistake: "4.4[4.5]" is
+  // kept as 4.4 (as if accepted) where the two displays above read the other version as the
+  // original. The one that disagrees with most is listed.
+  const o = run(red, [['4.1', T[0]], ['4.2', T[3]], ['4.3', T[1]], ['4.4', T[2]], ['4.4', T[4]]]);
+  assert.deepEqual(listed(o), ['Deleted “[4.5]”']);
+  assert.equal(minor(o).length, 3);
+  // A longer chain under the accepted reading, one clause left at its old number: only that display.
+  const long = run([...red, ['4.5[4.6]', T[5]]], [['4.1', T[0]], ['4.2', T[1]], ['4.3', T[2]], ['4.5', T[4]], ['4.5', T[5]]]);
+  assert.deepEqual(listed(long), ['Deleted 11 words', 'Deleted “4.4[ … ]”']);
+  // A version with the changes accepted in clause 4 but not in clause 7: each list reads it its own way.
+  const both = run([...red.slice(0, 4), ['7.1', U[0]], ['[7.2]', U[3]], ['7.2[7.3]', U[1]], ['7.3[7.4]', U[2]]], [['4.1', T[0]], ['4.2', T[1]], ['4.3', T[2]], ['7.1', U[0]], ['7.2', U[3]], ['7.3', U[1]], ['7.4', U[2]]]);
+  assert.deepEqual(listed(both), ['Deleted 11 words']);
+  assert.equal(minor(both).length, 5);
+});
