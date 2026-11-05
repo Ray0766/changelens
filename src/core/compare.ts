@@ -2711,10 +2711,11 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
   /**
    * The clause these sub-clauses belong to stands above them: the nearest
    * line above (furniture left out) that starts with a number of fewer
-   * levels starts with this label's parent ("5" or "5." above "5.3"). A
-   * number of fewer levels in this label's column that is not the parent
-   * ends the search. Only lines that start with a number of fewer levels
-   * are visited (see shallowerLines), and each line's answer is kept.
+   * levels starts with this label's parent as a label ("5." or "5 Charges"
+   * above "5.3"; not a sentence that starts "5 boards …"). A number of
+   * fewer levels in this label's column that is not the parent ends the
+   * search. Only lines that start with a number of fewer levels are
+   * visited (see shallowerLines), and each line's answer is kept.
    */
   const parent = () => {
     let known = parentAbove.get(doc);
@@ -2725,8 +2726,9 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
     const prev = shallowerLines(doc, levels.length);
     let found = false;
     for (let j = prev[t.line]; j >= 0; j = prev[j]) {
-      const u = doc.tokens[doc.lines[j].start];
-      found = u.text.normalize('NFKC').replace(/\.$/, '') === want;
+      const k0 = doc.lines[j].start;
+      const u = doc.tokens[k0];
+      found = u.text.normalize('NFKC').replace(/\.$/, '') === want && !!(labelAt(doc, k0) ?? rowNumberAt(doc, k0));
       if (found || Math.abs(u.rects[0].x - t.rects[0].x) <= 1.5) break;
     }
     known.set(t.line, found);

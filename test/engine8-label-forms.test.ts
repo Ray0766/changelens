@@ -155,6 +155,23 @@ test('a tight table of measures numbered on from 2.1 is not a clause list (R1-14
   }
 });
 
+test('a sentence above a tight table that starts with the integer part is not its parent clause (T1-L2)', async () => {
+  // Re-verifier counter-probe (Chromium, synthetic): the CF2 table of board thicknesses, below the
+  // sentence "2 boards of each thickness are kept on site as samples."; a use is inserted as the third
+  // row and the later thicknesses change. Under a heading "5. Charges" such a column is a clause list
+  // (see the R1-14 tests above).
+  for (const swap of [false, true]) {
+    const [x, y] = swap ? ['after', 'before'] : ['before', 'after'];
+    const r = compareDocs(
+      buildDocModel(await extractText(await openPdf(`${fixtures}probe8-T1L2-${x}.pdf`), 'a.pdf')),
+      buildDocModel(await extractText(await openPdf(`${fixtures}probe8-T1L2-${y}.pdf`), 'b.pdf')),
+    );
+    const numbers = r.changes.filter((c) => c.numeric).map((c) => `${c.numeric!.from} → ${c.numeric!.to}`);
+    assert.deepEqual(numbers, swap ? ['2.5 → 2.4', '2.6 → 2.5', '2.7 → 2.6'] : ['2.4 → 2.5', '2.5 → 2.6', '2.6 → 2.7'], `swap ${swap}`);
+    assert.deepEqual(minor(r), [], `swap ${swap}`);
+  }
+});
+
 test('a long tight table of measures is read in linear time (T1-L3)', () => {
   // 6,000 rows "100.1 mm" … "766.6 mm" without row spacing, 60 to a page, and no clause above
   // them: the search for a parent clause visited every row above each "N.1" row.
