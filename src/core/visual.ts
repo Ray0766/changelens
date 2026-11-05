@@ -303,7 +303,8 @@ function prepare(doc: DocModel, page: number, r: Raster): Prepared {
  * another colour than page `O` at the same place of the region mapped there
  * (`m`), in a patch at least 3 pixels thick (not the anti-aliased edge of a
  * fill or a line that sits a pixel off) and of 2 pt² or more. The box of
- * those patches, or null.
+ * those patches and of the thinner strokes that go on from them, up to 3 pt
+ * away (the arms of an x-mark crossing in its thick middle), or null.
  */
 function apartFrom(S: Prepared, O: Prepared, r: Rect, m: Rect, explained: (p: number, x: number, y: number) => boolean): Rect | null {
   const s = S.r.scale;
@@ -352,7 +353,35 @@ function apartFrom(S: Prepared, O: Prepared, r: Rect, m: Rect, explained: (p: nu
   let area = 0;
   for (let y = by0; y < by1; y++) for (let x = bx0; x < bx1; x++) area += off[y * w + x];
   if (area < 2 * s * s) return null;
-  return { x: (x0 + bx0) / s, y: (y0 + by0) / s, w: (bx1 - bx0) / s, h: (by1 - by0) / s };
+  // The strokes going on from the patches: pixels that are off, joined to
+  // them, within 3 pt of their box.
+  const reach = Math.round(3 * s);
+  const [lx0, ly0, lx1, ly1] = [Math.max(0, bx0 - reach), Math.max(0, by0 - reach), Math.min(w, bx1 + reach), Math.min(h, by1 + reach)];
+  const seen = new Uint8Array(w * h);
+  const stack: number[] = [];
+  for (let y = by0; y < by1; y++) for (let x = bx0; x < bx1; x++) if (off[y * w + x]) (seen[y * w + x] = 1), stack.push(y * w + x);
+  let [gx0, gy0, gx1, gy1] = [bx0, by0, bx1, by1];
+  while (stack.length) {
+    const i = stack.pop()!;
+    const cx = i % w;
+    const cy = (i / w) | 0;
+    gx0 = Math.min(gx0, cx);
+    gy0 = Math.min(gy0, cy);
+    gx1 = Math.max(gx1, cx + 1);
+    gy1 = Math.max(gy1, cy + 1);
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < lx0 || ny < ly0 || nx >= lx1 || ny >= ly1) continue;
+        const k = ny * w + nx;
+        if (off[k] && !seen[k]) {
+          seen[k] = 1;
+          stack.push(k);
+        }
+      }
+  }
+  return { x: (x0 + gx0) / s, y: (y0 + gy0) / s, w: (gx1 - gx0) / s, h: (gy1 - gy0) / s };
 }
 
 /** A pixel's colour composited on white, not blurred. */

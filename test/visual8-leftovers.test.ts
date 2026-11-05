@@ -115,3 +115,12 @@ test('V1-L4: a mark removed where new words are now printed, on an unshaded row,
   const kept = await run('probe8-V1-L4-g-check.pdf', 'probe8-V1-L4-long-check-kept.pdf');
   assert.deepEqual(list(kept.changes), ['Added “and replacement of the shaft seal”']);
 });
+
+test('V1-L5: an x-mark removed in a shaded cell whose words changed is placed over its strokes', { skip }, async () => {
+  // reportlab invoice, zebra-shaded: a 5 pt x-mark of two 0.9 pt strokes
+  // where the longer value goes. Before: placed as 2 × 2 pt, its crossing.
+  const r = await run('probe8-V1-L5-shaded-xmark.pdf', 'probe8-V1-L5-shaded-long.pdf');
+  assert.deepEqual(list(r.changes).sort(), ['Added “and replacement of the shaft seal”', 'Graphic or image removed']);
+  const q = graphics(r)[0].old.rects[0].rect;
+  assert.ok(q.w >= 4 && q.h >= 4 && q.w <= 9 && q.h <= 9 && hits(graphics(r)[0], 'old', 1, 202.5, 153.5), JSON.stringify(q));
+});
