@@ -2555,6 +2555,49 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
         stack.push(m);
       }
   }
+  // In the word's box, the overlay's colour over the other side's glyphs is
+  // its ink only where that joins its ink over the other side's paper or
+  // outside the box: the anti-aliased edge of a glyph turned the overlay's
+  // own hue (a figure turned the blue of the stamp whose frame crosses it)
+  // has that colour too, where the other side has its black edge.
+  const inBox = (k: number) => {
+    const ux = (x0 + (k % w) + 0.5) / sx;
+    const uy = (y0 + ((k / w) | 0) + 0.5) / sx;
+    return ux >= x.x && ux <= x.x + x.w && uy >= x.y && uy <= x.y + x.h;
+  };
+  const joined = new Uint8Array(n);
+  for (let k = 0; k < n; k++)
+    if (state[k] === INK && (paperAt(other[k] * 4) || !inBox(k))) {
+      joined[k] = 1;
+      stack.push(k);
+    }
+  while (stack.length) {
+    const k = stack.pop()!;
+    const i = k % w;
+    const j = (k / w) | 0;
+    for (let v = Math.max(0, j - 1); v <= Math.min(h - 1, j + 1); v++)
+      for (let u = Math.max(0, i - 1); u <= Math.min(w - 1, i + 1); u++) {
+        const m = v * w + u;
+        if (state[m] !== INK || joined[m]) continue;
+        joined[m] = 1;
+        stack.push(m);
+      }
+  }
+  // What is left of the overlay's ink around such a pixel (a gap between
+  // two glyph strokes under a watermark's letter, closed by its ink on
+  // either side) keeps it as ink.
+  let loose = 0;
+  for (let k = 0; k < n; k++)
+    if (state[k] === INK && !joined[k]) {
+      state[k] = 0;
+      joined[k] = 2;
+      loose++;
+    }
+  if (loose) {
+    const near0 = grow(state, w, h, 1, 1);
+    const closed0 = grow(grow(state, w, h, 2, 1), w, h, 2, 0);
+    for (let k = 0; k < n; k++) if (joined[k] === 2 && (near0[k] || closed0[k])) state[k] = INK;
+  }
   // A fill recoloured in place shows in the counters of the glyphs on it
   // too, where no path along it leads: its colour where the other side
   // shows its own fill is its ink anywhere next to the word.
@@ -2567,20 +2610,19 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
     }
   const ring = grow(state, w, h, 1, 1);
   const closed = grow(grow(state, w, h, 2, 1), w, h, 2, 0);
-  let grown: Uint8Array | null = null;
-  if (outside) {
-    const marked = new Uint8Array(n);
-    for (let k = 0; k < n; k++) marked[k] = state[k] ? 1 : 0;
-    grown = grow(marked, w, h, 3, 1);
-  }
+  const marked = new Uint8Array(n);
+  for (let k = 0; k < n; k++) marked[k] = state[k] ? 1 : 0;
+  const grown = grow(marked, w, h, 3, 1);
   for (let k = 0; k < n; k++) {
     if (state[k]) continue;
     if (ring[k]) state[k] = RING;
     else if (closed[k]) state[k] = UNDER;
-    else if ((inShape[k] || grown?.[k]) && other[k] >= 0) {
+    else if (other[k] >= 0 && (grown[k] || (inShape[k] && Y.lum[other[k]] >= 128))) {
       // The overlay laid over what the other side shows there, though not
       // enclosed by its ink: a glyph's edge under a stamp's stroke, or, on
-      // the other side's paper, the overlay's own anti-aliased edge.
+      // the other side's paper, the overlay's own anti-aliased edge. Over
+      // the other side's glyphs only near that ink: further in, a glyph
+      // under a blue stamp is not told from one turned dark blue.
       const p = ((y0 + ((k / w) | 0)) * W + x0 + (k % w)) * 4;
       const q = other[k] * 4;
       const differs = Math.max(Math.abs(dx[p] - dy[q]), Math.abs(dx[p + 1] - dy[q + 1]), Math.abs(dx[p + 2] - dy[q + 2]));

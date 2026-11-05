@@ -125,6 +125,10 @@ test('R4-06: edits under a watermark that was replaced by another are listed', {
   const r = await run('probe8-R4-06-draft.pdf', 'probe8-R4-06-approved-edits.pdf');
   assert.ok(list(r.changes).includes('Changed “DRAFT” → “APPROVED”'), show(r));
   assert.ok(recoloured(r).includes('March'), show(r));
+  // “two”, struck under both watermarks' letters (V3-V2: the old grey
+  // letters' ink over the new green ones, inside the word, was taken for
+  // the word's own edges).
+  assert.ok(list(r.changes).includes('Struck through: “two”'), show(r));
   // Control: the replacement alone.
   const c = await run('probe8-R4-06-draft.pdf', 'probe8-R4-06-approved.pdf');
   assert.deepEqual(list(c.changes), ['Changed “DRAFT” → “APPROVED”'], show(c));
@@ -219,3 +223,18 @@ test('V3-V1: an overlay found by more than one test explains its colour once', {
   const wc = await run('probe8-V3V1-wm-draft.pdf', 'probe8-V3V1-wm-conf-ctrl.pdf');
   assert.deepEqual(recoloured(wc), [], show(wc));
 });
+
+test('V3-V2: a figure turned the hue of a stamp whose frame crosses it is listed', { skip }, async () => {
+  // The blue RECEIVED stamp of V3-V1: 420.00 turned #0b2a80, a dark blue
+  // close to the 50 % stamp laid over black; only the stamp's frame
+  // crosses its first glyph. Before: the dark-blue glyphs' anti-aliased
+  // edges matched the stamp's colour inside the figure, and the whole
+  // figure was taken to lie under the stamp (its chroma explained, not
+  // listed, no notice).
+  const r = await run('probe8-V3V1-stamp-before.pdf', 'probe8-V3V1-stamp-blue.pdf');
+  assert.deepEqual(recoloured(r), ['640.00', '1,330.00', '420.00'], show(r));
+  // Control (stamp only): no figure recoloured.
+  const ctrl = await run('probe8-V3V1-stamp-before.pdf', 'probe8-V3V1-stamp-blue-ctrl.pdf');
+  assert.deepEqual(recoloured(ctrl), [], show(ctrl));
+});
+
