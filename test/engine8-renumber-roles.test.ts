@@ -105,6 +105,52 @@ test('bold headings at the steps’ size in the steps’ column are not siblings
   assert.deepEqual(minor(cb7), ['List renumbered: 2 → 3', 'List renumbered: 3 → 4']);
 });
 
+test('headings that look like the steps under them are not siblings of the steps (T1-L1)', async () => {
+  // Re-verifier counter-probes (synthetic). A step is inserted as 2 and the heading "3. Records" is
+  // typed "4." by hand; the controls insert the step alone. Chromium, labels of steps and headings all
+  // bold (only the heading words are bold); Chromium, only the first step's label bold.
+  for (const id of ['T1L1-bold', 'T1L1-first']) {
+    const r = await probe(id);
+    assert.deepEqual(numbers(r), ['Number changed: 3 → 4'], id);
+    assert.deepEqual(minor(r), ['List renumbered: 2 → 3'], id);
+    const rev = compareDocs(
+      buildDocModel(await extractText(await openPdf(`${fixtures}probe8-${id}-after.pdf`), 'after.pdf')),
+      buildDocModel(await extractText(await openPdf(`${fixtures}probe8-${id}-before.pdf`), 'before.pdf')),
+    );
+    assert.deepEqual(numbers(rev), ['Number changed: 4 → 3'], `${id} reversed`);
+    const c = await probe(`${id.replace(/-(\w+)$/, '-$1c')}`, id);
+    assert.equal(c.changes.length, 1, `${id} control: ${JSON.stringify(listed(c))}`);
+    assert.deepEqual(minor(c), ['List renumbered: 2 → 3'], `${id} control`);
+  }
+});
+
+test('a heading inserted after steps nested under the heading above renumbers the later headings (T1-L1 control)', () => {
+  // "1. Purpose", "2. Procedure" with steps 1.–2. under it, "3. Records", "4. Review": every label bold,
+  // only the heading words bold. "3. Testing" is inserted before "Records", which becomes 4, and "Review" 5.
+  const doc = (name: string, ins: boolean): DocText => {
+    const runs: TextRun[] = [];
+    let y = 80;
+    const line = (label: string, text: string, heading: boolean) => {
+      const font = heading ? 'Body-Bold' : 'Body-Regular';
+      runs.push({ str: label, x: 56, y: y - 9, w: label.length * 5, h: 11, baseline: y, fontSize: 10, font: 'Body-Bold', family: 'sans-serif', eol: false, angle: 0 });
+      runs.push({ str: text, x: 92, y: y - 9, w: text.length * 5, h: 11, baseline: y, fontSize: 10, font, family: 'sans-serif', eol: true, angle: 0 });
+      y += heading ? 26 : 18;
+    };
+    line('1.', 'Purpose', true);
+    line('2.', 'Procedure', true);
+    line('1.', 'Switch off the pump at the panel.', false);
+    line('2.', 'Close both valves and fit the locks.', false);
+    let n = 3;
+    if (ins) line(`${n++}.`, 'Testing', true);
+    line(`${n++}.`, 'Records', true);
+    line(`${n++}.`, 'Review', true);
+    return { name, pages: [{ index: 0, width: 595, height: 842, runs }] };
+  };
+  const r = compareDocs(buildDocModel(doc('a', false)), buildDocModel(doc('b', true)));
+  assert.deepEqual(listed(r), ['Added “3. Testing”']);
+  assert.deepEqual(minor(r), ['List renumbered: 3 → 4', 'List renumbered: 4 → 5']);
+});
+
 test('headings after a step list are renumbered after an inserted section (R1-05)', async () => {
   // Word numbering via LibreOffice: headings at 62 pt, steps at 71 pt, the same size.
   const q08 = await probe('r1-05-q08');

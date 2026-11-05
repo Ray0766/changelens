@@ -2006,6 +2006,12 @@ function parseStyle(font: string): Style {
   return { family, bold, italic };
 }
 
+/** The weight and slant of a label or its words ("b", "i", "bi" or ""). */
+function labelWeight(font: string): string {
+  const { bold, italic } = styleOf(font);
+  return (bold ? 'b' : '') + (italic ? 'i' : '');
+}
+
 function formatDiff(a: Token, b: Token, refitted: boolean): FormatDetail | null {
   const sa = styleOf(a.font);
   const sb = styleOf(b.font);
@@ -2784,6 +2790,12 @@ interface Sibling {
   index: number;
   /** Position among all labels of the document. */
   pos: number;
+  /**
+   * The weight and slant ("b", "i", "bi") shared by all words after the
+   * label on its line, as in a heading ("3. Records" in bold); "" when they
+   * are set in the regular face or in several faces.
+   */
+  lead: string;
 }
 
 /**
@@ -2816,8 +2828,7 @@ function labelBox(doc: DocModel, k: number, label: Label): LabelBox {
   const t = doc.tokens[k];
   const last = doc.tokens[k + label.len - 1];
   const r = last.rects[last.rects.length - 1];
-  const { bold, italic } = styleOf(t.font);
-  return { x0: t.rects[0].x, x1: r.x + r.w, size: t.size, face: (bold ? 'b' : '') + (italic ? 'i' : '') };
+  return { x0: t.rects[0].x, x1: r.x + r.w, size: t.size, face: labelWeight(t.font) };
 }
 
 /** Set at the same size and in the same column: the same left edge, right edge or centre, within 2 pt (typed labels, right-aligned markers "9." / "10.", centred row numbers). */
@@ -2882,7 +2893,7 @@ function labelSequences(doc: DocModel): { at: Map<number, Sibling>; all: Sibling
       groups.push((list = []));
       faces.set(list, box.face);
     }
-    const s: Sibling = { tok: line.start, label, box, list, index: list.length, pos: all.length };
+    const s: Sibling = { tok: line.start, label, box, list, index: list.length, pos: all.length, lead: leadFace(doc, line.start + label.len, line.end) };
     list.push(s);
     at.set(line.start, s);
     all.push(s);
@@ -2892,20 +2903,54 @@ function labelSequences(doc: DocModel): { at: Map<number, Sibling>; all: Sibling
 
 const lastLevel = (s: Sibling) => s.label.parts[s.label.parts.length - 1];
 
+/** The face shared by all words of doc.tokens[s, e) (see Sibling.lead). */
+function leadFace(doc: DocModel, s: number, e: number): string {
+  let face: string | null = null;
+  for (let j = s; j < e; j++) {
+    const t = doc.tokens[j];
+    if (t.kind !== 'word' && t.kind !== 'cjk') continue;
+    const f = labelWeight(t.font);
+    if (face === null) face = f;
+    else if (face !== f) return '';
+  }
+  return face ?? '';
+}
+
+/**
+ * The sibling that s numbers on from. Usually the one before it in its
+ * list; but headings and the steps under them can be one list when their
+ * labels look alike ("1. Purpose", "2. Procedure", steps "1.", "2.", then
+ * "3. Records", all labels bold): a heading whose words are all in one
+ * face (see Sibling.lead) numbers on from the heading before the steps
+ * when the steps' words are not in that face, the steps start at 1 right
+ * after that heading, and its number follows the heading's.
+ */
+function predecessor(s: Sibling): Sibling | undefined {
+  const q = s.list[s.index - 1];
+  if (!q || !s.lead || q.lead === s.lead) return q;
+  let i = q.index;
+  while (i > 0 && s.list[i].lead !== s.lead && lastLevel(s.list[i - 1]) === lastLevel(s.list[i]) - 1) i--;
+  const p = s.list[i - 1];
+  return s.list[i].lead !== s.lead && lastLevel(s.list[i]) === 1 && p && p.lead === s.lead && lastLevel(p) === lastLevel(s) - 1 ? p : q;
+}
+
 /**
  * The siblings before s that number on to it without a gap from 1 ("4.1",
- * "4.2" before "4.3"; a list that starts again at 1 starts a new run). Null
- * when s does not number on from 1: after a gap or a repeated number, or a
- * figure that only looks like a label (a time "10.30", a quantity column
- * "2, 3, 4", a date). With `continued`, a list of "N." items may also start
- * at its first label in the document, at any number (paragraphs 12.–19. of
- * a schedule that continue the agreement's numbering); see runStart.
+ * "4.2" before "4.3"; a list that starts again at 1 starts a new run), each
+ * from its predecessor (see predecessor). Null when s does not number on
+ * from 1: after a gap or a repeated number, or a figure that only looks
+ * like a label (a time "10.30", a quantity column "2, 3, 4", a date). With
+ * `continued`, a list of "N." items may also start at its first label in
+ * the document, at any number (paragraphs 12.–19. of a schedule that
+ * continue the agreement's numbering); see runStart.
  */
 function numberedRun(s: Sibling, continued = false): Sibling[] | null {
-  let i = s.index;
-  while (i > 0 && lastLevel(s.list[i - 1]) === lastLevel(s.list[i]) - 1) i--;
-  if (lastLevel(s.list[i]) === 1) return s.list.slice(i, s.index);
-  return continued && i === 0 && s.label.style === 'list' && s.label.parts.length === 1 ? s.list.slice(0, s.index) : null;
+  const run: Sibling[] = [];
+  let cur = s;
+  for (let q = predecessor(cur); q && lastLevel(q) === lastLevel(cur) - 1; q = predecessor(cur)) run.push((cur = q));
+  run.reverse();
+  if (lastLevel(cur) === 1) return run;
+  return continued && cur.index === 0 && s.label.style === 'list' && s.label.parts.length === 1 ? run : null;
 }
 
 /** The label a run (see numberedRun) of s starts at. */
