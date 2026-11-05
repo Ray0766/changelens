@@ -1178,18 +1178,30 @@ function components(cells: Uint16Array, cols: number, rows: number, scale: numbe
  * reaches over the token's own box, where text is not compared.
  */
 function diffShape(d: Unmatched, r: Raster, rect: Rect): Shape {
-  const rows = d.cells.length / d.cols;
   const s = r.scale;
-  const hot = (cx: number, cy: number) => cx >= 0 && cy >= 0 && cx < d.cols && cy < rows && d.cells[cy * d.cols + cx] >= 3;
+  const near = nearCells(d);
+  const rows = d.cells.length / d.cols;
   return {
     box: expand(rect, rect.h + (2 * CELL) / s),
     inside: (x, y) => {
       const cx = Math.floor((x * s) / CELL);
       const cy = Math.floor((y * s) / CELL);
-      for (let v = -2; v <= 2; v++) for (let u = -2; u <= 2; u++) if (hot(cx + u, cy + v)) return true;
-      return false;
+      return cx >= 0 && cy >= 0 && cx < d.cols && cy < rows && near[cy * d.cols + cx] === 1;
     },
   };
+}
+
+/** Cells within two cells of one with differences (see diffShape), worked out once per page. */
+const nearCellsOf = new WeakMap<Unmatched, Uint8Array>();
+function nearCells(d: Unmatched): Uint8Array {
+  let near = nearCellsOf.get(d);
+  if (near) return near;
+  const rows = d.cells.length / d.cols;
+  const hot = new Uint8Array(d.cells.length);
+  for (let k = 0; k < hot.length; k++) hot[k] = d.cells[k] >= 3 ? 1 : 0;
+  near = grow(hot, d.cols, rows, 2, 1);
+  nearCellsOf.set(d, near);
+  return near;
 }
 
 /**
@@ -2224,6 +2236,37 @@ const RING = 2;
 /** Enclosed by that ink but of another colour: a glyph it is drawn over or behind. */
 const UNDER = 3;
 
+/**
+ * Square dilation (v = 1) or erosion (v = 0) by r pixels of a 0/1 map of
+ * w × h, the window cut off at the map's edges: separable, with a running
+ * count of the pixels equal to v in the window.
+ */
+function grow(src: Uint8Array, w: number, h: number, r: number, v: number): Uint8Array {
+  const n = w * h;
+  const tmp = new Uint8Array(n);
+  const out = new Uint8Array(n);
+  for (let j = 0; j < h; j++) {
+    const row = j * w;
+    let c = 0;
+    for (let u = 0; u < Math.min(w, r); u++) if (src[row + u] === v) c++;
+    for (let i = 0; i < w; i++) {
+      if (i + r < w && src[row + i + r] === v) c++;
+      if (i - r - 1 >= 0 && src[row + i - r - 1] === v) c--;
+      tmp[row + i] = c > 0 ? v : 1 - v;
+    }
+  }
+  for (let i = 0; i < w; i++) {
+    let c = 0;
+    for (let u = 0; u < Math.min(h, r); u++) if (tmp[u * w + i] === v) c++;
+    for (let j = 0; j < h; j++) {
+      if (j + r < h && tmp[(j + r) * w + i] === v) c++;
+      if (j - r - 1 >= 0 && tmp[(j - r - 1) * w + i] === v) c--;
+      out[j * w + i] = c > 0 ? v : 1 - v;
+    }
+  }
+  return out;
+}
+
 /** The ink of an overlay around one word on its side (see overlayInk). */
 interface Cover {
   /** State of a pixel of this side (INK, RING, UNDER, or 0). */
@@ -2264,37 +2307,55 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[])
   const h = y1 - y0;
   const near = shapes.filter((f) => intersects(f.box, area));
   if (w <= 0 || h <= 0 || !near.length) return null;
-  // Pixel of X → pixel of Y, as the word moved (and back).
-  const toY = (px: number, py: number) => {
-    const qx = Math.round(((px + 0.5) / sx - x.x + y.x) * sy - 0.5);
-    const qy = Math.round(((py + 0.5) / sx - x.y + y.y) * sy - 0.5);
-    return qx >= 0 && qy >= 0 && qx < Y.r.width && qy < Y.r.height ? qy * Y.r.width + qx : -1;
-  };
+  // Pixel of X → pixel of Y, as the word moved (and back): by column and by row.
+  const cols = new Int32Array(w);
+  const rows = new Int32Array(h);
+  for (let i = 0; i < w; i++) {
+    const qx = Math.round(((x0 + i + 0.5) / sx - x.x + y.x) * sy - 0.5);
+    cols[i] = qx >= 0 && qx < Y.r.width ? qx : -1;
+  }
+  for (let j = 0; j < h; j++) {
+    const qy = Math.round(((y0 + j + 0.5) / sx - x.y + y.y) * sy - 0.5);
+    rows[j] = qy >= 0 && qy < Y.r.height ? qy * Y.r.width : -1;
+  }
   const dx = X.r.data;
   const dy = Y.r.data;
   const n = w * h;
   const other = new Int32Array(n);
   const inShape = new Uint8Array(n);
-  const samples: number[][] = [[], [], []];
+  // The colours of those samples, one histogram per channel.
+  const samples = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
+  let sampled = 0;
+  const one = near.length === 1 ? near[0] : null;
   for (let j = 0; j < h; j++) {
+    const py = y0 + j;
+    const uy = (py + 0.5) / sx;
     for (let i = 0; i < w; i++) {
       const k = j * w + i;
       const px = x0 + i;
-      const py = y0 + j;
-      other[k] = toY(px, py);
+      other[k] = cols[i] < 0 || rows[j] < 0 ? -1 : rows[j] + cols[i];
       const ux = (px + 0.5) / sx;
-      const uy = (py + 0.5) / sx;
-      if (!near.some((f) => f.inside(ux, uy))) continue;
+      if (one ? !one.inside(ux, uy) : !near.some((f) => f.inside(ux, uy))) continue;
       inShape[k] = 1;
       if (ux >= x.x && ux <= x.x + x.w && uy >= x.y && uy <= x.y + x.h) continue;
       const p = (py * W + px) * 4;
       const q = other[k] * 4;
-      const ref = q < 0 ? [255, 255, 255] : [dy[q], dy[q + 1], dy[q + 2]];
-      if (Math.min(...ref) >= 240 && Math.max(Math.abs(dx[p] - ref[0]), Math.abs(dx[p + 1] - ref[1]), Math.abs(dx[p + 2] - ref[2])) > 8) for (let c = 0; c < 3; c++) samples[c].push(dx[p + c]);
+      const r0 = q < 0 ? 255 : dy[q];
+      const r1 = q < 0 ? 255 : dy[q + 1];
+      const r2 = q < 0 ? 255 : dy[q + 2];
+      if (r0 >= 240 && r1 >= 240 && r2 >= 240 && Math.max(Math.abs(dx[p] - r0), Math.abs(dx[p + 1] - r1), Math.abs(dx[p + 2] - r2)) > 8) {
+        for (let c = 0; c < 3; c++) samples[c][dx[p + c]]++;
+        sampled++;
+      }
     }
   }
-  if (samples[0].length < 8) return null;
-  const colour = samples.map((v) => v.sort((u, t) => u - t)[v.length >> 1]);
+  if (sampled < 8) return null;
+  // Each channel's median.
+  const colour = samples.map((hist) => {
+    let v = 0;
+    for (let seen = hist[0]; seen <= sampled >> 1; seen += hist[++v]);
+    return v;
+  });
   // How far the overlay's colour is from paper; a light watermark is told
   // from paper and from the glyphs with a tolerance to match.
   const dev = 255 - Math.min(...colour);
@@ -2309,37 +2370,8 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[])
     const differs = q < 0 || Math.max(Math.abs(dx[p] - dy[q]), Math.abs(dx[p + 1] - dy[q + 1]), Math.abs(dx[p + 2] - dy[q + 2])) > tol;
     if (own && differs) state[k] = INK;
   }
-  // Square dilation and erosion by r pixels.
-  const dilate = (src: Uint8Array, r: number) => {
-    const out = new Uint8Array(n);
-    for (let j = 0; j < h; j++)
-      for (let i = 0; i < w; i++) {
-        search: for (let v = Math.max(0, j - r); v <= Math.min(h - 1, j + r); v++)
-          for (let u = Math.max(0, i - r); u <= Math.min(w - 1, i + r); u++)
-            if (src[v * w + u]) {
-              out[j * w + i] = 1;
-              break search;
-            }
-      }
-    return out;
-  };
-  const erode = (src: Uint8Array, r: number) => {
-    const out = new Uint8Array(n);
-    for (let j = 0; j < h; j++)
-      for (let i = 0; i < w; i++) {
-        let all = 1;
-        search: for (let v = Math.max(0, j - r); v <= Math.min(h - 1, j + r); v++)
-          for (let u = Math.max(0, i - r); u <= Math.min(w - 1, i + r); u++)
-            if (!src[v * w + u]) {
-              all = 0;
-              break search;
-            }
-        out[j * w + i] = all;
-      }
-    return out;
-  };
-  const ring = dilate(state, 1);
-  const closed = erode(dilate(state, 2), 2);
+  const ring = grow(state, w, h, 1, 1);
+  const closed = grow(grow(state, w, h, 2, 1), w, h, 2, 0);
   for (let k = 0; k < n; k++) if (!state[k]) state[k] = ring[k] ? RING : closed[k] ? UNDER : 0;
   // Glyphs show through: where the other side's word is dark under the
   // overlay, this side is dark too (and not of the overlay's colour).
@@ -2961,7 +2993,14 @@ function compareAligned(
     // A graphic difference next to the word: the ink of the graphic on the
     // side that has it (see overlayInk); without such ink on either side
     // (a graphic only moved, or changed in place), the word is not measured.
+    const nearSeen = new Map<string, [Cover | null, Cover | null] | 'skip' | null>();
     const near = (a: Token, b: Token): [Cover | null, Cover | null] | 'skip' | null => {
+      const key = `${a.i}:${b.i}`;
+      let v = nearSeen.get(key);
+      if (v === undefined) nearSeen.set(key, (v = nearOf(a, b)));
+      return v;
+    };
+    const nearOf = (a: Token, b: Token): [Cover | null, Cover | null] | 'skip' | null => {
       const na = differsNear(fwdDiff, ra, a.rects[0]);
       const nb = differsNear(bwdDiff, rb, b.rects[0]);
       if (!na && !nb) return null;
