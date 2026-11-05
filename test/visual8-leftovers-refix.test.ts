@@ -67,3 +67,25 @@ test('V-leftovers-V3: an underline drawn on past its line above a rule both vers
   const navy = await run('probe8-R5-V02-before.pdf', 'probe8-R5-V02-two-notes.pdf');
   assert.deepEqual(list(navy.changes), ['Added 2 paragraphs']);
 });
+
+test('V-leftovers-V2, -V4: a header word underlined on a shaded row, with trailing spaces or touching a kept border, is an underline', { skip }, async () => {
+  // Chromium order table, header cells on #dde4f0;
+  // <u>Amount&nbsp;&nbsp;&nbsp;&nbsp;</u>, offset 2 pt. Before: only
+  // "Graphic or image added" for the tail past the word.
+  const trail = await run('probe8-VL-V2-before.pdf', 'probe8-VL-V2-trail-2pt.pdf');
+  assert.deepEqual(list(trail.changes), ['Underlined: “Amount”', 'Graphic or image added']);
+  // Offset 1.5 pt, and a 6 pt red square added after "Item". Before: one
+  // "Graphic or image changed" whose place spans the row.
+  const sq = await run('probe8-VL-V2-before.pdf', 'probe8-VL-V2-trail-sq.pdf');
+  assert.deepEqual(list(sq.changes), ['Underlined: “Amount”', 'Graphic or image changed']);
+  // The same table with a #556 border under the header row in both
+  // versions; "Amount" underlined 2 pt below its baseline, touching the
+  // border. Before: only "Graphic or image changed".
+  const bb = await run('probe8-VL-V4-bb-before.pdf', 'probe8-VL-V4-bb-ul2pt.pdf');
+  assert.deepEqual(list(bb.changes), ['Underlined: “Amount”']);
+  // Control: a red rule drawn along a Calc header band's lower edge, past
+  // its words through the gaps between them, is a graphic and no underline
+  // (see V1-L1 in visual8-leftovers).
+  const band = await run('probe8-R5-13-before.pdf', 'probe8-N2-calc-rule-noins.pdf');
+  assert.ok(!list(band.changes).some((d) => d.startsWith('Underlined')), list(band.changes).join(' | '));
+});

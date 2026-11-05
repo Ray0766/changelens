@@ -2303,6 +2303,9 @@ function appearanceChanges(
         }
         return true;
       };
+      // Such a stretch lies between two runs: the line goes on under text
+      // past it. The end of an underline drawn on over a few spaces after
+      // its word lies outside the text too, but nothing follows it.
       const min = Math.max(6, 0.6 * r.h) * s;
       for (let x = xa; x <= xb; ) {
         if (!outside(x)) {
@@ -2311,7 +2314,7 @@ function appearanceChanges(
         }
         let e = x;
         while (e < xb && outside(e + 1)) e++;
-        if (e - x + 1 >= min && graphicIn(X === A ? 'old' : 'new', { x: x / s, y: y0 / s, w: (e - x + 1) / s, h: (y1 - y0 + 1) / s })) return null;
+        if (x > xa && e < xb && e - x + 1 >= min && graphicIn(X === A ? 'old' : 'new', { x: x / s, y: y0 / s, w: (e - x + 1) / s, h: (y1 - y0 + 1) / s })) return null;
         x = e + 1;
       }
     }
