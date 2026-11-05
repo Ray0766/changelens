@@ -2219,6 +2219,34 @@ function samePixels(ra: Rect, sa: number, rb: Rect, sb: number): boolean {
 }
 
 /**
+ * Whether a word's surroundings show the very same pixels in both
+ * versions: its box padded by 15 % of its height (by 35 % below it, where
+ * an underline runs), at the same place relative to the pixel grid (see
+ * samePixels), each channel within 8 levels. Nothing was then drawn over
+ * or under the word, struck through it or recoloured there.
+ */
+function sameInk(A: Prepared, ra: Rect, B: Prepared, rb: Rect): boolean {
+  const s = A.r.scale;
+  if (!samePixels(ra, s, rb, B.r.scale)) return false;
+  const dx = Math.round((rb.x - ra.x) * s);
+  const dy = Math.round((rb.y - ra.y) * s);
+  const pad = 0.15 * ra.h;
+  const x0 = Math.max(0, -dx, Math.floor((ra.x - pad) * s));
+  const x1 = Math.min(A.r.width, B.r.width - dx, Math.ceil((ra.x + ra.w + pad) * s));
+  const y0 = Math.max(0, -dy, Math.floor((ra.y - pad) * s));
+  const y1 = Math.min(A.r.height, B.r.height - dy, Math.ceil((ra.y + ra.h + 0.35 * ra.h) * s));
+  if (x1 <= x0 || y1 <= y0) return false;
+  const [da, db] = [A.r.data, B.r.data];
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const p = (y * A.r.width + x) * 4;
+      const q = ((y + dy) * B.r.width + x + dx) * 4;
+      if (Math.abs(da[p] - db[q]) > 8 || Math.abs(da[p + 1] - db[q + 1]) > 8 || Math.abs(da[p + 2] - db[q + 2]) > 8) return false;
+    }
+  return true;
+}
+
+/**
  * Whether the glyphs in `rb` (on `B`) are those in `ra` (on `A`) drawn
  * heavier: their outlines grown on every side, as a synthetic bold draws
  * them (filled and stroked, text render mode 2, which Word writes for a
@@ -4394,7 +4422,10 @@ function compareAligned(
     // same place relative to them (a twin, see slant), dark enough to hide
     // part of a glyph: its ink mixes with their glyphs in both, so a strike
     // drawn under it is fainter and a colour is diluted. Where nothing was
-    // found on them, they were compared in part (see notePartly).
+    // found on them, they were compared in part (see notePartly), unless
+    // they show the very same pixels in both versions (see sameInk): then
+    // nothing was struck, underlined or recoloured under it (a document
+    // compared with an unchanged copy, an edit elsewhere on the page).
     const twinNew = slantNew.filter((f) => f.twin && 255 - Math.min(...f.colour) >= 40);
     if (twinNew.length) {
       const shown = appearance.flatMap((c) => c.new.rects.filter((q) => q.page === newPage).map((q) => q.rect));
@@ -4404,6 +4435,7 @@ function compareAligned(
         if (a.page !== oldPage || b.page !== newPage || a.kind === 'punct' || a.rects.length !== 1 || b.rects.length !== 1 || inFormat(b)) continue;
         const lb = twinNew.filter((f) => !moved(f.run, f.twin, b, a));
         if (!lb.length || covered(b.rects[0], over(b.rects[0], lb)) < OVERLAY_SHARE || shown.some((r) => intersects(r, b.rects[0]))) continue;
+        if (!options.turned && sameInk(A, a.rects[0], B, b.rects[0])) continue;
         notePartly(result, newPage, b);
       }
     }

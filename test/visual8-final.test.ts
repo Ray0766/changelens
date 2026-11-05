@@ -3,6 +3,7 @@
 // re-verifiers left open (ids F0–F6 of the final pass).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { openPdf } from '../src/node/pdf.ts';
 import { renderPage, canRender } from '../src/node/render.ts';
 import { extractText } from '../src/pdf/extract.ts';
@@ -10,6 +11,7 @@ import { buildDocModel } from '../src/core/tokenize.ts';
 import { compareDocs } from '../src/core/compare.ts';
 import { addVisualChanges } from '../src/core/pipeline.ts';
 import { describeChange } from '../src/core/describe.ts';
+import { partlyCompared } from '../src/core/visual.ts';
 import type { Change, CompareResult } from '../src/core/types.ts';
 
 const fixtures = new URL('./fixtures/', import.meta.url).pathname;
@@ -87,4 +89,26 @@ test('F1: a highlight in a hue near a panel or row fill added with it is listed,
   }
   const hl = await run('probe8-F1-before.pdf', 'probe8-F1-hl.pdf');
   assert.ok(colourAt(hl, 200, 180), list(hl.changes).join(' | '));
+});
+
+test('F2: words under a dark watermark that show the same pixels in both versions are not counted as compared in part', { skip }, async () => {
+  // SYNTHETIC (Chromium, review 8 overlay counter-probes): a service
+  // agreement page with a 28 % grey DRAFT drawn in front of the text. The
+  // page compared with itself gave "No differences found in what could be
+  // compared, but not everything was compared" (33 words under the
+  // watermark's letters) and exit code 3 with --fail-on-change.
+  const partly = (r: CompareResult) => partlyCompared(r).flatMap((u) => u.words);
+  const same = await run('probe8-F2-wm.pdf', 'probe8-F2-wm.pdf');
+  assert.deepEqual([list(same.changes), partly(same)], [[], []]);
+  const cli = new URL('../src/cli/cli.ts', import.meta.url).pathname;
+  const exit = spawnSync(process.execPath, [cli, fixtures + 'probe8-F2-wm.pdf', fixtures + 'probe8-F2-wm.pdf', '--fail-on-change'], { encoding: 'utf8', env: { ...process.env, LC_ALL: '', LANG: 'C.UTF-8' } });
+  assert.equal(exit.status, 0, exit.stdout + exit.stderr);
+  assert.match(exit.stdout, /^No differences found\.$/m);
+  // An amount edited away from the watermark: listed, and nothing counted.
+  const far = await run('probe8-F2-wm.pdf', 'probe8-F2-wm-far.pdf');
+  assert.deepEqual([list(far.changes), partly(far)], [['Number changed: 1,200 → 1,250 (+4.2%)'], []]);
+  // Control: "ninety" struck through under the watermark's letters is
+  // listed, or counted where it is not.
+  const strike = await run('probe8-F2-wm.pdf', 'probe8-F2-wm-strike.pdf');
+  assert.ok(list(strike.changes).includes('Struck through: “ninety”') || partly(strike).includes('ninety'), list(strike.changes).join(' | '));
 });
