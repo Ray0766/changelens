@@ -623,9 +623,10 @@ interface Unmatched {
  * of a page compared with its own counterpart, see furnitureRows) whose
  * nearest line went to another page are compared with the same place of
  * the other page: such a row stays where it is while the text under it
- * re-flows.
+ * re-flows. `fresh`: the boxes (destination page points) of the words of
+ * text changes on the destination page, inserted, deleted or replaced.
  */
-function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean, identity = false, fixed: Rect[] = []): Unmatched {
+function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean, identity = false, fixed: Rect[] = [], fresh: Rect[] = []): Unmatched {
   const rs = src.r;
   const rd = dst.r;
   const ms = src.mask;
@@ -633,11 +634,30 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
   const [s0, s1, s2] = src.planes;
   const T = THRESH;
   const blank = (p: number) => s0[p] + T >= 255 && s1[p] + T >= 255 && s2[p] + T >= 255;
+  // Where the destination prints words that are a change of their own, a
+  // graphic of the source is not matched by paper between their glyphs
+  // that lies within a pixel of a stroke: their glyphs are new there, and
+  // say nothing of what was drawn at that place (a check mark removed where
+  // the longer value now goes). Elsewhere a graphic drawn a pixel off by a
+  // re-flow is matched by the ink next to it. Nor is it matched by their
+  // strokes where much of it lands on lighter pixels between them (see
+  // below).
+  let freshAt: Uint8Array | null = null;
+  if (fresh.length) {
+    freshAt = new Uint8Array(rd.width * rd.height);
+    for (const f of fresh) {
+      const x0 = Math.max(0, Math.floor(f.x * rd.scale));
+      const x1 = Math.min(rd.width, Math.ceil((f.x + f.w) * rd.scale));
+      for (let y = Math.max(0, Math.floor(f.y * rd.scale)), e = Math.min(rd.height, Math.ceil((f.y + f.h) * rd.scale)); y < e; y++) freshAt.fill(1, y * rd.width + x0, y * rd.width + x1);
+    }
+  }
+  const [d0, d1, d2] = dst.planes;
+  const paperThere = (q: number) => !!freshAt?.[q] && d0[q] + T >= 255 && d1[q] + T >= 255 && d2[q] + T >= 255;
   // Paper may land on text in the destination (re-flowed lines); ink must
   // really be matched there, or a figure that text moved into the place of
   // would not be missed. Pixels of a rule in the source padding must always
   // be matched.
-  const fits = (q: number, p: number, strict: boolean) => (!strict && (md[q] === GLYPH || md[q] === PAD) && blank(p)) || colourFit(src, dst, q, p);
+  const fits = (q: number, p: number, strict: boolean) => (!strict && (md[q] === GLYPH || md[q] === PAD) && blank(p)) || (!paperThere(q) && colourFit(src, dst, q, p));
   const w = rs.width;
   const h = rs.height;
   const scale = rs.scale;
@@ -664,6 +684,14 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
   const fColN = new Uint8Array(cells.length * CELL);
   const faintP: number[] = [];
   const faintQ: number[] = [];
+  // Ink of a graphic of the source (outside its text) that lands on such
+  // new words, per cell, and how much of it lands where the destination is
+  // lighter (paper, or the anti-aliased edge of a stroke); the part that was
+  // matched there.
+  const onFresh: number[] = [];
+  const onFreshQ: number[] = [];
+  const freshInk = freshAt ? new Uint16Array(cells.length) : null;
+  const freshPaper = freshAt ? new Uint16Array(cells.length) : null;
   const [[n0, x0], [n1, x1], [n2, x2]] = dst.range;
   const outside = (v: number, lo: number, hi: number) => (v < lo ? lo - v : v > hi ? v - hi : 0);
   // The same light line drawn at another sub-pixel position carries up to
@@ -776,6 +804,46 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
         failQ.push(q0);
         failQ2.push(q2 !== q0 ? q2 : -1);
       }
+      // (Matched at another place, the graphic is there.)
+      if (freshInk && known && mk === 0 && q0 >= 0 && (!ok || qFit === q0) && freshAt![q0] && (md[q0] === GLYPH || md[q0] === PAD) && !blank(p)) {
+        const ci = crow + ((x / CELL) | 0);
+        freshInk[ci]++;
+        if (d0[q0] + d1[q0] + d2[q0] - s0[p] - s1[p] - s2[p] > 3 * T) freshPaper![ci]++;
+        if (ok) {
+          onFresh.push(p);
+          onFreshQ.push(q0);
+        }
+      }
+    }
+  }
+  // Ink of a graphic that lands on new words with a quarter or more of it,
+  // in the cell and the cells around, where the destination is lighter: the
+  // graphic is not there in the destination (one kept under or over the
+  // new glyphs leaves its place at least as dark), and the part of it that
+  // lands on their strokes differs as well.
+  if (freshInk && onFresh.length) {
+    const around = (ci: number, a: Uint16Array) => {
+      const cx = ci % cols;
+      const cy = (ci / cols) | 0;
+      let n = 0;
+      for (let v = Math.max(0, cy - 1); v <= Math.min(rows - 1, cy + 1); v++) for (let u = Math.max(0, cx - 1); u <= Math.min(cols - 1, cx + 1); u++) n += a[v * cols + u];
+      return n;
+    };
+    const gone = new Map<number, boolean>();
+    for (let k = 0; k < onFresh.length; k++) {
+      const p = onFresh[k];
+      const ci = ((((p / w) | 0) / CELL) | 0) * cols + (((p % w) / CELL) | 0);
+      let g = gone.get(ci);
+      if (g === undefined) {
+        const n = around(ci, freshInk);
+        g = n >= 6 && around(ci, freshPaper!) >= 0.25 * n;
+        gone.set(ci, g);
+      }
+      if (!g) continue;
+      cells[ci]++;
+      failP.push(p);
+      failQ.push(onFreshQ[k]);
+      failQ2.push(-1);
     }
   }
   if (debugHook) debugHook({ cells, cols, rows });
@@ -815,7 +883,7 @@ function unmatched(src: Prepared, dst: Prepared, anchors: Anch[], whole: boolean
           if (q0 < 0) continue;
           const qy = ((q0 / rd.width) | 0) + dy;
           const qx = (q0 % rd.width) + dx;
-          if (qy >= 0 && qy < rd.height && qx >= 0 && qx < rd.width && colourFit(src, dst, qy * rd.width + qx, failP[idx[j]])) hit++;
+          if (qy >= 0 && qy < rd.height && qx >= 0 && qx < rd.width && !paperThere(qy * rd.width + qx) && colourFit(src, dst, qy * rd.width + qx, failP[idx[j]])) hit++;
         }
         const f = total ? hit / total : 0;
         if (f > best || (f === best && f > 0 && Math.abs(dx) + Math.abs(dy) < Math.abs(bx) + Math.abs(by))) {
@@ -3247,8 +3315,17 @@ function compareAligned(
     const lines = (side === 'old' ? result.oldDoc : result.newDoc).lines.filter((l) => l.page === page && l.end > l.start);
     return lines.filter((l) => l.furniture).map((l) => rowAround([l], lines));
   };
-  const fwdDiff = unmatched(A, B, fwd, whole, identity, identity ? [] : fixedRows('old', oldPage, newPage));
-  const bwdDiff = unmatched(B, A, bwd, whole, identity, identity ? [] : fixedRows('new', newPage, oldPage));
+  // The words of the text changes on each page (see unmatched), but for text
+  // set at an angle (a watermark, a stamp), which is drawn over what is
+  // there and is compared along its letters (see refineSlanted).
+  const fresh = (side: 'old' | 'new', page: number) => {
+    const angled = ((side === 'old' ? result.oldDoc : result.newDoc).runs[page] ?? []).filter((x) => slantedRun(x) && x.str.trim());
+    return result.changes
+      .filter((c) => c.category === 'text' && c.kind !== 'position' && c.kind !== 'format')
+      .flatMap((c) => c[side].rects.filter((q) => q.page === page && !angled.some((x) => coveredShare(q.rect, [x]) >= 0.5)).map((q) => q.rect));
+  };
+  const fwdDiff = unmatched(A, B, fwd, whole, identity, identity ? [] : fixedRows('old', oldPage, newPage), fresh('new', newPage));
+  const bwdDiff = unmatched(B, A, bwd, whole, identity, identity ? [] : fixedRows('new', newPage, oldPage), fresh('old', oldPage));
   if (debugHook) debugHook({ fwd, bwd, oldRaw: fwdDiff.real, newRaw: bwdDiff.real, oldShift: fwdDiff.shifted, newShift: bwdDiff.shifted });
   const oldRects = cluster(fwdDiff.real, ra.width / ra.scale);
   const newRects = cluster(bwdDiff.real, rb.width / rb.scale);

@@ -94,3 +94,24 @@ test('V1-L3: an underline drawn on past its line where the other version has no 
   const d = await run('probe8-R5-V02-before.pdf', 'probe8-R5-V02-two-notes.pdf');
   assert.deepEqual(list(d.changes), ['Added 2 paragraphs']);
 });
+
+test('V1-L4: a mark removed where new words are now printed, on an unshaded row, is listed', { skip }, async () => {
+  // reportlab invoice without shading: a 7 pt check mark or a 5 pt x-mark
+  // where "Pump service" grows into "Pump service and replacement of the
+  // shaft seal". Before: only the text item.
+  for (const [file, x, y] of [
+    ['probe8-V1-L4-check.pdf', 173, 152],
+    ['probe8-V1-L4-xmark.pdf', 202, 153],
+  ] as const) {
+    const r = await run(file, 'probe8-V1-L4-long.pdf');
+    assert.deepEqual(list(r.changes).sort(), ['Added “and replacement of the shaft seal”', 'Graphic or image removed'], file);
+    assert.ok(hits(graphics(r)[0], 'old', 1, x, y), JSON.stringify(graphics(r)[0].old.rects));
+    // And the other way: the words deleted, the mark drawn where they were.
+    const back = await run('probe8-V1-L4-long.pdf', file);
+    assert.deepEqual(list(back.changes).sort(), ['Deleted “and replacement of the shaft seal”', 'Graphic or image added'], file);
+  }
+  // Control: the check mark kept, the new words printed over it, is no
+  // graphic change.
+  const kept = await run('probe8-V1-L4-g-check.pdf', 'probe8-V1-L4-long-check-kept.pdf');
+  assert.deepEqual(list(kept.changes), ['Added “and replacement of the shaft seal”']);
+});
