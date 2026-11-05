@@ -53,3 +53,21 @@ test('M2: under a stamp or a watermark, a recoloured word or the overlay\'s hue 
   assert.deepEqual(lines(edits), [], show(edits));
   assert.ok(recoloured(edits).length > recoloured(ctrl).length, show(edits));
 });
+
+test('M3: a word made bold at the same pixels in a row that was given a fill is listed, one word too', { skip }, async () => {
+  // reportlab status list: four “Accepted” (9–12 pt) drawn faux bold (text
+  // render mode 2, 0.5 pt stroke), each in a row that gets a yellow or a
+  // light blue fill. Without the fill, the same edit gives four weight
+  // items (see heavier). Before: none under the fill; the ink grows by
+  // about a third, but each word stands alone on its row, and a weight
+  // change needs a neighbour changed alike, or the test for glyphs drawn
+  // heavier, which ran only where no overlay lay on the word.
+  for (const after of ['probe8-M3-fill-bold.pdf', 'probe8-M3-fillblue-bold.pdf']) {
+    const r = await run('probe8-M3-before.pdf', after);
+    assert.deepEqual(recoloured(r), ['Accepted', 'Accepted', 'Accepted', 'Accepted'], `${after}: ${show(r)}`);
+    assert.deepEqual(lines(r), [], `${after}: ${show(r)}`);
+  }
+  // Control: the fills alone change no word.
+  const fill = await run('probe8-M3-before.pdf', 'probe8-M3-fill.pdf');
+  assert.deepEqual(list(fill.changes), ['Graphic or image changed'], show(fill));
+});

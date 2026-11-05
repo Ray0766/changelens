@@ -2230,9 +2230,11 @@ function samePixels(ra: Rect, sa: number, rb: Rect, sb: number): boolean {
  * of one CJK glyph by up to a fifth. The darkness gained must lie on the
  * glyphs or next to them (a pixel away), along most of their edges (not a
  * mark beside one glyph, nor the next glyph reaching into the box), and
- * come to a tenth of their ink; next to none may be lost.
+ * come to a tenth of their ink; next to none may be lost. `behindA` and
+ * `behindB`: the lightness of a fill behind the glyphs at a pixel (0 where
+ * there is none, see appearanceChanges), against which darkness is taken.
  */
-function heavier(A: Prepared, ra: Rect, B: Prepared, rb: Rect): boolean {
+function heavier(A: Prepared, ra: Rect, B: Prepared, rb: Rect, behindA?: (x: number, y: number) => number, behindB?: (x: number, y: number) => number): boolean {
   const s = A.r.scale;
   if (!samePixels(ra, s, rb, B.r.scale)) return false;
   const dx = Math.round((rb.x - ra.x) * s);
@@ -2242,7 +2244,10 @@ function heavier(A: Prepared, ra: Rect, B: Prepared, rb: Rect): boolean {
   const y0 = Math.max(0, -dy, Math.floor(ra.y * s));
   const y1 = Math.min(A.r.height, B.r.height - dy, Math.ceil((ra.y + ra.h) * s));
   if (x1 - x0 < 3 || y1 - y0 < 3) return false;
-  const dark = (P: Prepared, x: number, y: number) => (255 - P.lum[y * P.r.width + x]) / 255;
+  const dark = (P: Prepared, x: number, y: number) => {
+    const base = (P === A ? behindA : behindB)?.(x, y) || 255;
+    return Math.max(0, base - P.lum[y * P.r.width + x]) / base;
+  };
   // Ink of `A` within a pixel of (x, y).
   const inked = (x: number, y: number) => {
     for (let v = Math.max(0, y - 1); v <= Math.min(A.r.height - 1, y + 1); v++)
@@ -2799,6 +2804,7 @@ function appearanceChanges(
     // against the fill or the paper behind it (a word made bold, or turned
     // grey, in a row that was given a fill).
     const behindAll = [...oa, ...ob].every((c) => c.clear && (c.behind || c.kept));
+    let heavy = false;
     if (!outside && behindAll) {
       const behind = (own: Cover[]) => {
         const lums = own.map((c) => 0.299 * c.colours[0][0] + 0.587 * c.colours[0][1] + 0.114 * c.colours[0][2]);
@@ -2807,9 +2813,19 @@ function appearanceChanges(
           return 0;
         };
       };
-      const wa = glyphWeight(A, ka, sa.hidden, behind(oa));
-      const wb = glyphWeight(B, kb, sb.hidden, behind(ob));
-      weight = wa.n >= 6 && wb.n >= 6 && Math.abs(wa.total - wb.total) / Math.max(wa.total, wb.total, 1) > 0.3;
+      const [ba, bb] = [behind(oa), behind(ob)];
+      const wa = glyphWeight(A, ka, sa.hidden, ba);
+      const wb = glyphWeight(B, kb, sb.hidden, bb);
+      const change = Math.abs(wa.total - wb.total) / Math.max(wa.total, wb.total, 1);
+      weight = wa.n >= 6 && wb.n >= 6 && change > 0.3;
+      // The same glyphs drawn heavier at the same pixels (see heavier), each
+      // pixel's darkness against the fill behind it: shown on a single word
+      // too, as without a fill (a status word made bold in a row that was
+      // given a fill). Only behind a graphic that changed (a fill, a tint,
+      // half the word's box or more): text drawn over the word (a stamp, a
+      // watermark's letters, whose glyph cores are kept) lies over part of
+      // its glyphs, and where it moved, the glyphs there look heavier.
+      heavy = exact && !ca && !cb && !t?.[0] && !t?.[1] && [...oa, ...ob].every((c) => c.behind) && wa.n >= 6 && wb.n >= 6 && change > 0.1 && (wb.total > wa.total ? heavier(A, ka, B, kb, ba, bb) : heavier(B, kb, A, ka, bb, ba));
     }
     const shift = [ib.chroma[0] - ia.chroma[0], ib.chroma[1] - ia.chroma[1], ib.chroma[2] - ia.chroma[2]];
     let colour = ia.n >= 6 && ib.n >= 6 && beyondOverlays(shift, oa, ia.touched, ob, ib.touched) > 30;
@@ -2829,7 +2845,8 @@ function appearanceChanges(
         bg.every((v) => v >= 240) || near(bg, other) || own.some((c) => c.wide.some((k) => near(k, bg)));
       colour = !owned(fa.bg, fb.bg, oa) || !owned(fb.bg, fa.bg, ob);
     }
-    if (colour || weight) hits.push({ a, b, colour, ink: ib, p });
+    const bold = heavy && !colour;
+    if (colour || weight || bold) hits.push({ a, b, colour, ink: ib, p, bold });
     // Most of its glyphs lie in the overlay's states (its weight was not
     // judged), too few are left to tell their colour, or its change of
     // colour was put down to the overlay: compared in part.
