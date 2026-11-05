@@ -3591,8 +3591,9 @@ function textAxis(page: { width: number; height: number; textAngle?: number }): 
  *   does not. Words beside the part that an edit in it can move (after it
  *   at a line start, before it on a line set flush right) are no reference;
  * - the old text reached past the new edge: the missing glyphs lay outside
- *   the new page. Deleted words must lie wholly outside it, after the same
- *   shift; at a line start the text after them must also keep its place.
+ *   the new page. Deleted words must lie wholly outside it, after the
+ *   page's shift, and the text beside them on the line (before them at a
+ *   line end, after them at a line start) must keep its place.
  * Whole lines deleted from a page whose box lost room at the top or bottom
  * are folded the same way when they lie wholly outside the new box and most
  * of the page's matched text moved by its one shift. Nothing is folded on a
@@ -3674,24 +3675,33 @@ function foldClipped(changes: Change[], overflow: Change[], oldDoc: DocModel, ne
     toks.length
       ? { pages: [toks[0].page], rects: rectsOf(toks), text: joinTokens(toks), start: toks[0].i, end: toks[toks.length - 1].i + 1 }
       : { pages: caret ? [caret.page] : [], rects: [], text: '', caret };
-  // Replacements by their first old token, for the text right after a deletion.
+  // Replacements by their first and last old token, for the text right after or before a deletion.
   const byOldStart = new Map<number, Change>();
-  for (const c of changes) if (c.kind === 'replace' && c.old.start !== undefined && c.new.start !== undefined) byOldStart.set(c.old.start, c);
+  const byOldEnd = new Map<number, Change>();
+  for (const c of changes) {
+    if (c.kind !== 'replace' || c.old.start === undefined || c.new.start === undefined) continue;
+    byOldStart.set(c.old.start, c);
+    byOldEnd.set(c.old.end! - 1, c);
+  }
   /**
-   * Old token k ends on new page `np` where it ended, after the shift `d`:
-   * matched and moved by `d`, or the start of a replacement whose visible
-   * part on that line ends there ("2027/0042" cut to "027/0042").
+   * Old token k stands on new page `np` where it stood, after the shift `d`,
+   * on its side that faces a deletion beside it: matched and moved by `d`;
+   * or, after a deletion at a line start, the start of a replacement whose
+   * visible part on that line ends where it ended ("2027/0042" cut to
+   * "027/0042"); or, before a deletion at a line end, the end of one whose
+   * visible part starts where it started ("full" cut to "fu").
    */
-  const keepsPlace = (k: number, np: number, d: number): boolean => {
+  const keepsPlace = (k: number, np: number, d: number, side: 'start' | 'end', tol = 1): boolean => {
     const m = moved(k, np);
-    if (m !== null) return Math.abs(m - d) <= 1;
-    const r = byOldStart.get(k);
+    if (m !== null) return Math.abs(m - d) <= tol;
+    const r = (side === 'start' ? byOldStart : byOldEnd).get(k);
     if (!r) return false;
     const [oa, na] = axes(oldDoc.tokens[k].page, np);
     const o = oldDoc.tokens.slice(r.old.start, r.old.end).filter((t) => include(t) && t.line === oldDoc.tokens[k].line);
     const n = newDoc.tokens.slice(r.new.start, r.new.end).filter(include);
     if (!oa || !na || !o.length || !n.length || n.some((t) => t.line !== n[0].line) || n[0].page !== np) return false;
-    return Math.abs(na.span(lastRect(n[n.length - 1]))[1] - oa.span(lastRect(o[o.length - 1]))[1] - d) <= 1;
+    if (side === 'end') return Math.abs(na.span(n[0].rects[0])[0] - oa.span(o[0].rects[0])[0] - d) <= tol;
+    return Math.abs(na.span(lastRect(n[n.length - 1]))[1] - oa.span(lastRect(o[o.length - 1]))[1] - d) <= tol;
   };
   interface Part {
     old: Token[];
@@ -3743,26 +3753,45 @@ function foldClipped(changes: Change[], overflow: Change[], oldDoc: DocModel, ne
       const next = onLine ? moved(k, npage) : null;
       // A line set from its start (its first matched word kept the page's
       // shift): an edit moves the words after it, not those before it. So
-      // at a line end the word before the part and the rest of the line are
-      // references for where its glyphs stand, also when an edit earlier
-      // on the line pushed them. Otherwise, and at a line start, the words
+      // at a line end the word before a shortened part and the rest of the
+      // line are references for where its glyphs stand, also when an edit
+      // earlier on the line pushed them. Otherwise, and at a line start, the words
       // beside the part move with any edit in it ("−4,800.00 is" →
       // "4,800.00 is" and "not exceed" → "exceed" re-set from the margin,
       // "EUR 5,000,000" → "EUR 5,000" set flush right), and only the page's
       // own shift (the crop) is.
       let first: number | null = null;
-      for (let j = oldDoc.lines[o[0].line].start; s.side === 'end' && first === null && j < o[0].i; j++) first = moved(j, npage);
+      let firstAt = 0;
+      for (let j = oldDoc.lines[o[0].line].start; s.side === 'end' && first === null && j < o[0].i; j++) {
+        first = moved(j, npage);
+        if (first !== null) firstAt = oa.span(oldDoc.tokens[j].rects[0])[0];
+      }
       const fromStart = first !== null && Math.abs(first - shift.along) <= 1;
       const line = fromStart ? lineShift(o[0].line, npage, from, to) : null;
       if (!n.length) {
-        if (s.side === 'end') {
-          const d = (fromStart ? (next ?? line) : null) ?? shift.along;
-          return o.every((t) => oa.span(t.rects[0])[0] + d > L - 0.5);
+        // Deleted words are placed by the page's shift, and the text beside
+        // them on the line must have kept its place, as with cut text. A
+        // deletion re-sets it: towards the margin at a line start, and at a
+        // line end on a justified line ("shall not exceed" → "shall exceed"
+        // spreads "shall" to the margin) or one set flush right
+        // ("2,500.00-" → "2,500.00"), where the word before now ends where
+        // the deleted words ended. Words that an edit earlier on the line
+        // pushed past the edge leave no such evidence and stay listed.
+        if (s.side === 'start') {
+          if (onLine && !keepsPlace(k, npage, shift.along, 'start')) return false;
+          return o.every((t) => oa.span(lastRect(t))[1] + shift.along < 0.5);
         }
-        // Deleted at a line start: the text after it kept its place, as
-        // with cut text; a deletion re-sets it towards the margin.
-        if (onLine && !keepsPlace(k, npage, shift.along)) return false;
-        return o.every((t) => oa.span(lastRect(t))[1] + shift.along < 0.5);
+        if (onLine) {
+          // PDF.js places a run's glyphs by their share of its width, so
+          // where the edge took a run's tail, the glyphs before it can be
+          // placed up to about 1 % of their distance from the line start
+          // off ("services 2027 (DRAFT)" cut after "2027": 2.2 pt).
+          const tol = fromStart ? Math.max(1, 0.01 * (oa.span(oldDoc.tokens[k].rects[0])[0] - firstAt)) : 1;
+          if (!keepsPlace(k, npage, shift.along, 'end', tol)) return false;
+          const m = newOfOld[k];
+          if (m >= 0 && Math.abs(na.span(lastRect(newDoc.tokens[m]))[1] - oa.span(lastRect(o[o.length - 1]))[1] - shift.along) <= 1) return false;
+        }
+        return o.every((t) => oa.span(t.rects[0])[0] + shift.along > L - 0.5);
       }
       const a = squash(joinTokens(o));
       const b = squash(joinTokens(n));

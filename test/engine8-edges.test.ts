@@ -259,3 +259,43 @@ test('T2N4: a line deleted at the bottom of a page printed to fit shorter paper 
     assert.deepEqual(listed(await run(before, kept)), [], kept);
   }
 });
+
+// Third pass (re-verifier counter-probes, synthetic; reportlab and Chromium,
+// pypdf for the page boxes): copied to test/fixtures/probe8-T2L1-* and
+// probe8-T2L2-*. A word deleted at a line end belongs to the cut only where
+// it lay wholly past the new edge after the page's shift and the word
+// before it kept its place: a deletion re-sets a justified line or one set
+// flush right, so the word before then ends where the deleted word ended.
+
+test('T2L1: a word deleted at the end of a justified line on a narrower page is a deletion, not cut off', async () => {
+  // reportlab, box 595 → 545 pt; "… contract year shall / not exceed …" → "… shall / exceed …".
+  // "not" stood at x 523.7–539.0, inside the new page; re-justified, "shall" moved 28.6 pt to the margin.
+  const rl = await run('T2L1-rl-before', 'T2L1-rl-deleted');
+  assert.deepEqual(listed(rl), ['Deleted “not”']);
+  // Control: the narrower box alone; nothing on the page is cut.
+  assert.deepEqual(listed(await run('T2L1-rl-before', 'T2L1-rl-cut')), []);
+  // Chromium, one run per justified line, the page trimmed to 1 pt beyond the text.
+  const chr = await run('T2L1-chr-before', 'T2L1-chr-deleted');
+  assert.ok(listed(chr).includes('Deleted “not”'), listed(chr).join(' | '));
+  assert.ok(cut(chr, 'right').every((c) => !/\bnot\b/.test(c.old.text)));
+  const chrCut = await run('T2L1-chr-before', 'T2L1-chr-cut');
+  assert.ok(!listed(chrCut).some((d) => d.startsWith('Deleted')), listed(chrCut).join(' | '));
+});
+
+test('T2L2: a trailing minus removed from a right-aligned amount at a right crop is listed beside the cut', async () => {
+  // "Invoice 2027-101 … 2,500.00-" → "2,500.00", right-aligned at x 545; the box ends at x 540.
+  // The minus (x 541.3–545) lay past the new edge, but "2,500.00" moved 3.7 pt to end where it ended.
+  const r = await run('T2L2-before', 'T2L2-deleted');
+  assert.deepEqual(listed(r).sort(), ['Deleted “-”', RIGHT].sort());
+  // The other row's minus, only cut, stays in the cut item.
+  assert.equal(cut(r, 'right')[0].old.text, '-');
+  // Control: the crop alone cuts both minus signs.
+  const c = await run('T2L2-before', 'T2L2-cut');
+  assert.deepEqual(listed(c), [RIGHT]);
+  assert.equal(c.changes[0].old.text, '- -');
+  // Control: a centred heading cut after "2027": PDF.js places the glyphs of the run that
+  // lost "(DRAFT)" by their share of its width, so "2027" is 2.2 pt off; still only cut.
+  const h = await run('T2L2-centred-before', 'T2L2-centred-cut');
+  assert.deepEqual(listed(h), [RIGHT]);
+  assert.equal(h.changes[0].old.text, '(DRAFT)');
+});
