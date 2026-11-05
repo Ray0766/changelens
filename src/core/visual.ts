@@ -1573,11 +1573,15 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
   // of it where their strokes are thin or anti-aliased (the waist of an
   // "8", the bars of e and a at the height of a strike). Summed over two
   // rows on either side, so that a rule both versions have, a pixel higher
-  // in one, adds nothing.
-  const gained = (k: number) => {
+  // in one, adds nothing. `open`: of the columns that `a` leaves light in
+  // row k (a line over a stroke of the glyph adds nothing there), to tell
+  // part of the box (see lineIn's result): a box beside its glyphs takes in
+  // only a few of their columns.
+  const gained = (k: number, open = false) => {
     let up = 0;
     let m = 0;
     for (let c = 0; c < C; c++) {
+      if (open && A.d[k * A.cols + c] >= 0.85) continue;
       const d = column(B, c, k - 2, k + 2) - column(A, c, k - 2, k + 2);
       if (Number.isNaN(d)) continue;
       m++;
@@ -1631,7 +1635,7 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
   let part = false;
   for (let k = 0; k < n; k++) {
     if (!line(k)) {
-      if (!part && win(pb, k, 1) - win(pa, k, 1) >= 0.15 && gained(k) >= 0.3) part = true;
+      if (!part && win(pb, k, 1) - win(pa, k, 1) >= 0.15 && gained(k, true) >= 0.3) part = true;
       continue;
     }
     let e = k;

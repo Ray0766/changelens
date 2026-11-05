@@ -104,8 +104,10 @@ test('R4-10: strikes and underlines on short words whose estimated box lies besi
   // Helvetica widths, drift 2–3 pt off the Carlito glyphs. Before: "No
   // differences found." for 20 struck figures, and “six” and “4” missing.
   const r = await run('probe8-R4-10-before.pdf', 'probe8-R4-10-s.pdf');
-  // 4, 6 and 8 lie further off than their own width: still missed (a limit).
-  assert.deepEqual(lines(r), struck('0', '1', '2', '3', '5', '7', '9', '10', '14', '47', '88', '−5', '1.5'));
+  // 4, 6 and 8 were missed until the second pass of round 8: their boxes
+  // take in only the first columns of the glyph, where the strike crosses
+  // a stroke of it, so too few columns gained to try the box shifted.
+  assert.deepEqual(lines(r), struck('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '14', '47', '88', '−5', '1.5'));
   const c = await run('probe8-R4-10-before.pdf', 'probe8-R4-10-c-n25.pdf');
   assert.deepEqual(list(c.changes), ['Added 10 words']);
   const u = await run('probe8-R4-10-ch11-before.pdf', 'probe8-R4-10-ch11-u.pdf');
