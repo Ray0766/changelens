@@ -93,6 +93,14 @@ test('R4-04: a figure that turns red next to an added red arrow icon is listed',
   // Control: the icons alone recolour nothing.
   const icons = await run('probe8-R4-04-before.pdf', 'probe8-R4-04-icon-only.pdf');
   assert.deepEqual(list(icons.changes), ['Graphic or image added'], show(icons));
+  // 36 rows: arrows of 6, 8, 10 and 12 px, 0, 1 or 2 no-break spaces before
+  // −4.2%, −4.2 or (1,250), each figure turned red. Before: 22 of 36 (14 with
+  // the arrow's colour taken from its edge; then 7 with two spaces, where
+  // nothing differs around the figure but the figure itself).
+  const sweep = await run('probe8-R4-04-sweep-before.pdf', 'probe8-R4-04-sweep-after.pdf');
+  assert.equal(recoloured(sweep).length, 36, show(sweep));
+  const sweepIcons = await run('probe8-R4-04-sweep-before.pdf', 'probe8-R4-04-sweep-icons.pdf');
+  assert.deepEqual(recoloured(sweepIcons), [], show(sweepIcons));
 });
 
 test('R4-05: figures recoloured inside a cell fill that was added or changed are listed', { skip }, async () => {

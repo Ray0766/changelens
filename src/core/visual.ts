@@ -2355,11 +2355,13 @@ function beyondOverlays(d: number[], oa: Cover[], sa: number, ob: Cover[], sb: n
  * appearanceChanges), so an edit of the word itself is still seen where it
  * is visible in both versions. With `known`, the overlay's colours are
  * those of the ones given that its ink has (see knownColours); with
- * `beyond` false, its ink is in the shapes only. Null when no
+ * `beyond` false, its ink is in the shapes only; `seen.differs` is set to
+ * the number of pixels next to the word that differ from the other side.
+ * Null when no
  * such ink lies near the word (it
  * sits between the overlay's strokes, or the overlay is as light as paper).
  */
-function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[], known?: number[][], beyond = true): Cover | null {
+function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[], known?: number[][], beyond = true, seen?: { differs: number }): Cover | null {
   const sx = X.r.scale;
   const sy = Y.r.scale;
   const W = X.r.width;
@@ -2418,6 +2420,7 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
       }
     }
   }
+  if (seen) seen.differs = samples.length + onFill.length;
   const inks = known ? knownColours(dx, samples.length >= 8 ? samples : onFill, known) : overlayColours(dx, samples.length >= 8 ? samples : onFill);
   if (!inks.length) return null;
   // What the other side shows under that ink where it is not paper (the
@@ -3264,8 +3267,15 @@ function compareAligned(
       const nb = differsNear(bwdDiff, rb, b.rects[0]);
       if (!na && !nb) return null;
       if (!sameShape(a.rects[0], b.rects[0])) return 'skip';
-      const ga = na ? overlayInk(A, a.rects[0], B, b.rects[0], [diffShape(fwdDiff, ra, a.rects[0])]) : null;
-      const gb = nb ? overlayInk(B, b.rects[0], A, a.rects[0], [diffShape(bwdDiff, rb, b.rects[0])]) : null;
+      const seenA = { differs: 0 };
+      const seenB = { differs: 0 };
+      const ga = na ? overlayInk(A, a.rects[0], B, b.rects[0], [diffShape(fwdDiff, ra, a.rects[0])], undefined, true, seenA) : null;
+      const gb = nb ? overlayInk(B, b.rects[0], A, a.rects[0], [diffShape(bwdDiff, rb, b.rects[0])], undefined, true, seenB) : null;
+      // Nothing differs around the word, outside its box, on either side:
+      // the difference found next to it lies beyond what its measure sees
+      // (an icon a few spaces before a figure), or in its box (the word
+      // itself recoloured). It is measured as it is.
+      if (!ga && !gb && seenA.differs < 8 && seenB.differs < 8) return null;
       return (ga || gb) && !partly(ga, gb) && !partly(gb, ga) ? [ga, gb] : 'skip';
     };
     // Much of what differs next to the word is neither side's overlay ink:
