@@ -2890,10 +2890,11 @@ function sameRole(p: LabelBox, q: LabelBox): boolean {
  * same number of levels under the same parent ("4.1", "4.2", "4.3" under
  * clause 4; "1.", "2.", "3." at the top level; a table's row numbers), in
  * the same role (see sameRole). A label joins the most recent list whose
- * last label is in its column and whose labels are in its weight. A single
- * label set in another weight (one item's label made bold) joins the list
- * when it numbers on from the list's last label and no list is in its own
- * role.
+ * last label is in its column and whose labels are in its weight. A label
+ * set in another weight (one item's label made bold) joins the list when it
+ * numbers on from the list's last label and no list in its column is in
+ * its own weight; so do the labels after it in that weight, until such a
+ * list exists ("1." bold, then "2." and "3." regular: one list).
  */
 function labelSequences(doc: DocModel): { at: Map<number, Sibling>; all: Sibling[] } {
   const at = new Map<number, Sibling>();

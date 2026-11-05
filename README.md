@@ -174,6 +174,7 @@ This first version focuses on **text-based PDFs**. It has been tested with PDFs 
 - **Word boxes** are estimated from the width of each text run, so highlights may be off by a few points with unusual fonts.
 - **Fonts without a bold face.** When a font has no bold variant, PDF generators fake bold by stroking the glyphs. The visual check catches this only if the weight change is strong enough.
 - **Small shifts.** Lines or graphics that move by 4 pt or less are listed only after **Show**.
+- **Cut-off text.** Text that a smaller page box hides is listed as cut off, not as deleted, when the words around it kept their place. A word deleted beyond the new edge of an unchanged layout looks the same and is listed as cut off too. On a page whose text was scaled to fit other paper, nothing is taken for cut off.
 - **Form fields.** Values of text and choice fields are compared as text. Check boxes and radio buttons are compared only as graphics. Password fields, rotated fields and values that cannot be read as text are counted in a notice and compared only as images.
 - **Renumbering.** A list or clause number is hidden as automatic renumbering only when numbered items at the same level were added, removed or moved above it. A column of figures that starts at 1 and counts up by one can still be taken for row numbers.
 - **Sub- and superscript.** A change only of script form ("CO2" → "CO₂", a raised "rd") is not reported.

@@ -179,11 +179,11 @@ All 17 are fixed. Each has a regression test built from the probe PDF (`test/eng
 | Recorded run, strict rules | 88 / 87 / 191 (88) | — | — |
 | Recorded run, rules decided after the run | 114 / 114 / 168 (114) | — | — |
 | Current engine, strict rules | 93 / 92 / 26 (93) | — | — |
-| Current engine, registered rules | 109 / 109 / 10 (109) | 92 / 92 / 263 (83) | 117 / 97 / 404 (109) |
+| Current engine, registered rules | 108 / 108 / 10 (108) | 92 / 92 / 263 (83) | 117 / 97 / 404 (109) |
 | Current engine, current rules | 118 / 118 / 4 (118) | 92 / 92 / 263 (83) | 117 / 97 / 404 (109) |
 
-**This is not a blind result.** The engine was fixed with these cases in view, and the scorer rules were decided after seeing the run. The 9 edits that only the later rules credit are of the kinds the analysis classified as scorer issues:
-- 3 header or footer edits, disclosed in differing header/footer lines but not in one hunk;
+**This is not a blind result.** The engine was fixed with these cases in view, and the scorer rules were decided after seeing the run. The 10 edits that only the later rules credit are of the kinds the analysis classified as scorer issues:
+- 4 header or footer edits, disclosed in differing header/footer lines but not in one hunk. One of them, the running line "Draft for discussion · 2 October 2026" of the services agreement, counted under the registered rules until fix round 8 (109 / 109 / 10). The comparison with headers and footers included then listed it inside a false "Moved and edited" passage that held the whole line. It is now an edit in place that holds only the changed words ("discussion · 2" → "signature · 12");
 - 4 one-sided regions: an added stamp annotation and a sticky-note icon, an added signature image, the removed watermark;
 - "每年 → 每半年" reported as "Added 半";
 - the overflow of a cropped page.

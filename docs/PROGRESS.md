@@ -16,7 +16,7 @@ Short running notes for whoever continues (people or agents). Newest first.
 - **Now**:
   - 31 non-blind pairs: 117 / 117 / 0;
   - round 3: 73 / 73 / 1;
-  - round 4: 118 / 118 / 4 with the current rules, 109 / 109 / 10 with the registered ones.
+  - round 4: 118 / 118 / 4 with the current rules, 109 / 109 / 10 with the registered ones (108 / 108 / 10 after fix round 8, see EVALUATION).
 
   Rounds 3 and 4 are no longer held out.
 - **Open, as facts**:
