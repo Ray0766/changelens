@@ -2,8 +2,9 @@
  * Approximate glyph advance widths (1/1000 em) used to split a PDF text run
  * into per-word boxes. PDF.js gives us the exact width of a whole run but not
  * of the individual characters, so we distribute the run width according to
- * standard Helvetica / Times / Courier metrics. This is accurate to a few
- * percent for most proportional fonts — plenty for highlighting.
+ * standard Helvetica / Times / Courier metrics (the Adobe AFM widths, regular
+ * and bold). This is accurate to a few percent for most proportional fonts —
+ * plenty for highlighting.
  */
 
 // prettier-ignore
@@ -26,6 +27,26 @@ const TIMES = [
   500, 500, 333, 389, 278, 500, 500, 722, 500, 500, 444, 480, 200, 480, 541,
 ];
 
+// prettier-ignore
+const HELVETICA_BOLD = [
+  278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 278, 278,
+  556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 333, 333, 584, 584, 584, 611,
+  975, 722, 722, 722, 722, 667, 611, 778, 722, 278, 556, 722, 611, 833, 722, 778,
+  667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 333, 278, 333, 584, 556,
+  333, 556, 611, 556, 611, 556, 333, 611, 611, 278, 278, 556, 278, 889, 611, 611,
+  611, 611, 389, 556, 333, 611, 556, 778, 556, 556, 500, 389, 280, 389, 584,
+];
+
+// prettier-ignore
+const TIMES_BOLD = [
+  250, 333, 555, 500, 500, 1000, 833, 278, 333, 333, 500, 570, 250, 333, 250, 278,
+  500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 333, 333, 570, 570, 570, 500,
+  930, 722, 667, 722, 722, 667, 611, 778, 778, 389, 500, 778, 667, 944, 722, 778,
+  611, 778, 722, 556, 667, 722, 722, 1000, 722, 722, 667, 333, 278, 333, 581, 500,
+  333, 500, 556, 444, 556, 444, 333, 500, 556, 278, 333, 556, 278, 833, 556, 500,
+  556, 556, 444, 389, 333, 556, 500, 722, 500, 500, 444, 394, 220, 394, 520,
+];
+
 export function isWide(cp: number): boolean {
   return (
     (cp >= 0x1100 && cp <= 0x115f) ||
@@ -39,11 +60,11 @@ export function isWide(cp: number): boolean {
   );
 }
 
-/** Relative advance width of a character for a generic font family. */
-export function charWeight(ch: string, family: string): number {
+/** Relative advance width of a character for a generic font family (`bold`: of its bold face). */
+export function charWeight(ch: string, family: string, bold = false): number {
   const cp = ch.codePointAt(0)!;
   if (family === 'monospace') return isWide(cp) ? 1200 : 600;
-  const table = family === 'serif' ? TIMES : HELVETICA;
+  const table = family === 'serif' ? (bold ? TIMES_BOLD : TIMES) : bold ? HELVETICA_BOLD : HELVETICA;
   if (cp >= 32 && cp <= 126) return table[cp - 32];
   if (isWide(cp)) return 1000;
   if (cp === 0xa0) return table[0];

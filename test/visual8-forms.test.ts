@@ -67,3 +67,17 @@ test('R3-06: lines of a multi-line field drawn from its value lie where the view
   r = await run('R3-06-rl-before', 'R3-06-rl-after');
   assert.deepEqual(listed(r), ['Number changed: 48,120 → 48,210 (+0.2%) (form field)', 'Added 11 words (form field)']);
 });
+
+test('T3-forms-V2: a value set in a bold standard font is measured with the bold widths (no graphic at its end)', { skip }, async () => {
+  // LibreOffice form (ExportFormFields): the new version sets the value in
+  // Times-Bold (/TiBo). Measured with the regular Times widths, the end of
+  // the drawn value lay outside its box and came out as "Graphic or image added".
+  let r = await run('V2-lo-before', 'V2-lo-bold');
+  assert.deepEqual(listed(r), ['“Lisbon harbour depot” now bold']);
+  // pypdf, values in /V: the room set in Helvetica-Bold (/HeBo).
+  r = await run('V2-hebo-before', 'V2-hebo-bold');
+  assert.deepEqual(listed(r), ['“Room 3.14 (Harbour)” now bold']);
+  // Control: a word added at the end of the bold value is listed.
+  r = await run('V2-hebo-before', 'V2-hebo-bold-edit');
+  assert.deepEqual(listed(r), ['Added “B” (form field)', '“Room 3.14 (Harbour)” now bold']);
+});

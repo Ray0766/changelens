@@ -483,7 +483,9 @@ function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[], 
   // here (TextWidgetAnnotation: 1 pt padding top and bottom, 2 pt at the
   // sides, lines of 1.35 × the font size fitted to the box).
   const viewer = a.fieldType === 'Tx' && !Array.isArray(a.textContent);
-  const em = (s: string) => Array.from(s).reduce((n, ch) => n + charWeight(ch, family), 0) / 1000;
+  // A bold standard font is wider than the regular one (Helvetica-Bold, Times-Bold).
+  const bold = /bold/i.test(font);
+  const em = (s: string) => Array.from(s).reduce((n, ch) => n + charWeight(ch, family, bold), 0) / 1000;
   const floor2 = (v: number) => Math.floor(v * 100) / 100;
   const inner = { w: boxW - 4, h: boxH - 2 };
   let fs = a.defaultAppearanceData?.fontSize ?? 0;
