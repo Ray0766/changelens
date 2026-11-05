@@ -1732,6 +1732,18 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
     let c1 = e;
     let most = 0;
     for (let j = k; j <= e; j++) most = Math.max(most, pb[j] - pa[j]);
+    // Glyphs drawn heavier as a whole (a synthetic bold, text render mode
+    // 2) gain darkness in every row of theirs, a little more where their
+    // strokes run across (the x-height band of "contract" reads as a line
+    // 3–4 pt thick): where the glyphs' rows gained so (the median of them,
+    // the line's rows among them), a line must gain clearly more in its
+    // own rows. A strike through such a word still does (twice as much and
+    // more in its rows); an underline lies below the glyphs' rows.
+    const rows: number[] = [];
+    for (let j = 0; j < n; j++) if (pa[j] >= 0.1) rows.push(pb[j] - pa[j]);
+    rows.sort((p, q) => p - q);
+    const typical = rows.length >= 5 ? rows[rows.length >> 1] : 0;
+    if (typical >= 0.06 && most < 1.6 * typical + 0.05) return null;
     while (c0 < c1 && pb[c0] - pa[c0] < 0.4 * most) c0++;
     while (c1 > c0 && pb[c1] - pa[c1] < 0.4 * most) c1--;
     return { line: rel >= 0.72 ? 'underline' : 'strike', rows: [Math.round(B.ys[k]), Math.round(B.ys[e])], core: [Math.round(B.ys[c0]), Math.round(B.ys[c1])] };

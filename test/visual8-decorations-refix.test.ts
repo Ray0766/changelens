@@ -132,3 +132,34 @@ test('V2-decorations-V6: a label turned by a quarter and recoloured is a colour 
   const m = await run('probe8-V2V6-before.pdf', 'probe8-V2V6-marks.pdf');
   assert.deepEqual(list(m.changes), ['Struck through: “4”', 'Struck through: “24”']);
 });
+
+test('V2-decorations-V4: Latin text made bold by stroking its outlines gives weight items, not strikes; a real strike there is listed', { skip }, async () => {
+  // Helvetica 10.5, text render mode 2: "nominated" and "writing" bold,
+  // lines 6 and 8 bold as a whole, "statutory" struck. Before: false
+  // strikes on contract, governed, laws, "Spare parts are" and "for seven
+  // years" (their x-height band, grown on every side, read as a line).
+  const items = (r: CompareResult) => r.changes.map((c) => `${describeChange('en', c)} | ${c.new.text}`);
+  const w = (text: string) => `Text colour or weight changed | ${text}`;
+  for (const after of ['probe8-V2V4-bold.pdf', 'probe8-V2V4-bold-06.pdf']) {
+    const r = await run('probe8-V2V4-before.pdf', after);
+    assert.deepEqual(items(r), [
+      w('nominated'),
+      'Struck through: “statutory” | statutory',
+      w('writing'),
+      w("The contract is governed by the laws of the seller's country"),
+      w('Spare parts are kept available for seven years after delivery'),
+    ]);
+  }
+  // Lines 3 and 7 bold as a whole, "statutory" (in line 3) and
+  // "twenty-four" struck: both strikes are listed, and no false line on
+  // the bold words around them ("Underlined: “Late”", "Struck through:
+  // “at”" before, and the strike run on to "statutory rate per").
+  const s = await run('probe8-V2V4-before.pdf', 'probe8-V2V4-bold-struck.pdf');
+  assert.deepEqual(items(s), [
+    w('Late payment bears interest at the'),
+    'Struck through: “statutory” | statutory',
+    w('rate per year'),
+    'Struck through: “twenty-four” | twenty-four',
+    w("Either party may terminate on ninety days' written notice"),
+  ]);
+});
