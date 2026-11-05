@@ -47,6 +47,51 @@ test('R3-01 control: a number printed in a running header is still ignored and c
   assert.equal(r.ignored.furniture, 3);
 });
 
+test('T3-forms-N3: header and footer field values are compared page by page when the text re-flows', async () => {
+  // Policy conditions, 3 pages: "Policy number" in the header of every page
+  // (one field, a widget per page), "Holder initials" in the footer (a field
+  // per page). A paragraph is inserted on p. 1, so the text re-flows over
+  // the page breaks.
+  const bodyOnly = (r: CompareResult) => r.changes.filter((c) => !c.field).map((c) => describeChange('en', c));
+  // Control: the values are unchanged, only the insertion is listed.
+  let r = await run('N3-before', 'N3-reflow-same');
+  assert.deepEqual(listed(r), ['Added 54 words']);
+  // The policy number changed on every page: no initials deleted and added again.
+  r = await run('N3-before', 'N3-reflow-polno');
+  assert.deepEqual(listed(r), ['Number changed: PN-0042-771 → PN-0042-717 (in 3 places) (form field)', 'Added 54 words']);
+  assert.deepEqual(pages(r)[0], [
+    [1, 2, 3],
+    [1, 2, 3],
+  ]);
+  assert.deepEqual(r.minor, []);
+  // The initials of p. 2 cleared: listed on p. 2, at the footer; the policy
+  // number of p. 3 is not taken for a repeated table header.
+  r = await run('N3-before', 'N3-reflow-initials-blank');
+  assert.deepEqual(listed(r), ['Added 54 words', 'Deleted “K.A.” (form field)']);
+  const cleared = r.changes[1];
+  assert.deepEqual([cleared.old.rects.map((x) => x.page), cleared.new.caret?.page], [[1], 1]);
+  assert.ok(cleared.new.caret!.y > 780, JSON.stringify(cleared.new.caret));
+  assert.equal(cleared.contextBefore.endsWith('Holder initials'), true, cleared.contextBefore);
+  assert.deepEqual(r.minor, []);
+  // A reference per page, changed on p. 2 only.
+  r = await run('N3-ref-before', 'N3-ref-reflow-p2');
+  assert.deepEqual(listed(r), ['Added 54 words', 'Number changed: REF-2207 → REF-2270 (form field)']);
+  assert.deepEqual(pages(r)[1], [[2], [2]]);
+  assert.deepEqual(r.minor, []);
+  // 40 lines inserted: the new version has a page more. The values of the
+  // page left over repeat the header and footer of the other pages: counted
+  // with the header and footer differences (5 printed lines + 2 values).
+  r = await run('N3-before', 'N3-page-added');
+  assert.deepEqual(listed(r), ['Added a paragraph']);
+  assert.equal(r.ignored.furniture, 7);
+  // Control: initials on that page that no other page has are listed.
+  r = await run('N3-before', 'N3-page-added-leftover-initials');
+  assert.deepEqual(listed(r), ['Added a paragraph', 'Added “Z.Z.” (form field)']);
+  assert.deepEqual(bodyOnly(r), ['Added a paragraph']);
+  assert.deepEqual(pages(r)[1][1], [1]);
+  assert.equal(r.ignored.furniture, 6);
+});
+
 test('R3-05: a comb value is located on the cells it is drawn in (right-aligned, padded, centred)', async () => {
   // Annual income statement: 9-cell comb fields at x 383–545 (18 pt cells).
   // Right-aligned by the appearance (/Q 2, as Acrobat draws it), and

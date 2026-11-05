@@ -1527,6 +1527,248 @@ function inPlaceTokens(ctx: Ctx, hunks: Hunk[], keep: Set<Hunk>, oldToNew: numbe
   return { rest: out, pairs, edits: new Set(replaced.values()) };
 }
 
+// --------------------------------------------------- running field values ---
+
+/** The value of a form field on a header or footer line: running tokens [k0, k1), and where it stands. */
+interface RunningSlot {
+  k0: number;
+  k1: number;
+  page: number;
+  zone: string;
+  x0: number;
+  x1: number;
+  y: number;
+  h: number;
+}
+
+/**
+ * Form field values on running header and footer lines (a policy number in
+ * the header of every page, a holder's initials at the foot of each; see
+ * printedText in furniture.ts) are compared page by page, at their place in
+ * the margin, not where the reading order puts them. The reading order sets
+ * them between the last line of one page and the first of the next, so when
+ * the text re-flows over the page breaks they would stand between other
+ * words in the other version, break up the paragraphs around them, and come
+ * out as values deleted in one place and added in another.
+ *
+ * Pages are paired in order by the text they share: the heaviest chain of
+ * page-map links rising on both sides, pages paired by hand, and pages
+ * without shared text between two such pairs, as many on each side, in
+ * order. On a pair of pages, a value faces the value at the same place in
+ * the same margin (the same height, overlapping along the line), or else the
+ * only one left in that margin on both pages. Values that face each other
+ * are compared like any text; a value that faces none was cleared, or filled
+ * in, on that page. A page left over (the new version has a page more, or
+ * one fewer) carries the running header and footer of its version: a value
+ * that stands at the same place on another page of its version, with the
+ * same text, comes with that page and is counted with the ignored header and
+ * footer differences ("repeated"); any other value on it is listed.
+ */
+function runningFieldValues(
+  ctx: Ctx,
+  map: { links: PageLink[]; oldToNew: number[]; newToOld: number[] },
+  manual: [number, number][],
+): { changes: Change[]; pairs: number[]; repeated: number } {
+  const { A, B, oldDoc, newDoc } = ctx;
+  const out = { changes: [] as Change[], pairs: [] as number[], repeated: 0 };
+  if (!A.length && !B.length) return out;
+  /** The values of each page: runs of tokens on one line with no printed text (a label) between them. */
+  const slotsOf = (T: Token[], doc: DocModel) => {
+    const byPage = new Map<number, RunningSlot[]>();
+    let last: RunningSlot | undefined;
+    T.forEach((t, k) => {
+      let same = !!last && T[k - 1].line === t.line;
+      for (let j = T[k - 1]?.i + 1; same && j < t.i; j++) same = !!doc.tokens[j].field;
+      const x0 = Math.min(...t.rects.map((r) => r.x));
+      const x1 = Math.max(...t.rects.map((r) => r.x + r.w));
+      if (same && last) {
+        last.k1 = k + 1;
+        last.x0 = Math.min(last.x0, x0);
+        last.x1 = Math.max(last.x1, x1);
+        return;
+      }
+      last = { k0: k, k1: k + 1, page: t.page, zone: doc.lines[t.line].zone ?? '', x0, x1, y: t.rects[0].y, h: t.rects[0].h };
+      const list = byPage.get(t.page);
+      if (list) list.push(last);
+      else byPage.set(t.page, [last]);
+    });
+    return byPage;
+  };
+  const slotsA = slotsOf(A, oldDoc);
+  const slotsB = slotsOf(B, newDoc);
+  const nOld = oldDoc.pages.length;
+  const nNew = newDoc.pages.length;
+
+  // The heaviest chain of links rising on both sides (pages paired by hand first).
+  const links = [...map.links.map((l) => ({ o: l.oldPage, n: l.newPage, w: l.weight })), ...manual.map(([o, n]) => ({ o, n, w: 1e9 }))];
+  links.sort((x, y) => x.o - y.o || y.n - x.n);
+  const tree = new Float64Array(nNew + 1);
+  const treeAt = new Int32Array(nNew + 1).fill(-1);
+  const total = new Float64Array(links.length);
+  const prev = new Int32Array(links.length).fill(-1);
+  links.forEach((l, k) => {
+    let best = 0;
+    let at = -1;
+    for (let i = l.n; i > 0; i -= i & -i)
+      if (tree[i] > best) {
+        best = tree[i];
+        at = treeAt[i];
+      }
+    total[k] = best + l.w;
+    prev[k] = at;
+    for (let i = l.n + 1; i <= nNew; i += i & -i)
+      if (total[k] > tree[i]) {
+        tree[i] = total[k];
+        treeAt[i] = k;
+      }
+  });
+  const newOf = new Int32Array(nOld).fill(-1);
+  const oldOf = new Int32Array(nNew).fill(-1);
+  let top = -1;
+  for (let k = 0; k < links.length; k++) if (top < 0 || total[k] > total[top]) top = k;
+  for (let k = top; k >= 0; k = prev[k]) {
+    newOf[links[k].o] = links[k].n;
+    oldOf[links[k].n] = links[k].o;
+  }
+  // Pages without shared text between two pairs, as many on each side.
+  const linkedA = new Set(links.map((l) => l.o));
+  const linkedB = new Set(links.map((l) => l.n));
+  for (let p = 0, q = 0; p <= nOld && q <= nNew; ) {
+    let p1 = p;
+    while (p1 < nOld && newOf[p1] < 0) p1++;
+    const q1 = p1 < nOld ? newOf[p1] : nNew;
+    if (q1 >= q && p1 - p === q1 - q)
+      for (let k = 0; k < p1 - p; k++)
+        if (!linkedA.has(p + k) && !linkedB.has(q + k)) {
+          newOf[p + k] = q + k;
+          oldOf[q + k] = p + k;
+        }
+    p = p1 + 1;
+    q = q1 + 1;
+  }
+
+  const samePlace = (a: RunningSlot, b: RunningSlot) =>
+    a.zone === b.zone && sameHeight(a, b) && Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) > -2;
+  const sameText = (T: Token[], a: RunningSlot, U: Token[], b: RunningSlot) => {
+    if (a.k1 - a.k0 !== b.k1 - b.k0) return false;
+    for (let k = 0; k < a.k1 - a.k0; k++) if (T[a.k0 + k].key !== U[b.k0 + k].key) return false;
+    return true;
+  };
+  /** Where a value that is not there would stand: its place on that page's header or footer line. */
+  const caretOn = (doc: DocModel, page: number, s: RunningSlot): Side['caret'] => {
+    let y = s.y;
+    let h = s.h;
+    let d = Infinity;
+    for (const l of doc.lines) {
+      if (l.page !== page || !l.furniture || l.zone !== s.zone || Math.abs(l.rect.y - s.y) >= d) continue;
+      d = Math.abs(l.rect.y - s.y);
+      y = l.rect.y;
+      h = l.rect.h;
+    }
+    return { page, x: s.x0, y, h };
+  };
+  /** Where nothing stands inside a value (T[k], k in [s.k0, s.k1]): after the word before, or before the word after. */
+  const caretIn = (T: Token[], k: number, s: RunningSlot): Side['caret'] => {
+    const before = k > s.k0 ? T[k - 1].rects[T[k - 1].rects.length - 1] : undefined;
+    const r = before ?? T[k].rects[0];
+    return { page: s.page, x: before ? r.x + r.w : r.x, y: r.y, h: r.h };
+  };
+  /** The value's header or footer line around T[s, e): its label, and the rest of the value. */
+  const around = (T: Token[], s: number, e: number, doc: DocModel): [string, string] => {
+    const line = doc.lines[T[s].line];
+    const first = T[s].i;
+    const last = T[e - 1].i;
+    return [joinTokens(doc.tokens.slice(Math.max(line.start, first - 6), first)), joinTokens(doc.tokens.slice(last + 1, Math.min(line.end, last + 7)))];
+  };
+  /** The index in T where a value on that page, at that height, would come. */
+  const insertAt = (T: Token[], page: number, y: number) => {
+    let k = 0;
+    while (k < T.length && (T[k].page < page || (T[k].page === page && T[k].rects[0].y <= y))) k++;
+    return k;
+  };
+  const listed = (c: Change, h: Hunk) => {
+    [c.contextBefore, c.contextAfter] = h.b1 > h.b0 ? around(B, h.b0, h.b1, newDoc) : around(A, h.a0, h.a1, oldDoc);
+    c.order = sideOrder(c.new, newDoc);
+    out.changes.push(c);
+  };
+  /** A value facing none on the other page: cleared (an old value) or filled in (a new one). */
+  const alone = (side: 'a' | 'b', s: RunningSlot, other: number) => {
+    const at = insertAt(side === 'a' ? B : A, other, s.y);
+    const h = side === 'a' ? { a0: s.k0, a1: s.k1, b0: at, b1: at } : { a0: at, a1: at, b0: s.k0, b1: s.k1 };
+    const c = textChange(ctx, h);
+    const empty: Side = { pages: [other], rects: [], text: '', caret: caretOn(side === 'a' ? newDoc : oldDoc, other, s) };
+    if (side === 'a') c.new = empty;
+    else c.old = empty;
+    listed(c, h);
+  };
+  const fold = foldRule(ctx);
+  /** Two values facing each other: compared like any text. */
+  const facing = (a: RunningSlot, b: RunningSlot) => {
+    if (sameText(A, a, B, b)) {
+      for (let k = 0; k < a.k1 - a.k0; k++) out.pairs.push(a.k0 + k, b.k0 + k);
+      return;
+    }
+    const local = opsFromMatches(matchSequences(ctx.ka.subarray(a.k0, a.k1), ctx.kb.subarray(b.k0, b.k1)), a.k1 - a.k0, b.k1 - b.k0);
+    const ops = refine(
+      ctx,
+      local.map((o) => ({ ...o, a0: o.a0 + a.k0, a1: o.a1 + a.k0, b0: o.b0 + b.k0, b1: o.b1 + b.k0 })),
+      fold,
+    );
+    for (const o of ops) if (o.type === 'equal') for (let k = 0; k < o.a1 - o.a0; k++) out.pairs.push(o.a0 + k, o.b0 + k);
+    for (const h of hunksOf(ops).flatMap((x) => splitHunk(ctx, x, false))) {
+      const c = textChange(ctx, h);
+      if (h.a0 === h.a1) c.old = { pages: [a.page], rects: [], text: '', caret: caretIn(A, h.a0, a) };
+      if (h.b0 === h.b1) c.new = { pages: [b.page], rects: [], text: '', caret: caretIn(B, h.b0, b) };
+      listed(c, h);
+    }
+  };
+  for (let p = 0; p < nOld; p++) {
+    const q = newOf[p];
+    if (q < 0) continue;
+    const sa = slotsA.get(p) ?? [];
+    const sb = slotsB.get(q) ?? [];
+    const metA = new Set<RunningSlot>();
+    const metB = new Set<RunningSlot>();
+    const meet = (a: RunningSlot, b: RunningSlot) => {
+      metA.add(a);
+      metB.add(b);
+      facing(a, b);
+    };
+    const tries: [RunningSlot, RunningSlot, number][] = [];
+    for (const a of sa) for (const b of sb) if (samePlace(a, b)) tries.push([a, b, Math.abs(a.x0 - b.x0) + Math.abs(a.y - b.y)]);
+    tries.sort((x, y) => x[2] - y[2]);
+    for (const [a, b] of tries) if (!metA.has(a) && !metB.has(b)) meet(a, b);
+    // The only value left on a header or footer line of both pages (the field moved along the line).
+    for (const a of sa) {
+      if (metA.has(a)) continue;
+      const la = sa.filter((s) => !metA.has(s) && s.zone === a.zone && sameHeight(s, a));
+      const lb = sb.filter((s) => !metB.has(s) && s.zone === a.zone && sameHeight(s, a));
+      if (la.length === 1 && lb.length === 1) meet(a, lb[0]);
+    }
+    for (const a of sa) if (!metA.has(a)) alone('a', a, q);
+    for (const b of sb) if (!metB.has(b)) alone('b', b, p);
+  }
+  // Pages left over: a value comes with its page when it stands at the same place on another page of its version.
+  for (const side of ['a', 'b'] as const) {
+    const [slots, T, of, toOther, n] = side === 'a' ? [slotsA, A, newOf, map.oldToNew, nNew] : [slotsB, B, oldOf, map.newToOld, nOld];
+    for (const [page, list] of slots) {
+      if (of[page] >= 0) continue;
+      for (const s of list) {
+        let again = false;
+        for (const [other, more] of slots) if (other !== page && !again) again = more.some((t) => samePlace(s, t) && sameText(T, s, T, t));
+        if (again) out.repeated++;
+        else alone(side, s, toOther[page] >= 0 ? toOther[page] : Math.min(page, n - 1));
+      }
+    }
+  }
+  return out;
+}
+
+/** Two boxes at the same height (within 2 pt, or 60 % of the smaller one). */
+function sameHeight(a: { y: number; h: number }, b: { y: number; h: number }): boolean {
+  return Math.abs(a.y - b.y) <= Math.max(2, 0.6 * Math.min(a.h, b.h));
+}
+
 // ----------------------------------------------------------- formatting ---
 
 interface Style {
@@ -1787,10 +2029,16 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
     const k = baseKey(t.text);
     return options.ignoreCase ? k.toLowerCase() : k;
   };
-  const A = oldDoc.tokens.filter(include);
-  const B = newDoc.tokens.filter(include);
-  for (const t of A) t.key = keyOf(t);
-  for (const t of B) t.key = keyOf(t);
+  // Form field values in running headers and footers are compared page by
+  // page, apart from the reading order (see runningFieldValues).
+  const running = (doc: DocModel) => (t: Token) => options.ignoreFurniture && !!t.field && !!doc.lines[t.line]?.furniture;
+  const [runningA, runningB] = [running(oldDoc), running(newDoc)];
+  const A = oldDoc.tokens.filter((t) => include(t) && !runningA(t));
+  const B = newDoc.tokens.filter((t) => include(t) && !runningB(t));
+  const RA = oldDoc.tokens.filter((t) => include(t) && runningA(t));
+  const RB = newDoc.tokens.filter((t) => include(t) && runningB(t));
+  for (const t of [...A, ...RA]) t.key = keyOf(t);
+  for (const t of [...B, ...RB]) t.key = keyOf(t);
   const [ka, kb] = intern(
     A.map((t) => t.key),
     B.map((t) => t.key),
@@ -1820,7 +2068,9 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   const crossed = crossedPageBreak(ctx, splitEmbedded(ctx, relabelled.hunks), pairs);
   const hunks = crossed.hunks;
   const repeated = repeatedAtPageTop(ctx, hunks, pairs);
-  const oldToNew = pageMap(oldDoc, newDoc, A, B, pairs).oldToNew;
+  const pages = pageMap(oldDoc, newDoc, A, B, pairs);
+  const oldToNew = pages.oldToNew;
+  const manual = validPairs(options.manualPairs ?? [], oldDoc.pages.length, newDoc.pages.length);
   const moved = detectMoves(ctx, hunks.filter((h) => !repeated.has(h)), fold, oldToNew);
   moved.inPlace.push(...crossed.pairs);
   const stray = inPlaceTokens(ctx, moved.rest, new Set([...relabelled.labels, ...crossed.labels]), oldToNew, [...pairs, ...moved.inPlace]);
@@ -1844,9 +2094,20 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   const newOfOld = new Int32Array(oldDoc.tokens.length).fill(-1);
   for (const list of [pairs, moved.inPlace]) for (let p = 0; p < list.length; p += 2) newOfOld[A[list[p]].i] = B[list[p + 1]].i;
   const renumbered = extractRenumbering(changes, oldDoc, newDoc, newOfOld);
+  const ctxR: Ctx = { oldDoc, newDoc, A: RA, B: RB, ka: new Int32Array(0), kb: new Int32Array(0), blocksA: blockRanges(RA), blocksB: blockRanges(RB) };
+  [ctxR.ka, ctxR.kb] = intern(
+    RA.map((t) => t.key),
+    RB.map((t) => t.key),
+  );
+  const runningValues = runningFieldValues(ctxR, pages, manual);
+  for (let p = 0; p < runningValues.pairs.length; p += 2) newOfOld[RA[runningValues.pairs[p]].i] = RB[runningValues.pairs[p + 1]].i;
   // Text cut by a narrower page, place by place, before equal edits are grouped.
   const overflow = findOverflow(oldDoc, newDoc, A, B, pairs);
+  if (RB.length) overflow.push(...findOverflow(oldDoc, newDoc, RA, RB, Int32Array.from(runningValues.pairs)));
   foldClipped(changes, overflow, oldDoc, newDoc, newOfOld, include);
+  // (Running header and footer values stand in the margin: the body text
+  // around them does not move them, so foldClipped does not apply.)
+  changes.push(...runningValues.changes);
   aggregateReplacements(changes);
   if (options.detectFormatting) {
     // The final pairing: relabel may have paired a label and the words after it anew.
@@ -1855,12 +2116,12 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
       ...detectFormatting(ctx, relabelled.pairs === pairs0 ? ops : opsOfPairs(relabelled.pairs)),
       ...detectFormatting(ctx, moved.innerOps),
       ...detectFormatting(ctx, opsOfInPlace(stray.pairs)),
+      ...detectFormatting(ctxR, opsOfInPlace(runningValues.pairs)),
     ];
     changes.push(...aggregateFormatting(formats, ctx, pairs));
     changes.push(...detectPositions(ctx, pairs));
   }
   const map = pageMap(oldDoc, newDoc, A, B, pairs);
-  const manual = validPairs(options.manualPairs ?? [], oldDoc.pages.length, newDoc.pages.length);
   for (const [o, n] of manual) {
     map.oldToNew[o] = n;
     map.newToOld[n] = o;
@@ -1882,15 +2143,16 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
     newToOld: map.newToOld,
     anchors: withManualAnchors(buildAnchors(A, B, pairs), manual, oldDoc, newDoc),
     // Text that only stands elsewhere in the reading order, at the same
-    // place on the page (see detectMoves), is matched text too.
-    matches: Int32Array.from([...pairs, ...moved.inPlace], (v, k) => (k % 2 === 0 ? A[v].i : B[v].i)),
+    // place on the page (see detectMoves), is matched text too, and so are
+    // the unchanged values of running header and footer fields.
+    matches: Int32Array.from([...Array.from(pairs, (v, k) => (k % 2 === 0 ? A[v].i : B[v].i)), ...moved.inPlace.map((v, k) => (k % 2 === 0 ? A[v].i : B[v].i)), ...runningValues.pairs.map((v, k) => (k % 2 === 0 ? RA[v].i : RB[v].i))]),
     options,
     coverage: {
       old: coverageOf(oldDoc),
       new: { ...coverageOf(newDoc), uncertain: uncertainPages(newDoc, B, pairs, [...moved.innerOps, ...opsOfInPlace(stray.pairs)], [...moved.rest, ...repeated].filter((h) => h.a0 === h.a1)) },
     },
     ignored: {
-      furniture: options.ignoreFurniture ? furnitureDifferences(oldDoc, newDoc) : 0,
+      furniture: options.ignoreFurniture ? furnitureDifferences(oldDoc, newDoc) + runningValues.repeated : 0,
       caseOnly: options.ignoreCase ? caseOnlyDifferences(A, B, pairs) : 0,
       minorShifts: 0,
       renumbered: renumbered.length,
