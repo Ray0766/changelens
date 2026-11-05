@@ -1558,11 +1558,23 @@ interface RunningSlot {
  * the same margin (the same height, overlapping along the line), or else the
  * only one left in that margin on both pages. Values that face each other
  * are compared like any text; a value that faces none was cleared, or filled
- * in, on that page. A page left over (the new version has a page more, or
- * one fewer) carries the running header and footer of its version: a value
- * that stands at the same place on another page of its version, with the
- * same text, comes with that page and is counted with the ignored header and
- * footer differences ("repeated"); any other value on it is listed.
+ * in, on that page.
+ *
+ * When the text re-flows, most of a page's text can move on to the next
+ * page, so the chain pairs it with that page and leaves over the pages in
+ * between, which share the rest of its text. Two values that differ on a
+ * pair, where one has its own text at that place on such a page left over,
+ * stayed with their page's text: each faces its copy, or else the value at
+ * its place on the page left over beside its own page (a code of its own
+ * on each page). On a page left over, a value is then held against the page
+ * of the other version sharing most text with it (its partner). The same
+ * text at the same place there, or a running value (one that stands at the
+ * same place on another page of its version, with the same text) where the
+ * partner has none, comes with its page: it is counted with the ignored
+ * header and footer differences ("repeated"). A running value that one of
+ * the two pages shows and the other does not, where that page's header or
+ * footer line shows the label but no value, and no other change stands
+ * there, was cleared or filled in there. Any other value is listed.
  */
 function runningFieldValues(
   ctx: Ctx,
@@ -1695,6 +1707,16 @@ function runningFieldValues(
     c.order = sideOrder(c.new, newDoc);
     out.changes.push(c);
   };
+  /** Values compared, or listed. */
+  const used = new Set<RunningSlot>();
+  /** The places, page by page, where a listed change stands (a value, or the caret of a missing one). */
+  const marked = new Map<string, RunningSlot[]>();
+  const mark = (side: 'a' | 'b', page: number, s: RunningSlot) => {
+    const list = marked.get(side + page);
+    if (list) list.push(s);
+    else marked.set(side + page, [s]);
+  };
+  const isMarked = (side: 'a' | 'b', page: number, s: RunningSlot) => (marked.get(side + page) ?? []).some((t) => t.zone === s.zone && sameHeight(t, s));
   /** A value facing none on the other page: cleared (an old value) or filled in (a new one). */
   const alone = (side: 'a' | 'b', s: RunningSlot, other: number) => {
     const at = insertAt(side === 'a' ? B : A, other, s.y);
@@ -1703,6 +1725,9 @@ function runningFieldValues(
     const empty: Side = { pages: [other], rects: [], text: '', caret: caretOn(side === 'a' ? newDoc : oldDoc, other, s) };
     if (side === 'a') c.new = empty;
     else c.old = empty;
+    used.add(s);
+    mark(side, s.page, s);
+    mark(side === 'a' ? 'b' : 'a', other, s);
     listed(c, h);
   };
   const fold = foldRule(ctx);
@@ -1723,46 +1748,147 @@ function runningFieldValues(
       const c = textChange(ctx, h);
       if (h.a0 === h.a1) c.old = { pages: [a.page], rects: [], text: '', caret: caretIn(A, h.a0, a) };
       if (h.b0 === h.b1) c.new = { pages: [b.page], rects: [], text: '', caret: caretIn(B, h.b0, b) };
+      mark('a', a.page, a);
+      mark('b', b.page, b);
       listed(c, h);
     }
   };
-  for (let p = 0; p < nOld; p++) {
-    const q = newOf[p];
-    if (q < 0) continue;
-    const sa = slotsA.get(p) ?? [];
-    const sb = slotsB.get(q) ?? [];
-    const metA = new Set<RunningSlot>();
-    const metB = new Set<RunningSlot>();
-    const meet = (a: RunningSlot, b: RunningSlot) => {
-      metA.add(a);
-      metB.add(b);
-      facing(a, b);
-    };
-    const tries: [RunningSlot, RunningSlot, number][] = [];
-    for (const a of sa) for (const b of sb) if (samePlace(a, b)) tries.push([a, b, Math.abs(a.x0 - b.x0) + Math.abs(a.y - b.y)]);
-    tries.sort((x, y) => x[2] - y[2]);
-    for (const [a, b] of tries) if (!metA.has(a) && !metB.has(b)) meet(a, b);
-    // The only value left on a header or footer line of both pages (the field moved along the line).
-    for (const a of sa) {
-      if (metA.has(a)) continue;
-      const la = sa.filter((s) => !metA.has(s) && s.zone === a.zone && sameHeight(s, a));
-      const lb = sb.filter((s) => !metB.has(s) && s.zone === a.zone && sameHeight(s, a));
-      if (la.length === 1 && lb.length === 1) meet(a, lb[0]);
-    }
-    for (const a of sa) if (!metA.has(a)) alone('a', a, q);
-    for (const b of sb) if (!metB.has(b)) alone('b', b, p);
-  }
-  // Pages left over: a value comes with its page when it stands at the same place on another page of its version.
-  for (const side of ['a', 'b'] as const) {
-    const [slots, T, of, toOther, n] = side === 'a' ? [slotsA, A, newOf, map.oldToNew, nNew] : [slotsB, B, oldOf, map.newToOld, nOld];
-    for (const [page, list] of slots) {
-      if (of[page] >= 0) continue;
-      for (const s of list) {
-        let again = false;
-        for (const [other, more] of slots) if (other !== page && !again) again = more.some((t) => samePlace(s, t) && sameText(T, s, T, t));
-        if (again) out.repeated++;
-        else alone(side, s, toOther[page] >= 0 ? toOther[page] : Math.min(page, n - 1));
+  /** The page of the other version that shares most text with that page. */
+  const partner = (side: 'a' | 'b', page: number) => {
+    let best = -1;
+    let w = 0;
+    for (const l of map.links)
+      if ((side === 'a' ? l.oldPage : l.newPage) === page && l.weight > w) {
+        w = l.weight;
+        best = side === 'a' ? l.newPage : l.oldPage;
       }
+    return best;
+  };
+  /** The same text at the same place on another page of its version: a running value. */
+  const repeats = (slots: Map<number, RunningSlot[]>, T: Token[], page: number, s: RunningSlot) => {
+    for (const [other, more] of slots) if (other !== page && more.some((t) => samePlace(s, t) && sameText(T, s, T, t))) return true;
+    return false;
+  };
+  /**
+   * The header or footer line of that page where the value s (of the other
+   * version) would stand shows no value, but the label before s.
+   */
+  const blankAt = (doc: DocModel, page: number, U: Token[], s: RunningSlot, otherDoc: DocModel) => {
+    const own = otherDoc.lines[U[s.k0].line];
+    const label: string[] = [];
+    for (let j = U[s.k0].i - 1; j >= own.start && label.length < 2; j--) {
+      const t = otherDoc.tokens[j];
+      if (t.field) break;
+      if (t.kind !== 'punct') label.unshift(baseKey(t.text).toLowerCase());
+    }
+    return doc.lines.some((l) => {
+      if (l.page !== page || !l.furniture || l.zone !== s.zone || !sameHeight(l.rect, s)) return false;
+      const words = doc.tokens.slice(l.start, l.end).filter((t) => !t.field && t.kind !== 'punct').map((t) => baseKey(t.text).toLowerCase());
+      for (let j = 0; j + label.length <= words.length; j++) if (label.every((k, m) => words[j + m] === k)) return true;
+      return false;
+    });
+  };
+  const chain: [number, number][] = [];
+  for (let p = 0; p < nOld; p++) if (newOf[p] >= 0) chain.push([p, newOf[p]]);
+  const free = (p: number, q: number) => [(slotsA.get(p) ?? []).filter((s) => !used.has(s)), (slotsB.get(q) ?? []).filter((s) => !used.has(s))];
+  const meet = (a: RunningSlot, b: RunningSlot) => {
+    used.add(a);
+    used.add(b);
+    facing(a, b);
+  };
+  /** Values at the same place on two pages (with the same text only), nearest first. */
+  const atSamePlace = (p: number, q: number, equal: boolean) => {
+    const [sa, sb] = free(p, q);
+    const tries: [RunningSlot, RunningSlot, number][] = [];
+    for (const a of sa) for (const b of sb) if (samePlace(a, b) && (!equal || sameText(A, a, B, b))) tries.push([a, b, Math.abs(a.x0 - b.x0) + Math.abs(a.y - b.y)]);
+    tries.sort((x, y) => x[2] - y[2]);
+    for (const [a, b] of tries) if (!used.has(a) && !used.has(b)) meet(a, b);
+  };
+  for (const [p, q] of chain) atSamePlace(p, q, true);
+  // Two values at the same place of a pair that differ, where one has its
+  // own text at that place on a page left over that shares text with the
+  // other's page: the text re-flowed, and the value stayed with its page's
+  // text. It faces that copy; the other value is held against the pages
+  // left over that share text with its own page.
+  const leftLinked = (side: 'a' | 'b', page: number) =>
+    map.links.filter((l) => l.weight > 0 && (side === 'a' ? l.newPage === page && newOf[l.oldPage] < 0 : l.oldPage === page && oldOf[l.newPage] < 0)).map((l) => (side === 'a' ? l.oldPage : l.newPage));
+  const copyOn = (side: 'a' | 'b', pages: number[], s: RunningSlot, T: Token[], equal: boolean) => {
+    const [slots, U] = side === 'a' ? [slotsA, A] : [slotsB, B];
+    for (const page of pages) for (const t of slots.get(page) ?? []) if (!used.has(t) && samePlace(s, t) && (!equal || sameText(U, t, T, s))) return t;
+    return undefined;
+  };
+  const strays: ['a' | 'b', RunningSlot][] = [];
+  for (const [p, q] of chain) {
+    const [sa, sb] = free(p, q);
+    for (const a of sa)
+      for (const b of sb) {
+        if (used.has(a) || used.has(b) || !samePlace(a, b)) continue;
+        const b2 = copyOn('b', leftLinked('b', p), a, A, true);
+        const a2 = copyOn('a', leftLinked('a', q), b, B, true);
+        if (b2) meet(a, b2);
+        else if (a2) strays.push(['a', a]);
+        if (a2) meet(a2, b);
+        else if (b2) strays.push(['b', b]);
+      }
+  }
+  for (const [side, s] of strays) {
+    if (used.has(s)) continue;
+    const pages = leftLinked(side === 'a' ? 'b' : 'a', s.page);
+    const t = copyOn(side === 'a' ? 'b' : 'a', pages, s, side === 'a' ? A : B, false);
+    if (t) meet(side === 'a' ? s : t, side === 'a' ? t : s);
+    else {
+      const [doc, U, otherDoc] = side === 'a' ? [newDoc, A, oldDoc] : [oldDoc, B, newDoc];
+      const blank = pages.find((page) => blankAt(doc, page, U, s, otherDoc));
+      if (blank !== undefined) alone(side, s, blank);
+    }
+  }
+  for (const [p, q] of chain) atSamePlace(p, q, false);
+  for (const [p, q] of chain) {
+    // The only value left on a header or footer line of both pages (the field moved along the line).
+    const [sa, sb] = free(p, q);
+    for (const a of sa) {
+      const la = sa.filter((s) => !used.has(s) && s.zone === a.zone && sameHeight(s, a));
+      const lb = sb.filter((s) => !used.has(s) && s.zone === a.zone && sameHeight(s, a));
+      if (!used.has(a) && la.length === 1 && lb.length === 1) meet(a, lb[0]);
+    }
+  }
+  for (const [p, q] of chain) {
+    const [sa, sb] = free(p, q);
+    for (const a of sa) alone('a', a, q);
+    for (const b of sb) alone('b', b, p);
+  }
+  // Pages left over: what is not yet compared is held against the page of
+  // the other version that shares most text with it.
+  for (const side of ['a', 'b'] as const) {
+    const other = side === 'a' ? 'b' : 'a';
+    const [slots, T, of, doc, n] = side === 'a' ? [slotsA, A, newOf, oldDoc, nOld] : [slotsB, B, oldOf, newDoc, nNew];
+    const [theirSlots, U, theirDoc, nOther] = side === 'a' ? [slotsB, B, newDoc, nNew] : [slotsA, A, oldDoc, nOld];
+    for (let page = 0; page < n; page++) {
+      if (of[page] >= 0) continue;
+      const list = slots.get(page) ?? [];
+      const p = partner(side, page);
+      const theirs = p >= 0 ? (theirSlots.get(p) ?? []) : [];
+      const met = new Set<RunningSlot>();
+      for (const s of list) {
+        if (used.has(s)) continue;
+        const t = theirs.filter((t) => !met.has(t) && samePlace(s, t)).sort((x, y) => Math.abs(x.x0 - s.x0) - Math.abs(y.x0 - s.x0))[0];
+        if (t) met.add(t);
+        // The same value at its place on the page that shares its text.
+        if (t && sameText(T, s, U, t)) {
+          out.repeated++;
+          continue;
+        }
+        const running = repeats(slots, T, page, s);
+        // A running value where the page sharing its text shows none (and no other change stands there): cleared, or filled in, there.
+        if (!t && running && p >= 0 && !isMarked(other, p, s) && blankAt(theirDoc, p, T, s, doc)) alone(side, s, p);
+        // Else a running value comes with its page.
+        else if (running) out.repeated++;
+        else alone(side, s, p >= 0 ? p : Math.min(page, nOther - 1));
+      }
+      // A running value of the page sharing its text, where this page shows none: cleared, or filled in, here.
+      for (const t of theirs)
+        if (!met.has(t) && !list.some((s) => samePlace(s, t)) && repeats(theirSlots, U, p, t) && !isMarked(side, page, t) && blankAt(doc, page, U, t, theirDoc))
+          alone(other, t, page);
     }
   }
   return out;

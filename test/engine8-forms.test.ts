@@ -103,6 +103,54 @@ test('T3-forms-N3: a page moved elsewhere keeps its header field value', async (
   assert.deepEqual(pages(r)[0], [[2], [3]]);
 });
 
+test('T3-forms-V1: a header or footer value cleared on a page the re-flow leaves unpaired is listed on that page', async () => {
+  // Policy conditions, 3 pages (header "Policy number", footer "Holder
+  // initials" K.A. on every page). 28 lines are inserted at the top of p. 2
+  // and 10 dropped at the end, so most of old p. 2's text moves on to new
+  // p. 3, and pages are paired old 1–new 1, old 2–new 3; old p. 3 and new
+  // p. 2 are left over.
+  const fieldItems = (r: CompareResult) => r.changes.filter((c) => c.field);
+  const where = (c: CompareResult['changes'][number]) => [c.old.rects.map((x) => x.page + 1), c.new.rects.map((x) => x.page + 1), c.old.caret?.page ?? -1, c.new.caret?.page ?? -1];
+  // Control: the values are unchanged, only the body is listed.
+  let r = await run('V1-before', 'V1-reflow-same');
+  assert.deepEqual(listed(r), ['Added 504 words', 'Deleted 160 words']);
+  // The initials of new p. 2 cleared: listed on p. 2 of both versions, the
+  // caret on new p. 2's footer line.
+  r = await run('V1-before', 'V1-reflow-p2-blank');
+  assert.deepEqual(listed(r), ['Added 504 words', 'Deleted “K.A.” (form field)', 'Deleted 160 words']);
+  let [c] = fieldItems(r);
+  assert.deepEqual(where(c), [[2], [], -1, 1]);
+  assert.ok(c.new.caret!.y > 780, JSON.stringify(c.new.caret));
+  assert.equal(c.contextBefore.endsWith('Holder initials'), true, c.contextBefore);
+  // The same the other way round: filled in on p. 2.
+  r = await run('V1-reflow-p2-blank', 'V1-before');
+  assert.deepEqual(fieldItems(r).map((c) => [describeChange('en', c), ...where(c)]), [['Added “K.A.” (form field)', [], [2], 1, -1]]);
+  // Nothing dropped (3 -> 4 pages), the initials of new p. 2 cleared.
+  r = await run('V1-before', 'V1-page-more-p2-blank');
+  assert.deepEqual(listed(r), ['Added 504 words', 'Deleted “K.A.” (form field)']);
+  [c] = fieldItems(r);
+  assert.deepEqual(where(c), [[2], [], -1, 1]);
+  // Control: cleared on new p. 3, a page of the chain: listed once.
+  r = await run('V1-before', 'V1-reflow-p3-blank');
+  assert.deepEqual(fieldItems(r).map((c) => [describeChange('en', c), c.new.caret?.page]), [['Deleted “K.A.” (form field)', 2]]);
+});
+
+test('T3-forms-V1: a page code in the footer stays with its page when the text re-flows', async () => {
+  // As above, but the footer field holds a code of its own on each page
+  // (S-1, S-2, S-3). The chain pairs old p. 2 with new p. 3; each code
+  // stands on the page left over that shares text with its page.
+  const fieldItems = (r: CompareResult) => r.changes.filter((c) => c.field).map((c) => [describeChange('en', c), c.old.rects.map((x) => x.page + 1), c.new.rects.map((x) => x.page + 1)]);
+  let r = await run('V1-codes-before', 'V1-codes-same');
+  assert.deepEqual(fieldItems(r), []);
+  // New p. 3's code changed: listed on p. 3, from the code it replaced.
+  r = await run('V1-codes-before', 'V1-codes-p3-edit');
+  assert.deepEqual(fieldItems(r), [['Number changed: S-3 → S-9 (form field)', [3], [3]]]);
+  // New p. 2's code cleared: listed on p. 2.
+  r = await run('V1-codes-before', 'V1-codes-p2-blank');
+  assert.deepEqual(fieldItems(r), [['Deleted “S-2” (form field)', [2], []]]);
+  assert.equal(r.changes.find((c) => c.field)!.new.caret?.page, 1);
+});
+
 test('R3-05: a comb value is located on the cells it is drawn in (right-aligned, padded, centred)', async () => {
   // Annual income statement: 9-cell comb fields at x 383–545 (18 pt cells).
   // Right-aligned by the appearance (/Q 2, as Acrobat draws it), and
