@@ -2720,6 +2720,11 @@ function appearanceChanges(
   // twice, its glyphs' edges are darker, as if drawn a little heavier.
   const overdrawn = (doc: DocModel, page: number, t: Token) => (doc.runs[page] ?? []).some((r) => r.overdrawn && coveredShare(t.rects[0], [r]) >= 0.5);
   const twice = (a: Token, b: Token) => overdrawn(result.oldDoc, oldPage, a) !== overdrawn(result.newDoc, newPage, b);
+  // A word of a form field value set in an automatic size, drawn at another
+  // size (the viewer fitted the edited value to its box, which the text
+  // comparison lists as that edit, not as formatting): its glyphs' ink
+  // follows their size, so their weight is not compared.
+  const refitted = (a: Token, b: Token) => !!a.autoSize && !!b.autoSize && Math.abs(a.rects[0].h - b.rects[0].h) > 0.1 * Math.max(a.rects[0].h, b.rects[0].h);
   // The words compared, by token index (new side): how to look for a
   // fainter line on each (see below).
   const tried = new Map<number, { a: Token; b: Token; p: number; weak: (added: boolean) => FoundLine | null }>();
@@ -2840,7 +2845,7 @@ function appearanceChanges(
         Math.hypot(ia.chroma[0] - ib.chroma[0], ia.chroma[1] - ib.chroma[1], ia.chroma[2] - ib.chroma[2]) > 30 ||
         (gap(ia.bg, ib.bg) > 40 && !filled('old', ia.bg, ib.bg, ka) && !filled('new', ib.bg, ia.bg, kb));
       const change = Math.abs(ia.total - ib.total) / Math.max(ia.total, ib.total, 1);
-      const weight = change > 0.3;
+      const weight = change > 0.3 && !refitted(a, b);
       // The same glyphs drawn heavier (or lighter) at the very same pixels,
       // with nothing else drawn near them: shown even on a single word. Not
       // on a page turned back, whose glyphs were drawn on another pixel grid,
@@ -2865,7 +2870,7 @@ function appearanceChanges(
     const ia = ink(A, ka, sa.hidden, sa.own);
     const ib = ink(B, kb, sb.hidden, sb.own);
     const outside = ta.n >= Math.max(6, 0.5 * ia.n) && tb.n >= Math.max(6, 0.5 * ib.n);
-    let weight = outside && Math.abs(ta.total - tb.total) / Math.max(ta.total, tb.total, 1) > 0.3;
+    let weight = outside && Math.abs(ta.total - tb.total) / Math.max(ta.total, tb.total, 1) > 0.3 && !refitted(a, b);
     // Where every overlay lies behind the glyphs (a fill, a tint), they all
     // show: the weight is measured on all of them, each pixel's darkness
     // against the fill or the paper behind it (a word made bold, or turned
@@ -2884,7 +2889,7 @@ function appearanceChanges(
       const wa = glyphWeight(A, ka, sa.hidden, ba);
       const wb = glyphWeight(B, kb, sb.hidden, bb);
       const change = Math.abs(wa.total - wb.total) / Math.max(wa.total, wb.total, 1);
-      weight = wa.n >= 6 && wb.n >= 6 && change > 0.3;
+      weight = wa.n >= 6 && wb.n >= 6 && change > 0.3 && !refitted(a, b);
       // The same glyphs drawn heavier at the same pixels (see heavier), each
       // pixel's darkness against the fill behind it: shown on a single word
       // too, as without a fill (a status word made bold in a row that was

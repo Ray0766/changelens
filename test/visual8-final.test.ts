@@ -199,3 +199,15 @@ test('F8: words in the middle of a panel given a tint are not recoloured; a high
   assert.equal(hl.changes.filter((c) => c.format?.appearanceChanged).length, 1, list(hl.changes).join(' | '));
 });
 
+test('F9: the words of an auto-sized field value refitted after an edit are not listed as lighter', { skip }, async () => {
+  // SYNTHETIC (review 7 form probe f14, values in /V only): the address in
+  // a field with an automatic font size made longer, so the viewer draws
+  // the whole value smaller. The text comparison lists the added words and
+  // does not list the other words' new size (it follows from the edit),
+  // but their glyphs have less ink: "Text colour or weight changed" twice.
+  const r = await run('probe8-R3-06-auto-before.pdf', 'probe8-R3-06-auto-after.pdf');
+  assert.deepEqual(list(r.changes), ['Added “Industrial Estate, Maryhill Road” (form field)', 'Number changed: 77812 → 77821 (form field)']);
+  // Control (pypdf): the same value also drawn red (/DA): its colour is listed.
+  const red = await run('probe8-R3-06-auto-before.pdf', 'probe8-F9-auto-after-red.pdf');
+  assert.ok(red.changes.some((c) => c.format?.appearanceChanged && hits(c, 'new', 1, 260, 150)), list(red.changes).join(' | '));
+});
