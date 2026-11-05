@@ -178,3 +178,24 @@ test('F4: an opaque watermark letter over a header word accounts for the backgro
   assert.ok(list(r.changes).includes('Added “DRAFT”'), list(r.changes).join(' | '));
 });
 
+test('F8: words in the middle of a panel given a tint are not recoloured; a highlight in it is', { skip }, async () => {
+  // SYNTHETIC (Chromium, review 8 overlay counter-probes): the "Key terms"
+  // panel given a #fff4c2 tint. Its lines are set so close that the text
+  // mask covers the panel between them, so nothing differs next to
+  // "payment method within" in the middle of the third line: their
+  // background turned from paper to the tint with no overlay found, and
+  // they read "Text colour or weight changed" next to the panel's graphic.
+  for (const [a, b] of [
+    ['probe8-F1-before.pdf', 'probe8-F8-panel-yellow-fill.pdf'],
+    ['probe8-F8-panel-yellow-fill.pdf', 'probe8-F1-before.pdf'],
+  ]) {
+    const r = await run(a, b);
+    assert.deepEqual(r.changes.map((c) => [c.kind, !!c.format]), [['graphic', false]], list(r.changes).join(' | '));
+  }
+  // Control: the same tint with "within 14 days" highlighted in green
+  // (#a5d6a7): the highlight is listed.
+  const hl = await run('probe8-F1-before.pdf', 'probe8-F8-panel-yellow-farhl.pdf');
+  assert.ok(colourAt(hl, 200, 180), list(hl.changes).join(' | '));
+  assert.equal(hl.changes.filter((c) => c.format?.appearanceChanged).length, 1, list(hl.changes).join(' | '));
+});
+

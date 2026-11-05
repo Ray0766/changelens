@@ -2380,7 +2380,9 @@ export function partlyCompared(result: CompareResult): { page: number; words: st
  * (a stamp drawn across the text, whose border crosses it within the text's
  * mask). `graphicIn`: such a region on that page takes in the place.
  * `differs`: the graphics comparison found differences at a pixel of a
- * page (see crosses).
+ * page (see crosses). `fillAround`: the colour of such a region on that
+ * page that takes in the place, where it is mostly of one colour (a fill, a
+ * tint), else null.
  */
 function appearanceChanges(
   result: CompareResult,
@@ -2397,6 +2399,7 @@ function appearanceChanges(
   graphicAt: (a: Token, b: Token) => boolean = () => false,
   graphicIn: (side: 'old' | 'new', r: Rect) => boolean = () => false,
   differs: (X: Prepared, x: number, y: number) => boolean = () => false,
+  fillAround: (side: 'old' | 'new', r: Rect) => number[] | null = () => null,
 ): Change[] {
   const TA = result.oldDoc.tokens;
   const TB = result.newDoc.tokens;
@@ -2823,9 +2826,19 @@ function appearanceChanges(
       const ia = ink(A, ka);
       const ib = ink(B, kb);
       if (ia.n < 6 || ib.n < 6) continue;
+      const gap = (u: number[], v: number[]) => Math.max(Math.abs(u[0] - v[0]), Math.abs(u[1] - v[1]), Math.abs(u[2] - v[2]));
+      // The background turned from paper to the colour of a graphic that
+      // changed around the word on that side (a panel given a tint, the
+      // word in its middle with nothing else differing next to it): that
+      // graphic, listed of its own. Not a colour of its own (a highlight).
+      const filled = (side: 'old' | 'new', bg: number[], other: number[], r: Rect) => {
+        if (!other.every((v) => v >= 240)) return false;
+        const f = fillAround(side, r);
+        return !!f && gap(f, bg) <= 16;
+      };
       const colour =
         Math.hypot(ia.chroma[0] - ib.chroma[0], ia.chroma[1] - ib.chroma[1], ia.chroma[2] - ib.chroma[2]) > 30 ||
-        Math.max(Math.abs(ia.bg[0] - ib.bg[0]), Math.abs(ia.bg[1] - ib.bg[1]), Math.abs(ia.bg[2] - ib.bg[2])) > 40;
+        (gap(ia.bg, ib.bg) > 40 && !filled('old', ia.bg, ib.bg, ka) && !filled('new', ib.bg, ia.bg, kb));
       const change = Math.abs(ia.total - ib.total) / Math.max(ia.total, ib.total, 1);
       const weight = change > 0.3;
       // The same glyphs drawn heavier (or lighter) at the very same pixels,
@@ -4449,7 +4462,29 @@ function compareAligned(
       const i = Math.floor(y / CELL) * d.cols + Math.floor(x / CELL);
       return d.cells[i] >= 3;
     };
-    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, slant, !options.turned, graphicAt, graphicIn, differs));
+    // The colour of such a region that takes in a place, from its pixels
+    // outside the text's mask, where 60 % of them or more are of it.
+    const fillAround = (side: 'old' | 'new', at: Rect): number[] | null => {
+      const P = side === 'old' ? A : B;
+      const s = P.r.scale;
+      for (const q of side === 'old' ? oldRects : newRects) {
+        if (coveredShare(at, [q]) < 0.9) continue;
+        const x0 = Math.max(0, Math.floor(q.x * s));
+        const y0 = Math.max(0, Math.floor(q.y * s));
+        const x1 = Math.min(P.r.width, Math.ceil((q.x + q.w) * s));
+        const y1 = Math.min(P.r.height, Math.ceil((q.y + q.h) * s));
+        const step = Math.max(1, Math.round(Math.sqrt(((x1 - x0) * (y1 - y0)) / 4000)));
+        const px: number[] = [];
+        for (let y = y0; y < y1; y += step) for (let x = x0; x < x1; x += step) if (!P.mask[y * P.r.width + x]) px.push((y * P.r.width + x) * 4);
+        if (px.length < 20) continue;
+        const d = P.r.data;
+        const med = [0, 1, 2].map((c) => px.map((p) => d[p + c]).sort((u, v) => u - v)[px.length >> 1]);
+        const alike = px.filter((p) => [0, 1, 2].every((c) => Math.abs(d[p + c] - med[c]) <= THRESH)).length;
+        if (alike >= 0.6 * px.length) return med;
+      }
+      return null;
+    };
+    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, slant, !options.turned, graphicAt, graphicIn, differs, fillAround));
     // Words under the letters of a watermark that both versions have at the
     // same place relative to them (a twin, see slant), dark enough to hide
     // part of a glyph: its ink mixes with their glyphs in both, so a strike
@@ -4478,7 +4513,7 @@ function compareAligned(
     if (result.options.ignoreFurniture && result.oldToNew[oldPage] === newPage) {
       const pairs = furniturePairs(result, oldPage, newPage);
       if (pairs.length)
-        for (const c of appearanceChanges({ ...result, matches: Int32Array.from(pairs) }, oldPage, newPage, A, B, () => false, near, () => false, cover, slant, !options.turned, graphicAt, graphicIn, differs)) {
+        for (const c of appearanceChanges({ ...result, matches: Int32Array.from(pairs) }, oldPage, newPage, A, B, () => false, near, () => false, cover, slant, !options.turned, graphicAt, graphicIn, differs, fillAround)) {
           furnitureMarked.add(c);
           furniture.push(c);
         }
