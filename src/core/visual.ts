@@ -1325,6 +1325,41 @@ function ink(
   };
 }
 
+/**
+ * What overlays (see overlayInk) cover around a word's box `r` on side `X`:
+ * `own` on that side, `other` on the other side (by where the other side's
+ * pixel lies). Tests by pixel: any of their states (`any`); their ink, or
+ * any state of an overlay that hides the glyphs (`hidden`: not to be
+ * measured for colour); a state of an overlay of this side (`own`).
+ * Worked out once over the box padded as ink() pads it.
+ */
+function coverStates(X: Prepared, r: Rect, own: Cover[], other: Cover[]): Record<'any' | 'hidden' | 'own', (x: number, y: number) => boolean> {
+  const s = X.r.scale;
+  const e = expand(r, 0.15 * r.h + 1);
+  const x0 = Math.max(0, Math.floor(e.x * s));
+  const y0 = Math.max(0, Math.floor(e.y * s));
+  const x1 = Math.min(X.r.width, Math.ceil((e.x + e.w) * s));
+  const y1 = Math.min(X.r.height, Math.ceil((e.y + e.h) * s));
+  const w = Math.max(0, x1 - x0);
+  const m = new Uint8Array(w * Math.max(0, y1 - y0));
+  const hides = (c: Cover, st: number) => st === INK || !c.clear;
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      let v = 0;
+      for (const c of own) {
+        const st = c.at(x, y);
+        if (st) v |= hides(c, st) ? 7 : 5;
+      }
+      for (const c of other) {
+        const st = c.atOther(x, y);
+        if (st) v |= hides(c, st) ? 3 : 1;
+      }
+      m[(y - y0) * w + x - x0] = v;
+    }
+  const get = (x: number, y: number) => (x < x0 || y < y0 || x >= x1 || y >= y1 ? 0 : m[(y - y0) * w + x - x0]);
+  return { any: (x, y) => (get(x, y) & 1) !== 0, hidden: (x, y) => (get(x, y) & 2) !== 0, own: (x, y) => (get(x, y) & 4) !== 0 };
+}
+
 /** Darkness of a token's box; `x0` and `ys` say which pixel column and row (fractional when re-sampled) each cell comes from. */
 type Box = { d: Float32Array; cols: number; rows: number; top: number; x0: number; ys: Float32Array };
 
@@ -2015,9 +2050,10 @@ function appearanceChanges(
       return v;
     };
     const opts = { drift: b.kind !== 'cjk', cjk: b.kind === 'cjk', rows: own(a, b) };
-    const lines = (ga: Cover | null, gb: Cover | null) => {
-      const added = framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, ga, gb, opts), B, pageLines.new, b, seen), B, A, b, a);
-      const removed = added ? null : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, gb, ga, opts), A, pageLines.old, a, seen), A, B, a, b);
+    const lines = (ga: Cover | null, gb: Cover | null, fixed = false) => {
+      const o = fixed ? { ...opts, drift: false } : opts;
+      const added = framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, ga, gb, o), B, pageLines.new, b, seen), B, A, b, a);
+      const removed = added ? null : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, gb, ga, o), A, pageLines.old, a, seen), A, B, a, b);
       return added ? { line: added.line, added: true, rows: added.rows } : removed ? { line: removed.line, added: false, rows: removed.rows } : null;
     };
     let line = lines(ca, cb);
@@ -2029,7 +2065,9 @@ function appearanceChanges(
     // no line.
     const g = near(a, b);
     const again = !line && g && g !== 'skip' && (g[0] || g[1]) && !(ca && g[0]) && !(cb && g[1]);
-    if (again) line = lines(ca ?? g[0], cb ?? g[1]);
+    // Behind the word (a fill, a tint), the overlay leaves the glyphs where
+    // they were: the word's box is not tried shifted (see addedLine) again.
+    if (again) line = lines(ca ?? g[0], cb ?? g[1], !!(g[0]?.behind || g[1]?.behind));
     const [wa, wb] = again ? [ca ?? g[0], cb ?? g[1]] : [ca, cb];
     // So is a line under a watermark that moved, turned or was recoloured
     // (see slant), outside its ink; where its ink cannot be told, the word
@@ -2076,14 +2114,12 @@ function appearanceChanges(
     // nor glyphs it hides), whose chroma may differ by what the overlay's
     // colour explains (see beyondOverlays). The background there is the
     // overlay's, a change listed of its own.
-    const hidden = (c: Cover, st: number) => st === INK || (st !== 0 && !c.clear);
-    const outside = (own: Cover[], other: Cover[], all: boolean) => (x: number, y: number) =>
-      own.some((c) => (all ? c.at(x, y) !== 0 : hidden(c, c.at(x, y)))) || other.some((c) => (all ? c.atOther(x, y) !== 0 : hidden(c, c.atOther(x, y))));
-    const by = (own: Cover[]) => (x: number, y: number) => own.some((c) => c.at(x, y) !== 0);
-    const ta = ink(A, ka, outside(oa, ob, true));
-    const tb = ink(B, kb, outside(ob, oa, true));
-    const ia = ink(A, ka, outside(oa, ob, false), by(oa));
-    const ib = ink(B, kb, outside(ob, oa, false), by(ob));
+    const sa = coverStates(A, ka, oa, ob);
+    const sb = coverStates(B, kb, ob, oa);
+    const ta = ink(A, ka, sa.any);
+    const tb = ink(B, kb, sb.any);
+    const ia = ink(A, ka, sa.hidden, sa.own);
+    const ib = ink(B, kb, sb.hidden, sb.own);
     const weight = ta.n >= Math.max(6, 0.5 * ia.n) && tb.n >= Math.max(6, 0.5 * ib.n) && Math.abs(ta.total - tb.total) / Math.max(ta.total, tb.total, 1) > 0.3;
     const colour = ia.n >= 6 && ib.n >= 6 && beyondOverlays([ib.chroma[0] - ia.chroma[0], ib.chroma[1] - ia.chroma[1], ib.chroma[2] - ia.chroma[2]], oa, ia.touched, ob, ib.touched) > 30;
     if (colour || weight) hits.push({ a, b, colour, ink: ib, p });
@@ -2295,6 +2331,8 @@ interface Cover {
   partial: boolean;
   /** The overlay's colours over paper. */
   colours: number[][];
+  /** Half or more of the word's box is the overlay's ink: a fill or a tint around the glyphs. */
+  behind: boolean;
   /** Much of what differs next to the word is neither this overlay's ink nor the other side's (`by`, the same word's cover there). */
   unexplained: (by: Cover) => boolean;
 }
@@ -2396,7 +2434,9 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
   // a header band that changed colour in place).
   const samples: number[] = [];
   const onFill: number[] = [];
-  const sampleAt = new Map<number, number>();
+  // Where the other side is, for each of onFill (byte offsets in Y, -4 for none).
+  const fillUnder: number[] = [];
+  let outside = false;
   const one = near.length === 1 ? near[0] : null;
   for (let j = 0; j < h; j++) {
     const py = y0 + j;
@@ -2406,7 +2446,10 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
       const px = x0 + i;
       other[k] = cols[i] < 0 || rows[j] < 0 ? -1 : rows[j] + cols[i];
       const ux = (px + 0.5) / sx;
-      if (one ? !one.inside(ux, uy) : !near.some((f) => f.inside(ux, uy))) continue;
+      if (one ? !one.inside(ux, uy) : !near.some((f) => f.inside(ux, uy))) {
+        outside = true;
+        continue;
+      }
       inShape[k] = 1;
       if (ux >= x.x && ux <= x.x + x.w && uy >= x.y && uy <= x.y + x.h) continue;
       const p = (py * W + px) * 4;
@@ -2415,8 +2458,11 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
       const r1 = q < 0 ? 255 : dy[q + 1];
       const r2 = q < 0 ? 255 : dy[q + 2];
       if (Math.max(Math.abs(dx[p] - r0), Math.abs(dx[p + 1] - r1), Math.abs(dx[p + 2] - r2)) > 8) {
-        (r0 >= 240 && r1 >= 240 && r2 >= 240 ? samples : onFill).push(p);
-        sampleAt.set(p, k);
+        if (r0 >= 240 && r1 >= 240 && r2 >= 240) samples.push(p);
+        else {
+          onFill.push(p);
+          fillUnder.push(q);
+        }
       }
     }
   }
@@ -2431,7 +2477,7 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
   if (samples.length < 8) {
     const [c] = inks;
     if (onFill.filter((p) => Math.max(Math.abs(dx[p] - c.colour[0]), Math.abs(dx[p + 1] - c.colour[1]), Math.abs(dx[p + 2] - c.colour[2])) <= c.tol).length < 0.6 * onFill.length) return null;
-    under = median3(dy, onFill.map((p) => other[sampleAt.get(p)!] * 4));
+    under = median3(dy, fillUnder);
   }
   // The tolerance of the overlay colour a pixel has (byte offset p in X), or -1.
   const ownAt = (p: number) => {
@@ -2455,7 +2501,13 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
   // Not through the other side's glyphs: a figure that turned red next to
   // a red icon it touches is not the icon.
   const stack: number[] = [];
-  if (beyond) for (let k = 0; k < n; k++) if (state[k] === INK) stack.push(k);
+  if (beyond && outside) {
+    // From the ink next to a pixel outside the shapes.
+    const off = new Uint8Array(n);
+    for (let k = 0; k < n; k++) off[k] = inShape[k] ? 0 : 1;
+    const edge = grow(off, w, h, 1, 1);
+    for (let k = 0; k < n; k++) if (state[k] === INK && edge[k]) stack.push(k);
+  }
   while (stack.length) {
     const k = stack.pop()!;
     const i = k % w;
@@ -2475,14 +2527,17 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
   }
   const ring = grow(state, w, h, 1, 1);
   const closed = grow(grow(state, w, h, 2, 1), w, h, 2, 0);
-  const marked = new Uint8Array(n);
-  for (let k = 0; k < n; k++) marked[k] = state[k] ? 1 : 0;
-  const grown = grow(marked, w, h, 3, 1);
+  let grown: Uint8Array | null = null;
+  if (outside) {
+    const marked = new Uint8Array(n);
+    for (let k = 0; k < n; k++) marked[k] = state[k] ? 1 : 0;
+    grown = grow(marked, w, h, 3, 1);
+  }
   for (let k = 0; k < n; k++) {
     if (state[k]) continue;
     if (ring[k]) state[k] = RING;
     else if (closed[k]) state[k] = UNDER;
-    else if ((inShape[k] || grown[k]) && other[k] >= 0) {
+    else if ((inShape[k] || grown?.[k]) && other[k] >= 0) {
       // The overlay laid over what the other side shows there, though not
       // enclosed by its ink: a glyph's edge under a stamp's stroke, or, on
       // the other side's paper, the overlay's own anti-aliased edge.
@@ -2529,7 +2584,16 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
     else rest.push(k);
   }
   const at = (px: number, py: number) => (px < x0 || py < y0 || px >= x1 || py >= y1 ? 0 : state[(py - y0) * w + px - x0]);
+  // Share of the word's box that is the overlay's ink.
+  let boxed = 0;
+  let inked = 0;
+  for (let py = Math.max(y0, Math.floor(x.y * sx)); py < Math.min(y1, Math.ceil((x.y + x.h) * sx)); py++)
+    for (let px = Math.max(x0, Math.floor(x.x * sx)); px < Math.min(x1, Math.ceil((x.x + x.w) * sx)); px++) {
+      boxed++;
+      if (state[(py - y0) * w + px - x0] === INK) inked++;
+    }
   return {
+    behind: boxed > 0 && inked >= 0.5 * boxed,
     at,
     atOther: (qx, qy) => at(Math.round(((qx + 0.5) / sy - y.x + x.x) * sx - 0.5), Math.round(((qy + 0.5) / sy - y.y + x.y) * sx - 0.5)),
     clear: !dark || through >= 0.4 * dark,
@@ -2608,12 +2672,16 @@ function overlayColours(d: Uint8ClampedArray | Uint8Array, samples: number[]): {
   if (samples.length < 8) return out;
   let left = samples;
   const key = (p: number) => ((d[p] >> 4) << 8) | ((d[p + 1] >> 4) << 4) | (d[p + 2] >> 4);
+  const bins = new Uint32Array(4096);
   while (out.length < 3 && left.length >= 8 && left.length >= 0.05 * samples.length) {
-    const bins = new Map<number, number>();
-    for (const p of left) bins.set(key(p), (bins.get(key(p)) ?? 0) + 1);
+    bins.fill(0);
     let best = -1;
     let most = 0;
-    for (const [k, v] of bins) if (v > most) [best, most] = [k, v];
+    for (const p of left) {
+      const k = key(p);
+      const v = ++bins[k];
+      if (v > most) [best, most] = [k, v];
+    }
     const hists = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
     let m = 0;
     for (const p of left) {
