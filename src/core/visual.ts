@@ -2219,7 +2219,11 @@ function appearanceChanges(
       const wb = glyphWeight(B, kb, sb.hidden, behind(ob));
       weight = wa.n >= 6 && wb.n >= 6 && Math.abs(wa.total - wb.total) / Math.max(wa.total, wb.total, 1) > 0.3;
     }
-    let colour = ia.n >= 6 && ib.n >= 6 && beyondOverlays([ib.chroma[0] - ia.chroma[0], ib.chroma[1] - ia.chroma[1], ib.chroma[2] - ia.chroma[2]], oa, ia.touched, ob, ib.touched) > 30;
+    const shift = [ib.chroma[0] - ia.chroma[0], ib.chroma[1] - ia.chroma[1], ib.chroma[2] - ia.chroma[2]];
+    let colour = ia.n >= 6 && ib.n >= 6 && beyondOverlays(shift, oa, ia.touched, ob, ib.touched) > 30;
+    // A change of chroma that only the overlay's colour explains: the same
+    // hue may be the word's own (red text under a red watermark).
+    const putDown = !colour && ia.n >= 6 && ib.n >= 6 && Math.hypot(shift[0], shift[1], shift[2]) > 30;
     // The word's background, compared as without an overlay, is the
     // overlay's where it is the colour of one that reaches out to the edges
     // of the word's surroundings on that side (a fill, a tint, a stamp,
@@ -2235,8 +2239,9 @@ function appearanceChanges(
     }
     if (colour || weight) hits.push({ a, b, colour, ink: ib, p });
     // Most of its glyphs lie in the overlay's states (its weight was not
-    // judged), or too few are left to tell their colour: compared in part.
-    else if (!(outside || behindAll) || ia.n < 6 || ib.n < 6) notePartly(result, newPage, b);
+    // judged), too few are left to tell their colour, or its change of
+    // colour was put down to the overlay: compared in part.
+    else if (!(outside || behindAll) || ia.n < 6 || ib.n < 6 || putDown) notePartly(result, newPage, b);
   }
   // A line found through or under a word goes on at the same height across
   // the next words of the line where it is fainter there (a tracked

@@ -317,6 +317,12 @@ test('Words under or next to an overlay that could be compared only in part are 
   if (!list(r.changes).includes('Struck through: “ninety”')) assert.ok(partly(r).includes('ninety'), show(r));
   assert.ok(notice(r)?.text.startsWith('New version p. 1: '), JSON.stringify(notices('en', r)));
   assert.equal(r.coverage?.new.partlyCompared?.[0].count, partly(r).length);
+  // A red DRAFT moved 30 pt right and 40 pt down, and “acceptance” under
+  // it in both versions turned red (#c00000): the change of hue is put down
+  // to the watermark's red (its old letters over the black word count as
+  // red there too); the word is counted rather than passed in silence.
+  const m = await run('probe8-V3V2-wm-red.pdf', 'probe8-V3V2-wm-moved-red-edits.pdf');
+  if (!recoloured(m).some((w) => w.includes('acceptance'))) assert.ok(partly(m).includes('acceptance'), JSON.stringify(partly(m)));
   // A stamp written over figures: the one under its letters is counted.
   const s = await run('probe8-V3V1-stamp-before.pdf', 'probe8-V3V1-stamp-blue-ctrl.pdf');
   assert.ok(partly(s).includes('1,330.00'), JSON.stringify(partly(s)));
