@@ -315,3 +315,19 @@ test('T-leftovers-V3: a word deleted at a line end that the edit before it would
   assert.deepEqual(listed(c), [RIGHT]);
   assert.deepEqual(texts(c.changes[0]), ['invoice (EUR) (net)', 'invoic']);
 });
+
+// Verifier counter-probe E3 (Chromium account statement, synthetic; pypdf for
+// the page box), with a control built the same way: copied to
+// test/fixtures/probe8-TV6-*.
+
+test('T-leftovers-V6: markers cut at the ends of two rows are one cut, though the deletion was merged across the rows', async () => {
+  // Flush-right amounts, "2,500.00 CR" and "4,800.00 CR" on rows 2 and 3; the same page cropped to 517 pt.
+  // The two deleted markers were merged into one deletion ("CR … CR"): each is judged on its own line.
+  const r = await run('TV6-before', 'TV6-cut');
+  assert.deepEqual(listed(r), [RIGHT]);
+  assert.match(r.changes[0].old.text, /^12,400\.00 CR CR 1,250\.00/);
+  // Control: both markers removed, the page cropped to 535 pt. Each amount now ends where its marker
+  // ended, so the markers were deleted, not cut.
+  const d = await run('TV6-before', 'TV6-deleted');
+  assert.deepEqual(listed(d), ['Deleted “CR … CR”']);
+});

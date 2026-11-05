@@ -4019,6 +4019,21 @@ function foldClipped(changes: Change[], overflow: Change[], oldDoc: DocModel, ne
     }
     const passed = parts.find((ps) => ps.every(pass));
     let cuts: { edge: Edge; old: Token[]; new: Token[] }[] | null = passed ? passed.map((s) => ({ edge: s.side === 'end' ? na.end : na.start, old: s.old, new: s.new })) : null;
+    // A deletion merged from pieces on nearby lines, with matched words
+    // between them (see mergeNearby: "CR … CR" at the ends of two rows), is
+    // judged piece by piece, each on its line, as it would be unmerged.
+    if (!cuts && c.kind === 'delete') {
+      const pieces: Token[][] = [[]];
+      for (const t of ot) {
+        if (newOfOld[t.i] < 0) pieces[pieces.length - 1].push(t);
+        else if (pieces[pieces.length - 1].length) pieces.push([]);
+      }
+      if (!pieces[pieces.length - 1].length) pieces.pop();
+      if (pieces.length > 1 && pieces.every((p) => p.every((t) => t.line === p[0].line))) {
+        const sides = pieces.map((p) => (['end', 'start'] as const).find((side) => pass({ old: p, new: [], side })));
+        if (sides.every((side) => side !== undefined)) cuts = pieces.map((p, k) => ({ edge: sides[k] === 'end' ? na.end : na.start, old: p, new: [] }));
+      }
+    }
     // Whole lines deleted at the top or bottom of an upright page, with no
     // compared text beyond them on the page: PDF.js leaves out a glyph whose
     // baseline lies outside the page, so the baseline must lie past the edge
