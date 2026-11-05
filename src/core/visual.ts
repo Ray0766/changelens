@@ -1920,6 +1920,83 @@ function level(A: Box, B: Box, C: number, n: number, k: number, e: number): bool
 }
 
 /**
+ * A line through or under a word in `b` whose glyphs are not those of `a`
+ * (set bold, italic or in another font: a format change that the text
+ * comparison lists, and that it cannot see a line on). The glyphs cannot be
+ * laid over each other, so the line is told from `b`'s own pixels: rows, no
+ * thicker than a line, dark across the glyphs from the first to the last
+ * (nine in ten of those columns), that also cross the gaps between them
+ * (columns light in every other row of the box: three or more of them, and
+ * three in four, dark there; an underline drawn by Chromium skips the ink
+ * of descenders, leaving a pixel or two beside them light). A glyph's bar
+ * does not reach over the gaps beside it. `a` has no row so dark across at
+ * that height in its box (placed by the box's height, within three pixel
+ * rows).
+ */
+function lineAlone(a: Prepared, ra: Rect, b: Prepared, rb: Rect): FoundLine | null {
+  const A = boxDarkness(a, ra);
+  const B = boxDarkness(b, rb);
+  if (A.cols < 6 || B.cols < 6) return null;
+  const s = b.r.scale;
+  const across = (X: Box, k: number, c0: number, c1: number) => {
+    let n = 0;
+    for (let c = c0; c <= c1; c++) {
+      let sum = 0;
+      for (let j = Math.max(0, k - 1); j <= Math.min(X.rows - 1, k + 1); j++) sum += X.d[j * X.cols + c];
+      if (sum >= 0.6) n++;
+    }
+    return n / (c1 - c0 + 1);
+  };
+  const thick = Math.ceil(1.5 * s) + 2;
+  for (let k = 0; k < B.rows; k++) {
+    if (across(B, k, 0, B.cols - 1) < 0.85) continue;
+    let e = k;
+    while (e + 1 < B.rows && across(B, e + 1, 0, B.cols - 1) >= 0.85) e++;
+    if (e - k + 1 > thick) {
+      k = e;
+      continue;
+    }
+    // Columns with ink in other rows (the glyphs), and those without (gaps).
+    const inked = (c: number) => {
+      for (let j = 0; j < B.rows; j++) if ((j < k - 2 || j > e + 2) && B.d[j * B.cols + c] >= 0.25) return true;
+      return false;
+    };
+    let first = -1;
+    let last = -1;
+    for (let c = 0; c < B.cols; c++) {
+      if (!inked(c)) continue;
+      if (first < 0) first = c;
+      last = c;
+    }
+    const dark = (c: number) => {
+      for (let j = k; j <= e; j++) if (B.d[j * B.cols + c] >= 0.5) return true;
+      return false;
+    };
+    let gaps = 0;
+    let closed = 0;
+    let covered = 0;
+    for (let c = first; c >= 0 && c <= last; c++) {
+      if (dark(c)) covered++;
+      if (inked(c)) continue;
+      gaps++;
+      if (dark(c)) closed++;
+    }
+    const rel = (B.top + (k + e + 1) / 2 / s - rb.y) / rb.h;
+    if (first < 0 || gaps < 3 || closed < Math.max(3, Math.ceil(0.75 * gaps)) || covered < 0.9 * (last - first + 1) || rel < 0.3) {
+      k = e;
+      continue;
+    }
+    // The same height in `a`'s box.
+    const at = (j: number) => Math.round((((B.top + (j + 0.5) / s - rb.y) / rb.h) * ra.h + ra.y - A.top) * a.r.scale - 0.5);
+    let there = false;
+    for (let j = Math.max(0, at(k) - 3); j <= Math.min(A.rows - 1, at(e) + 3) && !there; j++) there = across(A, j, 0, A.cols - 1) >= 0.85;
+    if (!there) return { line: rel >= 0.72 ? 'underline' : 'strike', rows: [Math.round(B.ys[k]), Math.round(B.ys[e])], core: [Math.round(B.ys[k]), Math.round(B.ys[e])] };
+    k = e;
+  }
+  return null;
+}
+
+/**
  * Whether a line found in `B` (the box of a word on `b`, rows k..e) that is
  * not level is a stroke of a graphic that changed about the word: followed
  * out of the box at either end, as it rises or falls (a pixel up or down
@@ -2486,8 +2563,24 @@ function appearanceChanges(
   for (let p = 0; p < m.length; p += 2) {
     const a = TA[m[p]];
     const b = TB[m[p + 1]];
-    if (a.page !== oldPage || b.page !== newPage || a.kind === 'punct' || skip(b)) continue;
+    if (a.page !== oldPage || b.page !== newPage || a.kind === 'punct') continue;
     if (a.rects.length !== 1 || b.rects.length !== 1 || under(a, b)) continue;
+    if (skip(b)) {
+      // A word whose format changed is listed as such; a line through or
+      // under it as well, which the text comparison does not see, is told
+      // from its own pixels (see lineAlone). Latin text only (a CJK
+      // character's strokes fill its box), and only where nothing else
+      // changed around the word.
+      const plain = b.kind !== 'cjk' && !tilted && !near(a, b) && !graphicAt(a, b);
+      const over = plain ? cover(a, b) : 'skip';
+      if (over !== 'skip' && !over[0] && !over[1]) {
+        const added = framed(rowEdge(lineAlone(A, a.rects[0], B, b.rects[0]), B, pageLines.new, b, a), B, A, b, a);
+        const removed = added ? null : framed(rowEdge(lineAlone(B, b.rects[0], A, a.rects[0]), A, pageLines.old, a, b), A, B, a, b);
+        const f = added ?? removed;
+        if (f) hits.push({ a, b, colour: false, line: { line: f.line, added: !!added, rows: f.rows }, p });
+      }
+      continue;
+    }
     // Its colour, though, is told from the glyphs' ink as a whole, whichever
     // way they run (a label turned and recoloured).
     const turned = tilted && wordAngle(result.oldDoc, a, quarter) !== wordAngle(result.newDoc, b, quarter);

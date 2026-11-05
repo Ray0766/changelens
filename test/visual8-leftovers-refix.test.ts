@@ -89,3 +89,28 @@ test('V-leftovers-V2, -V4: a header word underlined on a shaded row, with traili
   const band = await run('probe8-R5-13-before.pdf', 'probe8-N2-calc-rule-noins.pdf');
   assert.ok(!list(band.changes).some((d) => d.startsWith('Underlined')), list(band.changes).join(' | '));
 });
+
+test('V-leftovers-V7: a word set bold and struck through or underlined in the same version lists the line too', { skip }, async () => {
+  const latin = ['statutory', 'nominated', 'twenty-four', 'deposit', 'Landlord'];
+  const bold = (r: CompareResult) => list(r.changes).filter((d) => d.endsWith('now bold'));
+  const lineOf = (r: CompareResult, line: string) => list(r.changes).filter((d) => d.startsWith(line) && !/[一-鿿]/.test(d));
+  // Chromium, Liberation Sans 10.5 (a real bold face): five words set bold
+  // and struck through, or underlined (CJK words in WenQuanYi Zen Hei, made
+  // bold synthetically, have no format item and listed their lines before).
+  // Before: only the five "… now bold" items.
+  const strike = await run('probe8-VL-V7-before.pdf', 'probe8-VL-V7-bold-strike.pdf');
+  assert.deepEqual(lineOf(strike, 'Struck through'), latin.map((w) => `Struck through: “${w}”`));
+  assert.equal(bold(strike).length, 5);
+  const ul = await run('probe8-VL-V7-before.pdf', 'probe8-VL-V7-bold-ul.pdf');
+  assert.deepEqual(lineOf(ul, 'Underlined'), latin.map((w) => `Underlined: “${w}”`));
+  // Seven words struck in the old version, set bold and no longer struck
+  // in the new one.
+  const plain = await run('probe8-VL-V7-m-st-before.pdf', 'probe8-VL-V7-m-st-bold-plain.pdf');
+  assert.equal(list(plain.changes).filter((d) => d.startsWith('Strikethrough removed')).length, 7);
+  // Controls: set bold only; struck in both versions and set bold. Only the
+  // format items.
+  const only = await run('probe8-VL-V7-before.pdf', 'probe8-VL-V7-bold.pdf');
+  assert.deepEqual(list(only.changes).filter((d) => !d.endsWith('now bold')), []);
+  const kept = await run('probe8-VL-V7-m-st-before.pdf', 'probe8-VL-V7-m-st-bold.pdf');
+  assert.deepEqual(list(kept.changes).filter((d) => !d.endsWith('now bold')), []);
+});
