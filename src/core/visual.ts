@@ -1702,12 +1702,17 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
   // in units of the lighter one, the anti-aliased edges of the darker
   // glyphs come out darker than the same edges in the lighter colour, most
   // along a bar across the word (of a "4"), which then reads as a line. (A
-  // strike in the text's new colour is as dark as those glyphs then.)
+  // strike in the text's new colour is as dark as those glyphs then.) Not
+  // where an overlay lies on the word: the hue measured is partly the
+  // overlay's (a red watermark over black text), and the glyphs that show
+  // through a transparent one are darker by its ink in that version only,
+  // which its own units would scale up along their edges (a red figure
+  // under a red and a blue stamp: a false strike along the bar of a "4").
   const ua = inkUnit(a, ra);
   const ub = inkUnit(b, rb);
   const unit = Math.min(ua, ub);
   const [ha, hb] = [inkHue(a, ra), inkHue(b, rb)];
-  const recoloured = Math.hypot(ha[0] - hb[0], ha[1] - hb[1], ha[2] - hb[2]) > 30;
+  const recoloured = !valid && Math.hypot(ha[0] - hb[0], ha[1] - hb[1], ha[2] - hb[2]) > 30;
   for (const [X, u] of [
     [A, recoloured ? ua : unit],
     [B, recoloured ? ub : unit],
