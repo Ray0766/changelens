@@ -207,6 +207,10 @@ test('F9: the words of an auto-sized field value refitted after an edit are not 
   // but their glyphs have less ink: "Text colour or weight changed" twice.
   const r = await run('probe8-R3-06-auto-before.pdf', 'probe8-R3-06-auto-after.pdf');
   assert.deepEqual(list(r.changes), ['Added “Industrial Estate, Maryhill Road” (form field)', 'Number changed: 77812 → 77821 (form field)']);
+  // The same with appearance streams written by pypdf, which keep the
+  // boxes' height: the words' boxes are narrower.
+  const p = await run('probe8-F9-pypdf-before.pdf', 'probe8-F9-pypdf-after.pdf');
+  assert.ok(!p.changes.some((c) => c.format?.appearanceChanged), list(p.changes).join(' | '));
   // Control (pypdf): the same value also drawn red (/DA): its colour is listed.
   const red = await run('probe8-R3-06-auto-before.pdf', 'probe8-F9-auto-after-red.pdf');
   assert.ok(red.changes.some((c) => c.format?.appearanceChanged && hits(c, 'new', 1, 260, 150)), list(red.changes).join(' | '));

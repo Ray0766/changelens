@@ -2722,9 +2722,14 @@ function appearanceChanges(
   const twice = (a: Token, b: Token) => overdrawn(result.oldDoc, oldPage, a) !== overdrawn(result.newDoc, newPage, b);
   // A word of a form field value set in an automatic size, drawn at another
   // size (the viewer fitted the edited value to its box, which the text
-  // comparison lists as that edit, not as formatting): its glyphs' ink
-  // follows their size, so their weight is not compared.
-  const refitted = (a: Token, b: Token) => !!a.autoSize && !!b.autoSize && Math.abs(a.rects[0].h - b.rects[0].h) > 0.1 * Math.max(a.rects[0].h, b.rects[0].h);
+  // comparison lists as that edit, not as formatting; its box is a tenth
+  // taller, shorter, wider or narrower): its glyphs' ink follows their
+  // size, so their weight is not compared.
+  const refitted = (a: Token, b: Token) => {
+    if (!a.autoSize || !b.autoSize) return false;
+    const [u, v] = [a.rects[0], b.rects[0]];
+    return Math.abs(u.h - v.h) > 0.1 * Math.max(u.h, v.h) || Math.abs(u.w - v.w) > 0.1 * Math.max(u.w, v.w);
+  };
   // The words compared, by token index (new side): how to look for a
   // fainter line on each (see below).
   const tried = new Map<number, { a: Token; b: Token; p: number; weak: (added: boolean) => FoundLine | null }>();
