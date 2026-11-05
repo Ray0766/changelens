@@ -116,3 +116,19 @@ test('V2-decorations-V5: an underline right above a cell border both versions ha
   const c = await run('probe8-V2V5-before.pdf', 'probe8-V2V5-borders.pdf');
   assert.deepEqual(list(c.changes.filter((x) => x.format?.decoration)), []);
 });
+
+test('V2-decorations-V6: a label turned by a quarter and recoloured is a colour change, though it is not laid over itself', { skip }, async () => {
+  // "44" upright and black, then turned 90° and red; the page has a turned
+  // margin label in both versions. Before: "No differences found." (the
+  // word-direction guard skipped the colour test too).
+  const r = await run('probe8-V2V6-before.pdf', 'probe8-V2V6-turned-red.pdf');
+  assert.ok(list(r.changes).includes('Text colour or weight changed'), list(r.changes).join(' | '));
+  assert.deepEqual(list(r.changes.filter((c) => c.format?.decoration && c.new.text === '44')), []);
+  // Controls: turned only gives no colour, weight or line item (nor any
+  // item for the turn of a single word, a known limit); strikes on upright
+  // figures of that page are listed.
+  const t = await run('probe8-V2V6-before.pdf', 'probe8-V2V6-turned.pdf');
+  assert.deepEqual(list(t.changes.filter((c) => c.format?.appearanceChanged)), []);
+  const m = await run('probe8-V2V6-before.pdf', 'probe8-V2V6-marks.pdf');
+  assert.deepEqual(list(m.changes), ['Struck through: “4”', 'Struck through: “24”']);
+});

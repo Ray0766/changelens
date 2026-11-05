@@ -2176,7 +2176,9 @@ function appearanceChanges(
     const b = TB[m[p + 1]];
     if (a.page !== oldPage || b.page !== newPage || a.kind === 'punct' || skip(b)) continue;
     if (a.rects.length !== 1 || b.rects.length !== 1 || under(a, b)) continue;
-    if (tilted && wordAngle(result.oldDoc, a, quarter) !== wordAngle(result.newDoc, b, quarter)) continue;
+    // Its colour, though, is told from the glyphs' ink as a whole, whichever
+    // way they run (a label turned and recoloured).
+    const turned = tilted && wordAngle(result.oldDoc, a, quarter) !== wordAngle(result.newDoc, b, quarter);
     // An overlay drawn over or behind the word on one side: the word is
     // compared outside the overlay's ink.
     const over = cover(a, b);
@@ -2206,26 +2208,22 @@ function appearanceChanges(
       const removed = added ? null : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, gb, ga, opts), A, pageLines.old, a, seen), A, B, a, b);
       return added ? { line: added.line, added: true, rows: added.rows } : removed ? { line: removed.line, added: false, rows: removed.rows } : null;
     };
-    let line = lines(ca, cb);
+    let line = turned ? null : lines(ca, cb);
     // A graphic that changed next to (or behind) the word explains its ink
     // where it lies: the word is measured outside the graphic's ink, or not
     // at all where that ink cannot be told apart. So is a line looked for
     // again where none was found: a stamp drawn across the word changes the
     // rows that must stay as they were, and a slanted border of its own is
     // no line.
-    const again = !line && g && g !== 'skip' && (g[0] || g[1]) && !(ca && g[0]) && !(cb && g[1]);
+    const again = !turned && !line && g && g !== 'skip' && (g[0] || g[1]) && !(ca && g[0]) && !(cb && g[1]);
     if (again) line = lines(ca ?? g[0], cb ?? g[1]);
     const [wa, wb] = again ? [ca ?? g[0], cb ?? g[1]] : [ca, cb];
     const weak = { ...opts, weak: true, drift: false };
-    tried.set(b.i, {
-      a,
-      b,
-      p,
-      weak: (added) =>
-        added
-          ? framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, wa, wb, weak), B, pageLines.new, b, seen), B, A, b, a)
-          : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, wb, wa, weak), A, pageLines.old, a, seen), A, B, a, b),
-    });
+    const fainter = (added: boolean) =>
+      added
+        ? framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, wa, wb, weak), B, pageLines.new, b, seen), B, A, b, a)
+        : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, wb, wa, weak), A, pageLines.old, a, seen), A, B, a, b);
+    tried.set(b.i, { a, b, p, weak: (added) => (turned ? null : fainter(added)) });
     if (line) {
       hits.push({ a, b, colour: false, line, p });
       continue;
