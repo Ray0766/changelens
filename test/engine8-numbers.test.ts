@@ -212,3 +212,19 @@ test('T2L4: an amount that became a range or a number of instalments, written al
   // Control: the amount revised beside words that name no other figure is a number change.
   assert.deepEqual(text(['The cap is 2,500,000 per claim and in aggregate.'], ['The cap is 3,000,000.']), ['Number changed: 2,500,000 → 3,000,000 (+20%)', 'Deleted “per claim and in aggregate”']);
 });
+
+// Fourth pass (verifier counter-probe N2, synthetic reportlab): copied to test/fixtures/probe8-TV2-*.
+
+test('T-leftovers-V2: a figure with two more integer digits beside new words is not the same quantity', async () => {
+  // "Unit price 12.50" → "Unit price 1,250.00 per lot": a price of another quantity, one change, no percentage.
+  let r = await run('TV2-before', 'TV2-after');
+  assert.deepEqual(listed(r), ['Changed “12.50” → “1,250.00 per lot”']);
+  r = await run('TV2-after', 'TV2-before');
+  assert.deepEqual(listed(r), ['Changed “1,250.00 per lot” → “12.50”']);
+  // Controls: one digit more beside words added or deleted, or the same grouping however far apart, is a number change.
+  // (The first line sets the right margin.)
+  const head = 'The amounts below are in euro and include every fee for the work.';
+  assert.deepEqual(text([head, 'Total payable 980.00'], [head, 'Total payable 1,080.00 excluding the deposit']), ['Number changed: 980.00 → 1,080.00 (+10%)', 'Added “excluding the deposit”']);
+  assert.deepEqual(text([head, 'Total payable 1,080.00 excluding the deposit'], [head, 'Total payable 980.00']), ['Number changed: 1,080.00 → 980.00 (-9.3%)', 'Deleted “excluding the deposit”']);
+  assert.deepEqual(text([head, 'Unit price 12.50'], [head, 'Unit price 92.50 per lot']), ['Number changed: 12.50 → 92.50 (+640%)', 'Added “per lot”']);
+});

@@ -305,9 +305,11 @@ function splitNumbers(ctx: Ctx, h: Hunk): Hunk[] {
  * one "rewrote 18 words". Only when one side is a single figure and the
  * other starts (or ends) with a single figure and has at least one word
  * besides it, and the two figures are evidently the same quantity:
- * - written alike, as amounts with the same decimals and separators,
- *   however many digits come before them ("2,500,000 per claim and in
- *   aggregate" → "3,000,000", "980.00 incl. VAT" → "1,080.00"), or
+ * - written alike, as amounts with the same grouping and decimals
+ *   ("2,500,000 per claim and in aggregate" → "3,000,000"), or with the
+ *   same decimals and separators and one digit more or fewer before them
+ *   ("980.00 incl. VAT" → "1,080.00"; not "12.50" → "1,250.00 per lot",
+ *   a price of another quantity), or
  * - the figure keeps its slot: it follows the same word on its line as the
  *   other figure and ends the line on both sides, with the words all on
  *   other lines (the payment lines after "Total payable 1,800.00"), or
@@ -347,13 +349,15 @@ function splitFigure(ctx: Ctx, h: Hunk): Hunk[] {
       .normalize('NFKC')
       .replace(/\p{Nd}/gu, '9')
       .replace(/^[-+−–(]+|\)+$/g, '');
-  // The integer part, however long, with its group separators: "1,080.00" and "980.00" are both "9.99".
-  const whole = (w: string) => w.replace(/^(\D*)9+(?:[,.'’\u00a0\u202f ]999(?!9))*/, '$19');
+  // The integer part with its group separators: "1,080.00" and "980.00" are both "9.99", with 4 and 3 digits.
+  const integer = /^(\D*)9+(?:[,.'’\u00a0\u202f ]999(?!9))*/;
+  const whole = (w: string) => w.replace(integer, '$19');
+  const digits = (w: string) => (w.match(integer)?.[0].match(/9/g) ?? []).length;
   const amount = (w: string) => /9[,.'’\u00a0\u202f ]9/.test(w);
   const alike = (f: number, t: number) => {
     const w = shape(T, f, t);
     const v = shape(U, u0, u1);
-    return whole(w) === whole(v) && amount(w) && amount(v);
+    return w === v ? amount(w) : whole(w) === whole(v) && amount(w) && amount(v) && Math.abs(digits(w) - digits(v)) <= 1;
   };
   // No other figure on the figure's line among the words beside it.
   const alone = (f: number, from: number, to: number) => !T.slice(from, to).some((x) => x.line === T[f].line && hasDigit(x));
