@@ -340,6 +340,8 @@ export function buildJson(input: ReportInput): unknown {
     ...(c.privateUse ? { privateUse: c.privateUse.map(page1) } : {}),
     ...(c.visualSkipped ? { visualSkipped: c.visualSkipped.map((p) => p + 1) } : {}),
     ...(c.uncertain ? { uncertain: c.uncertain.map(page1) } : {}),
+    ...(c.partlyCompared ? { partlyCompared: c.partlyCompared.map(page1) } : {}),
+    ...(c.fieldsUnread ? { fieldsUnread: c.fieldsUnread.map(page1) } : {}),
   });
   return {
     generator: 'ChangeLens',
