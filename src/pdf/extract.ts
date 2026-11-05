@@ -390,7 +390,10 @@ export function fieldRuns(annotations: WidgetData[], vt: number[], content: Text
     // flattened while its widgets were kept): compare it once.
     if (shownByContent(lines, r, vt, content)) continue;
     const group = layoutField(a, lines, r, vt, drawn.get(a.defaultAppearanceData?.fontName ?? '') ?? '');
-    for (const run of group) run.widget = out.runs.length;
+    const [x0, y0] = apply(vt, r[0], r[1]);
+    const [x1, y1] = apply(vt, r[2], r[3]);
+    const widget = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+    for (const run of group) run.widget = widget;
     out.runs.push(group);
   }
   return out;

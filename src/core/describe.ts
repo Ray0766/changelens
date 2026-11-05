@@ -147,6 +147,7 @@ function describeKind(lang: Lang, c: Change): string {
       if (f.italicRemoved) parts.push(t(lang, 'noLongerItalic'));
       if (f.sizeFrom !== undefined) parts.push(t(lang, 'sizeChanged', { from: f.sizeFrom, to: f.sizeTo ?? '' }));
       if (f.fontFrom) parts.push(t(lang, 'fontChanged', { from: f.fontFrom, to: f.fontTo ?? '' }));
+      if (f.turnTo !== undefined) parts.push(t(lang, 'turned', { from: t(lang, readsKey(f.turnFrom ?? 0)), to: t(lang, readsKey(f.turnTo)) }));
       const sep = lang === 'zh' ? '，' : ', ';
       if (c.places) {
         const head = t(lang, 'formatChanged');
@@ -178,6 +179,12 @@ function describeKind(lang: Lang, c: Change): string {
       if (!c.new.rects.length) return t(lang, 'graphicRemoved');
       return t(lang, 'graphicChanged');
   }
+}
+
+/** The direction a text reads in (degrees clockwise from left to right). */
+function readsKey(deg: number): 'reads0' | 'reads90' | 'reads180' | 'reads270' {
+  const q = ((Math.round(deg / 90) % 4) + 4) % 4;
+  return (['reads0', 'reads90', 'reads180', 'reads270'] as const)[q];
 }
 
 function describePage(lang: Lang, c: Change): string {

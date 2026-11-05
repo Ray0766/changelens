@@ -294,6 +294,26 @@ test('R3-07: a widget turned by /MK /R is compared as text', async () => {
   assert.equal(r.changes[0].contextBefore, 'Odometer (km)');
 });
 
+test('T3-forms-V4: a widget turned the other way (/MK /R 90 → 270) with the same value is a turn, not a value deleted and added', async () => {
+  // Sample submission: the vertical "Batch no." field reads bottom to top
+  // (/R 90, beside its label) and then top to bottom (/R 270): the value
+  // reads against its label and comes at another point of the reading order.
+  let r = await run('V4-before', 'V4-r270-same');
+  assert.deepEqual(listed(r), ['“B-2026-0417” reads bottom to top → top to bottom']);
+  const [c] = r.changes;
+  assert.deepEqual([c.kind, c.old.text, c.new.text, c.old.rects.length, c.new.rects.length], ['format', 'B-2026-0417', 'B-2026-0417', 1, 1]);
+  assert.equal(describeChange('zh', c), '「B-2026-0417」方向 从下到上 → 从上到下');
+  // The other way round.
+  r = await run('V4-r270-same', 'V4-before');
+  assert.deepEqual(listed(r), ['“B-2026-0417” reads top to bottom → bottom to top']);
+  // Control: turned and edited: the old and the new value are both listed.
+  r = await run('V4-before', 'V4-r270-edit');
+  assert.deepEqual(listed(r), ['Added “B-2026-0471” (form field)', 'Deleted “B-2026-0417” (form field)']);
+  // Control: an edit of another field next to it is listed.
+  r = await run('V4-before', 'V4-r270-count');
+  assert.deepEqual(listed(r), ['“B-2026-0417” reads bottom to top → top to bottom', 'Number changed: 12 → 21 (+75%) (form field)']);
+});
+
 test('R3-06: a field in an automatic size is fitted to its value as the viewer fits it; its size is no edit', async () => {
   // Supplier address in auto-sized fields (DA size 0, values in /V): the
   // longer address is drawn smaller (11.9 → 8.2 pt). The size follows from

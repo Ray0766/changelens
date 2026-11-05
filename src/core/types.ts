@@ -49,8 +49,8 @@ export interface TextRun {
   comb?: true;
   /** (Form fields) The field's font size is automatic: the viewer fits it to the value and the box. */
   autoSize?: true;
-  /** (Form fields) The widget that shows the value, numbered on its page. */
-  widget?: number;
+  /** (Form fields) The box of the widget that shows the value (page space, like x, y, w, h). */
+  widget?: Rect;
 }
 
 export interface PageText {
@@ -124,8 +124,8 @@ export interface Token {
   comb?: true;
   /** Part of the value of a field with an automatic font size (see TextRun.autoSize). */
   autoSize?: true;
-  /** The widget of a form field's value, numbered on its page (see TextRun.widget). */
-  widget?: number;
+  /** The box of the widget that shows a form field's value (see TextRun.widget). */
+  widget?: Rect;
 }
 
 export interface Line {
@@ -222,6 +222,13 @@ export interface FormatDetail {
   appearanceChanged?: boolean;
   /** A line through or under the text was added or removed (found visually). */
   decoration?: { line: 'strike' | 'underline'; added: boolean };
+  /**
+   * (Form fields) The value reads in another direction in its box: degrees
+   * clockwise from left to right (90: top to bottom, 180: upside down, 270:
+   * bottom to top).
+   */
+  turnFrom?: number;
+  turnTo?: number;
 }
 
 export interface Change {

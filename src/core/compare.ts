@@ -1527,6 +1527,68 @@ function inPlaceTokens(ctx: Ctx, hunks: Hunk[], keep: Set<Hunk>, oldToNew: numbe
   return { rest: out, pairs, edits: new Set(replaced.values()) };
 }
 
+/**
+ * A form field value deleted at one point of the reading order and inserted
+ * at another, where each side is the whole value of one widget, with the
+ * same words, the two widget boxes stand at the same place on paired pages,
+ * and the value reads in another direction (a widget turned by another
+ * /MK /R): the same value of the same field, turned in its box. A value that
+ * reads in another direction than its label comes elsewhere in the reading
+ * order. It is matched text, and its turn is a formatting change ("reads
+ * bottom to top → top to bottom"). An edit inside a field (a word moved
+ * within it) is not a whole value on each side.
+ */
+function turnedValues(ctx: Ctx, hunks: Hunk[], keep: Set<Hunk>, oldToNew: number[]): { rest: Hunk[]; pairs: number[]; turns: Change[] } {
+  const { A, B, oldDoc, newDoc } = ctx;
+  const out = { rest: hunks, pairs: [] as number[], turns: [] as Change[] };
+  const dels: Hunk[] = [];
+  const inss: Hunk[] = [];
+  for (const h of hunks) {
+    if (keep.has(h)) continue;
+    if (h.b0 === h.b1 && h.a1 > h.a0 && A[h.a0].widget) dels.push(h);
+    else if (h.a0 === h.a1 && h.b1 > h.b0 && B[h.b0].widget) inss.push(h);
+  }
+  if (!dels.length || !inss.length) return out;
+  const boxKey = (t: Token) => `${t.page}:${Math.round(t.widget!.x)},${Math.round(t.widget!.y)},${Math.round(t.widget!.w)},${Math.round(t.widget!.h)}`;
+  const counts = (T: Token[]) => {
+    const n = new Map<string, number>();
+    for (const t of T) if (t.widget) n.set(boxKey(t), (n.get(boxKey(t)) ?? 0) + 1);
+    return n;
+  };
+  const [nA, nB] = [counts(A), counts(B)];
+  /** T[s, e) is all of one widget's value. */
+  const whole = (T: Token[], s: number, e: number, n: Map<string, number>) => {
+    for (let k = s + 1; k < e; k++) if (T[k].page !== T[s].page || !sameWidget(T[k], T[s], 0.5)) return false;
+    return n.get(boxKey(T[s])) === e - s;
+  };
+  /** The direction the widget's value reads in, against the page's text (degrees clockwise). */
+  const direction = (doc: DocModel, t: Token) => {
+    const run = doc.runs[t.page]?.find((r) => r.field && r.widget && Math.abs(r.widget.x - t.widget!.x) <= 0.5 && Math.abs(r.widget.y - t.widget!.y) <= 0.5);
+    const deg = (run?.angle ?? 0) - (doc.pages[t.page]?.textAngle ?? 0);
+    return ((Math.round(deg / 90) * 90) % 360 + 360) % 360;
+  };
+  const joined = new Set<Hunk>();
+  for (const d of dels) {
+    if (!whole(A, d.a0, d.a1, nA)) continue;
+    const page = oldToNew[A[d.a0].page];
+    for (const ins of inss) {
+      if (joined.has(ins) || ins.b1 - ins.b0 !== d.a1 - d.a0 || B[ins.b0].page !== page || !sameWidget(A[d.a0], B[ins.b0], 2)) continue;
+      let same = whole(B, ins.b0, ins.b1, nB);
+      for (let k = 0; same && k < d.a1 - d.a0; k++) same = A[d.a0 + k].key === B[ins.b0 + k].key;
+      const [from, to] = [direction(oldDoc, A[d.a0]), direction(newDoc, B[ins.b0])];
+      if (!same || from === to) continue;
+      joined.add(d);
+      joined.add(ins);
+      for (let k = 0; k < d.a1 - d.a0; k++) out.pairs.push(d.a0 + k, ins.b0 + k);
+      const c = textChange(ctx, { a0: d.a0, a1: d.a1, b0: ins.b0, b1: ins.b1 });
+      out.turns.push({ id: '', kind: 'format', category: 'visual', old: c.old, new: c.new, format: { turnFrom: from, turnTo: to }, size: c.size, cjk: c.cjk, contextBefore: '', contextAfter: '', order: c.order });
+      break;
+    }
+  }
+  out.rest = hunks.filter((h) => !joined.has(h));
+  return out;
+}
+
 // --------------------------------------------------- running field values ---
 
 /** The value of a form field on a header or footer line: running tokens [k0, k1), and where it stands. */
@@ -1894,6 +1956,13 @@ function runningFieldValues(
   return out;
 }
 
+/** Two form field values shown by the same widget box (each side within tol), or two tokens of no widget. */
+function sameWidget(a: Token, b: Token, tol: number): boolean {
+  const [p, q] = [a.widget, b.widget];
+  if (!p || !q) return !p && !q;
+  return Math.abs(p.x - q.x) <= tol && Math.abs(p.y - q.y) <= tol && Math.abs(p.x + p.w - q.x - q.w) <= tol && Math.abs(p.y + p.h - q.y - q.h) <= tol;
+}
+
 /** Two boxes at the same height (within 2 pt, or 60 % of the smaller one). */
 function sameHeight(a: { y: number; h: number }, b: { y: number; h: number }): boolean {
   return Math.abs(a.y - b.y) <= Math.max(2, 0.6 * Math.min(a.h, b.h));
@@ -1961,7 +2030,7 @@ function refittedValues(oldDoc: DocModel, newDoc: DocModel, newOfOld: Int32Array
   /** The words of the auto-sized value around token i (of its widget). */
   const value = (doc: DocModel, i: number) => {
     const T = doc.tokens;
-    const same = (k: number) => T[k].field && T[k].autoSize && T[k].page === T[i].page && T[k].widget === T[i].widget;
+    const same = (k: number) => T[k].field && T[k].autoSize && T[k].page === T[i].page && sameWidget(T[k], T[i], 0.5);
     let s = i;
     while (s > 0 && same(s - 1)) s--;
     let e = i + 1;
@@ -2243,6 +2312,10 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   const stray = inPlaceTokens(ctx, moved.rest, new Set([...relabelled.labels, ...crossed.labels]), oldToNew, [...pairs, ...moved.inPlace]);
   moved.rest = stray.rest;
   moved.inPlace.push(...stray.pairs);
+  const turned = turnedValues(ctx, moved.rest, new Set([...relabelled.labels, ...crossed.labels]), oldToNew);
+  moved.rest = turned.rest;
+  moved.inPlace.push(...turned.pairs);
+  stray.pairs.push(...turned.pairs);
   // A label paired by relabel stays one change even across a block or page boundary.
   const changes: Change[] = [
     ...moved.rest.flatMap((h) => (relabelled.labels.has(h) || crossed.labels.has(h) ? [h] : splitHunk(ctx, h, !stray.edits.has(h)))).map((h) => textChange(ctx, h)),
@@ -2289,7 +2362,7 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
       ...detectFormatting(ctx, opsOfInPlace(stray.pairs), refitted),
       ...detectFormatting(ctxR, opsOfInPlace(runningValues.pairs), refitted),
     ];
-    changes.push(...aggregateFormatting(formats, ctx, pairs));
+    changes.push(...aggregateFormatting(formats, ctx, pairs), ...turned.turns);
     changes.push(...detectPositions(ctx, pairs));
   }
   const map = pageMap(oldDoc, newDoc, A, B, pairs);
