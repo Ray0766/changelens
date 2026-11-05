@@ -305,16 +305,20 @@ function splitNumbers(ctx: Ctx, h: Hunk): Hunk[] {
  * one "rewrote 18 words". Only when one side is a single figure and the
  * other starts (or ends) with a single figure and has at least one word
  * besides it, and the two figures are evidently the same quantity:
- * - written alike, as amounts with the same grouping and decimals
- *   ("2,500,000 per claim and in aggregate" → "3,000,000"), or
+ * - written alike, as amounts with the same decimals and separators,
+ *   however many digits come before them ("2,500,000 per claim and in
+ *   aggregate" → "3,000,000", "980.00 incl. VAT" → "1,080.00"), or
  * - the figure keeps its slot: it follows the same word on its line as the
  *   other figure and ends the line on both sides, with the words all on
  *   other lines (the payment lines after "Total payable 1,800.00"), or
  *   likewise starts the line before the same word (a row number under a
- *   table header repeated above it).
- * Otherwise the words may say what the new figure is ("500" → "waived
- * until 2027", "24" → "2 years", "1,000,000" → "the amount set out in
- * Schedule 3"), and one change names both sides.
+ *   table header repeated above it);
+ * and no other figure stands beside it on its line among the words added
+ * or removed: those make it a part of a new quantity ("1,500.00" →
+ * "1,250.00 to 1,750.00", "5,000.00" → "2,500.00 in each of 2
+ * instalments"). Otherwise the words may say what the new figure is
+ * ("500" → "waived until 2027", "24" → "2 years", "1,000,000" → "the
+ * amount set out in Schedule 3"), and one change names both sides.
  */
 function splitFigure(ctx: Ctx, h: Hunk): Hunk[] {
   const { A, B } = ctx;
@@ -343,10 +347,16 @@ function splitFigure(ctx: Ctx, h: Hunk): Hunk[] {
       .normalize('NFKC')
       .replace(/\p{Nd}/gu, '9')
       .replace(/^[-+−–(]+|\)+$/g, '');
+  // The integer part, however long, with its group separators: "1,080.00" and "980.00" are both "9.99".
+  const whole = (w: string) => w.replace(/^(\D*)9+(?:[,.'’\u00a0\u202f ]999(?!9))*/, '$19');
+  const amount = (w: string) => /9[,.'’\u00a0\u202f ]9/.test(w);
   const alike = (f: number, t: number) => {
     const w = shape(T, f, t);
-    return w === shape(U, u0, u1) && /9[,.'’\u00a0\u202f ]9/.test(w);
+    const v = shape(U, u0, u1);
+    return whole(w) === whole(v) && amount(w) && amount(v);
   };
+  // No other figure on the figure's line among the words beside it.
+  const alone = (f: number, from: number, to: number) => !T.slice(from, to).some((x) => x.line === T[f].line && hasDigit(x));
   // The figure keeps its slot: on both sides after (before) the same matched
   // word on its line and the last (first) on that line, the words being on
   // other lines.
@@ -356,12 +366,12 @@ function splitFigure(ctx: Ctx, h: Hunk): Hunk[] {
     (start
       ? line(T, f - 1, T[f].line) && line(U, u0 - 1, U[u0].line) && T[f - 1].key === U[u0 - 1].key && !line(U, u1, U[u0].line)
       : line(T, t, T[f].line) && line(U, u1, U[u0].line) && T[t].key === U[u1].key && !line(U, u0 - 1, U[u0].line));
-  if (p > s && figure(T, s, p) && rest(p, e) && (alike(s, p) || slot(s, p, true))) {
+  if (p > s && figure(T, s, p) && rest(p, e) && alone(s, p, e) && (alike(s, p) || slot(s, p, true))) {
     return aOne
       ? [{ a0: h.a0, a1: h.a1, b0: s, b1: p }, { a0: h.a1, a1: h.a1, b0: p, b1: e }]
       : [{ a0: s, a1: p, b0: h.b0, b1: h.b1 }, { a0: p, a1: e, b0: h.b1, b1: h.b1 }];
   }
-  if (q < e && figure(T, q, e) && rest(s, q) && (alike(q, e) || slot(q, e, false))) {
+  if (q < e && figure(T, q, e) && rest(s, q) && alone(q, s, q) && (alike(q, e) || slot(q, e, false))) {
     return aOne
       ? [{ a0: h.a0, a1: h.a0, b0: s, b1: q }, { a0: h.a0, a1: h.a1, b0: q, b1: e }]
       : [{ a0: s, a1: q, b0: h.b0, b1: h.b0 }, { a0: q, a1: e, b0: h.b0, b1: h.b1 }];

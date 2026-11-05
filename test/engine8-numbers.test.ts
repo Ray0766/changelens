@@ -189,3 +189,26 @@ test('T2N3: a figure replaced by words that start or end with another figure sta
   // A plain count or term followed by a unit stays one change too.
   assert.deepEqual(text(['The minimum term is 12.'], ['The minimum term is 24 months.']), ['Changed “12” → “24 months”']);
 });
+
+// Third pass (re-verifier counter-probes, synthetic; reportlab and Chromium):
+// copied to test/fixtures/probe8-T2L3-* and probe8-T2L4-*.
+
+test('T2L3: a total written with one more digit group ("980.00" → "1,080.00") beside deleted words is a number change and a deletion', async () => {
+  // "Total payable 980.00 incl. VAT", and the bank and payment lines after it, → "Total payable 1,080.00".
+  const r = await run('T2L3-before', 'T2L3-after');
+  assert.deepEqual(listed(r), ['Number changed: 980.00 → 1,080.00 (+10%)', 'Deleted 19 words']);
+  assert.match(r.changes[1].old.text, /^incl\. VAT Bank: Example Savings/);
+  // Chromium: the same total in a table cell and in running text, "(VAT included)" after it.
+  const chr = await run('T2L3-chr-before', 'T2L3-chr-after');
+  assert.deepEqual(listed(chr), ['Number changed: 980.00 → 1,080.00 (+10%)', 'Number changed: 980.00 → 1,080.00 (+10%)', 'Deleted 19 words']);
+  // Control: the same totals and figures without decimals in only one version stay one change.
+  assert.deepEqual(text(['Total payable 980 incl. VAT'], ['Total payable 1,080.00']), ['Changed “980 incl. VAT” → “1,080.00”']);
+});
+
+test('T2L4: an amount that became a range or a number of instalments, written alike, is one change', async () => {
+  // "Set-up fee: EUR 1,500.00" → "EUR 1,250.00 to 1,750.00"; "Deposit: EUR 5,000.00" → "EUR 2,500.00 in each of 2 instalments".
+  const r = await run('T2L4-before', 'T2L4-after');
+  assert.deepEqual(listed(r), ['Changed “1,500.00” → “1,250.00 to 1,750.00”', 'Changed “5,000.00” → “2,500.00 in each of 2 instalments”']);
+  // Control: the amount revised beside words that name no other figure is a number change.
+  assert.deepEqual(text(['The cap is 2,500,000 per claim and in aggregate.'], ['The cap is 3,000,000.']), ['Number changed: 2,500,000 → 3,000,000 (+20%)', 'Deleted “per claim and in aggregate”']);
+});
