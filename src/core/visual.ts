@@ -2021,11 +2021,12 @@ function appearanceChanges(
     };
     return dark(l.rect.x - d - 1, l.rect.x - 1) || dark(l.rect.x + l.rect.w + 1, l.rect.x + l.rect.w + d + 1) ? null : found;
   };
-  // An "underline" that ends, at either end, in a stroke rising from it past
+  // An "underline" that ends, at both ends, in a stroke rising from it past
   // the text (and not going on below it, as the side of a stamp drawn
-  // across the line does), which the other version does not have there, is
-  // the lower edge of a frame drawn around the words (a reviewer's box,
-  // outline-offset a point or two): not a line under them. The line is followed from the
+  // across the line does), which the other version does not have there,
+  // with an edge joining the two strokes above the text, is the lower edge
+  // of a frame drawn around the words (a reviewer's box, outline-offset a
+  // point or two): not a line under them. The line is followed from the
   // word along its rows to where it ends (a phrase underlined as a whole
   // ends with its last word, or a few spaces after it). Null for that, else
   // the line found. `X` has the line, `t` is the word there, and `u` the
@@ -2066,10 +2067,29 @@ function appearanceChanges(
       for (let y = y1 + 2; y < y1 + 2 + depth; y++) if (dark(X, x, y) >= 0.3) below++;
       return below <= 0.3 * depth;
     };
+    // The stroke at each end of the line, if it rises so.
+    const ends: number[] = [];
     for (const dir of [-1, 1]) {
       let x = dir < 0 ? Math.floor(r.x * s) : Math.ceil((r.x + r.w) * s) - 1;
       for (let step = 0; step < 600 && along(x + dir); step++) x += dir;
-      for (let c = x - 2; c <= x + 2; c++) if (rises(c)) return null;
+      for (let c = x - 2; c <= x + 2; c++)
+        if (rises(c)) {
+          ends.push(c);
+          break;
+        }
+    }
+    // A frame has both sides, and its top edge joins them above the text:
+    // a single stroke rising at one end (a cell rule added next to an
+    // underlined amount, a bracket or a bar inserted right after the word)
+    // leaves the underline an underline.
+    if (ends.length < 2) return found;
+    const [xl, xr] = ends;
+    let y = top;
+    while (y > 0 && top - y < 2 * r.h * s && dark(X, xl, y - 1) >= 0.3) y--;
+    for (let v = y - 1; v <= y + 1; v++) {
+      let n = 0;
+      for (let x = xl; x <= xr; x++) if (dark(X, x, v - 1) + dark(X, x, v) + dark(X, x, v + 1) >= 0.5) n++;
+      if (n >= 0.85 * (xr - xl + 1)) return null;
     }
     return found;
   };
