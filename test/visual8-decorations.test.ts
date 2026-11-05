@@ -73,6 +73,19 @@ test('R4-03: a strike through glyphs already dense at its rows is listed (8, 88,
   assert.deepEqual(lines(r), struck('fee', 'eight', 'agreed', 'exceed', '8', '88', 'one', 'see', '98', 'executed'));
   const cal = await run('probe8-R4-03-caladea-before.pdf', 'probe8-R4-03-caladea-s.pdf');
   assert.deepEqual(lines(cal), struck('Six', '30', 'agreed', 'by post', 'agreement', 'ten', '48', '8'));
+  // Where the glyphs fill the strike's row, the columns they leave light
+  // there must all turn dark (glyphs at the same pixels in both versions).
+  // Before: "8" (Liberation Sans 10 pt, no re-flow) and "fee" and "see"
+  // (12 pt) were missing.
+  const n0 = await run('probe8-R4-02-before.pdf', 'probe8-R4-03-sans10-n0.pdf');
+  assert.deepEqual(lines(n0), struck('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '14', '47', '88', '−5', '1.5'));
+  const l12 = await run('probe8-R4-03-lsans12-before.pdf', 'probe8-R4-03-lsans12-s.pdf');
+  assert.deepEqual(lines(l12), struck('fee', 'eight', 'agreed', 'exceed', '8', '88', 'one', 'see', '98', 'executed'));
+  // Control (round 4 supply annex): a row inserted above moves a "4" by a
+  // fraction of a pixel, and its bar, spread over two rows before, is drawn
+  // in one: no strike.
+  const annex = await compare(`${cases}holdout4-e-docx-zh-en-supply-annex/before.pdf`, `${cases}holdout4-e-docx-zh-en-supply-annex/after.pdf`);
+  assert.deepEqual(lines(annex), []);
 });
 
 test('R4-08: a strike and an underline in grey or coloured text are listed; a grey footnote is no longer "no differences"', { skip }, async () => {

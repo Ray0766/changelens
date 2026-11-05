@@ -1386,9 +1386,10 @@ type FoundLine = { line: 'strike' | 'underline'; rows: [number, number] };
  * character (see lineIn). `weak`: a fainter line is
  * enough (little more than half the darkness and of the columns gained),
  * for a word next to a line found at the same height (see
- * appearanceChanges).
+ * appearanceChanges). `exact`: a word at the same place relative to the
+ * pixel grid in both rasters was drawn there in both (see samePixels).
  */
-type LineOptions = { drift?: boolean; rows?: [number, number]; weak?: boolean; cjk?: boolean };
+type LineOptions = { drift?: boolean; rows?: [number, number]; weak?: boolean; cjk?: boolean; exact?: boolean };
 
 /**
  * A line through or under the token in `b` that `a` does not have: rows
@@ -1567,14 +1568,39 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
   // glyphs make look dark across, does not). A glyph stroke drawn a little
   // darker adds far less. Most columns of `a` must also be light there, or
   // more of them must have gained.
+  // Where the glyphs already fill most of the line's row (the waist of an
+  // "8", the bars of the e's in "fee" at a strike's height), few columns
+  // can gain, and little darkness: then the columns they leave light in
+  // that row (the gaps between the glyphs and beside their strokes, three
+  // or more) must all have turned dark, or all but one where there are
+  // five or more (the line's anti-aliased end in the box's edge column).
+  // Only where the glyphs give the very same pixels in both versions (see
+  // samePixels): a stroke of a glyph that one rendering spreads over two
+  // rows and the other puts in one (the bar of a "4" after a re-flow by a
+  // fraction of a pixel) turns its columns dark in that row as well.
+  const still = !shifted && !!opts.exact && samePixels(ra, a.r.scale, rb, b.r.scale);
+  const filled = (k: number) => {
+    let light = 0;
+    let now = 0;
+    for (let c = 0; c < C; c++) {
+      if (valid && !valid[k * C + c]) continue;
+      const va = A.d[k * A.cols + c];
+      if (va >= 0.6) continue;
+      light++;
+      const vb = B.d[k * B.cols + c];
+      if (vb >= 0.6 && vb - va >= 0.3) now++;
+    }
+    return light >= 3 && now >= (light >= 5 ? light - 1 : light);
+  };
   const line = (k: number) => {
     const added = win(pb, k, 1) - win(pa, k, 1);
-    if (share(B, k, 1) < 0.85 || added < (opts.weak ? 0.25 : 0.45)) return false;
+    if (share(B, k, 1) < 0.85) return false;
+    if (added < (opts.weak ? 0.25 : 0.45)) return !opts.weak && still && added >= 0.2 && filled(k);
     const g = gained(k);
     // A short word whose glyph fills the line's rows (an "a" between struck
     // words) gains few columns, but as much darkness.
     if (opts.weak) return g >= 0.35 || (g >= 0.2 && added >= 0.4);
-    return g >= 0.55 || (!shifted && g >= 0.4 && share(A, k, 1) <= 0.7);
+    return g >= 0.55 || (!shifted && g >= 0.4 && share(A, k, 1) <= 0.7) || (still && filled(k));
   };
   let part = false;
   for (let k = 0; k < n; k++) {
@@ -1743,6 +1769,20 @@ function inkUnit(side: Prepared, rect: Rect): number {
 }
 
 /**
+ * Whether a word's box lies at the same place relative to the pixel grid
+ * in both rasters (moved by whole pixels, if at all) and has the same size:
+ * the same glyphs then give the very same pixels in both, as each raster
+ * is drawn on its page's own grid (not so on a page turned back, see
+ * unturnRaster; callers tell that apart).
+ */
+function samePixels(ra: Rect, sa: number, rb: Rect, sb: number): boolean {
+  if (sa !== sb) return false;
+  const fx = (rb.x - ra.x) * sa;
+  const fy = (rb.y - ra.y) * sa;
+  return Math.abs(fx - Math.round(fx)) <= 0.02 && Math.abs(fy - Math.round(fy)) <= 0.02 && Math.abs(ra.w - rb.w) * sa <= 0.02 && Math.abs(ra.h - rb.h) * sa <= 0.02;
+}
+
+/**
  * Whether the glyphs in `rb` (on `B`) are those in `ra` (on `A`) drawn
  * heavier: their outlines grown on every side, as a synthetic bold draws
  * them (filled and stroked, text render mode 2, which Word writes for a
@@ -1758,12 +1798,9 @@ function inkUnit(side: Prepared, rect: Rect): number {
  */
 function heavier(A: Prepared, ra: Rect, B: Prepared, rb: Rect): boolean {
   const s = A.r.scale;
-  if (B.r.scale !== s) return false;
-  const fx = (rb.x - ra.x) * s;
-  const fy = (rb.y - ra.y) * s;
-  const dx = Math.round(fx);
-  const dy = Math.round(fy);
-  if (Math.abs(fx - dx) > 0.02 || Math.abs(fy - dy) > 0.02 || Math.abs(ra.w - rb.w) * s > 0.02 || Math.abs(ra.h - rb.h) * s > 0.02) return false;
+  if (!samePixels(ra, s, rb, B.r.scale)) return false;
+  const dx = Math.round((rb.x - ra.x) * s);
+  const dy = Math.round((rb.y - ra.y) * s);
   const x0 = Math.max(0, -dx, Math.floor(ra.x * s));
   const x1 = Math.min(A.r.width, B.r.width - dx, Math.ceil((ra.x + ra.w) * s));
   const y0 = Math.max(0, -dy, Math.floor(ra.y * s));
@@ -2077,7 +2114,7 @@ function appearanceChanges(
       }
       return v;
     };
-    const opts = { drift: b.kind !== 'cjk', cjk: b.kind === 'cjk', rows: own(a, b) };
+    const opts = { drift: b.kind !== 'cjk', cjk: b.kind === 'cjk', rows: own(a, b), exact };
     const lines = (ga: Cover | null, gb: Cover | null) => {
       const added = framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, ga, gb, opts), B, pageLines.new, b, seen), B, A, b, a);
       const removed = added ? null : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, gb, ga, opts), A, pageLines.old, a, seen), A, B, a, b);
