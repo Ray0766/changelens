@@ -53,8 +53,14 @@ export async function extractPage(page: PDFPageProxy, index: number, formFonts: 
   // with the widgets' appearance streams, a form of 2,000 fields took 1 GB
   // and 11 s per document here, for fonts the text content never names.
   let fontNames = new Map<string, string>();
+  let stroked: boolean[] = [];
   try {
-    await page.getOperatorList({ annotationMode: 0 });
+    const ops = await page.getOperatorList({ annotationMode: 0 });
+    try {
+      stroked = strokedItems(ops, tc.items);
+    } catch {
+      /* Render modes unreadable: every run counts as filled only. */
+    }
     fontNames = new Map(
       Object.keys(tc.styles).map((id) => {
         let name = '';
@@ -73,7 +79,7 @@ export async function extractPage(page: PDFPageProxy, index: number, formFonts: 
 
   const runs: TextRun[] = [];
   let unmapped = 0;
-  for (const item of tc.items) {
+  for (const [n, item] of tc.items.entries()) {
     if (!('str' in item)) continue;
     const str = cleanText(item.str);
     if (str === '' && item.width > 0 && !item.hasEOL) {
@@ -85,7 +91,7 @@ export async function extractPage(page: PDFPageProxy, index: number, formFonts: 
     if (str === '' && !item.hasEOL) continue;
     const style = tc.styles[item.fontName] ?? { fontFamily: 'sans-serif', ascent: 0.8, descent: -0.2 };
     const run = makeRun(viewport.transform, item.transform, item.width, str, Number(style.ascent), Number(style.descent), {
-      font: fontNames.get(item.fontName) || style.fontFamily || '',
+      font: (fontNames.get(item.fontName) || style.fontFamily || '') + (stroked[n] ? STROKED : ''),
       family: familyOf(style.fontFamily),
       eol: item.hasEOL,
     });
@@ -111,7 +117,74 @@ export async function extractPage(page: PDFPageProxy, index: number, formFonts: 
 }
 
 /** The operators of a PDF.js operator list read here (OPS in pdfjs-dist 6.4.299). */
-export const OPS_READ = { setFont: 37, showText: [44, 45, 46, 47], beginAnnotation: 80, endAnnotation: 81 };
+export const OPS_READ = {
+  save: 10,
+  restore: 11,
+  setFont: 37,
+  setTextRenderingMode: 38,
+  showText: [44, 45, 46, 47],
+  paintFormXObjectBegin: 74,
+  paintFormXObjectEnd: 75,
+  beginAnnotation: 80,
+  endAnnotation: 81,
+};
+
+/**
+ * Appended to the font name of a run drawn with its glyphs filled and
+ * stroked (text render mode 2 or 6): the bold that LibreOffice and Word draw
+ * for a font without a bold face, with the regular font's name. After a
+ * comma, the font's family stays the same (see parseStyle in compare.ts),
+ * and it reads as no weight of its own: compare.ts takes it for bold only
+ * where labels are told apart by their weight (labelBox), not as a
+ * formatting change, which the visual comparison sees in the glyphs' ink.
+ */
+export const STROKED = ',Stroke';
+
+/**
+ * For each text content item, whether its glyphs were filled and stroked.
+ * PDF.js gives the text render mode only in the operator list, not with the
+ * text content; both follow the content stream, so the items are found in
+ * order in the text the operator list shows (without white space, NFKC),
+ * each within 4,000 characters of where the last one ended. An item not
+ * found there counts as filled only.
+ */
+function strokedItems(ops: { fnArray: number[]; argsArray: unknown[] } | undefined, items: readonly unknown[]): boolean[] {
+  const out: boolean[] = [];
+  if (!ops?.fnArray) return out;
+  const stroke = (k: number) => ops.fnArray[k] === OPS_READ.setTextRenderingMode && [2, 6].includes(Number((ops.argsArray[k] as unknown[] | null)?.[0]));
+  if (!ops.fnArray.some((_, k) => stroke(k))) return out;
+  const squash = (x: string) => x.normalize('NFKC').replace(/\s+/g, '');
+  let text = '';
+  let marks = '';
+  let mode = 0;
+  const saved: number[] = [];
+  for (let k = 0; k < ops.fnArray.length; k++) {
+    const fn = ops.fnArray[k];
+    if (fn === OPS_READ.save || fn === OPS_READ.paintFormXObjectBegin) saved.push(mode);
+    else if (fn === OPS_READ.restore || fn === OPS_READ.paintFormXObjectEnd) mode = saved.pop() ?? mode;
+    else if (fn === OPS_READ.setTextRenderingMode) mode = Number((ops.argsArray[k] as unknown[] | null)?.[0] ?? 0);
+    else if (OPS_READ.showText.includes(fn)) {
+      const args = (ops.argsArray[k] as unknown[] | null) ?? [];
+      const glyphs = [...args].reverse().find(Array.isArray) as unknown[] | undefined;
+      let shown = '';
+      for (const g of glyphs ?? []) if (g && typeof g === 'object' && typeof (g as { unicode?: unknown }).unicode === 'string') shown += (g as { unicode: string }).unicode;
+      shown = squash(shown);
+      text += shown;
+      marks += (mode === 2 || mode === 6 ? 's' : 'f').repeat(shown.length);
+    }
+  }
+  let at = 0;
+  for (const [n, item] of items.entries()) {
+    const str = item && typeof item === 'object' && 'str' in item ? squash(String((item as { str: unknown }).str)) : '';
+    if (!str) continue;
+    const from = text.indexOf(str, at);
+    if (from < 0 || from - at > 4000) continue;
+    const filled = marks.indexOf('f', from);
+    out[n] = filled < 0 || filled >= from + str.length;
+    at = from + str.length;
+  }
+  return out;
+}
 
 /**
  * The fonts PDF.js draws form field values in, by the key their default

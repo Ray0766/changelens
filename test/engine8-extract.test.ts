@@ -54,8 +54,13 @@ test('T3-forms-N2: the widgets are drawn only on a page whose fields name their 
   // The operator codes read are those of the installed PDF.js.
   const { OPS } = await import('pdfjs-dist/legacy/build/pdf.mjs');
   assert.deepEqual(OPS_READ, {
+    save: OPS.save,
+    restore: OPS.restore,
     setFont: OPS.setFont,
+    setTextRenderingMode: OPS.setTextRenderingMode,
     showText: [OPS.showText, OPS.showSpacedText, OPS.nextLineShowText, OPS.nextLineSetSpacingShowText],
+    paintFormXObjectBegin: OPS.paintFormXObjectBegin,
+    paintFormXObjectEnd: OPS.paintFormXObjectEnd,
     beginAnnotation: OPS.beginAnnotation,
     endAnnotation: OPS.endAnnotation,
   });

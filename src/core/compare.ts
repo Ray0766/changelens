@@ -2006,10 +2006,13 @@ function parseStyle(font: string): Style {
   return { family, bold, italic };
 }
 
-/** The weight and slant of a label or its words ("b", "i", "bi" or ""). */
+/** Appended to the font name of text drawn filled and stroked (STROKED in extract.ts): bold for labelWeight, no weight of its own for styleOf. */
+const STROKED = ',Stroke';
+
+/** The weight and slant of a label or its words ("b", "i", "bi" or ""): glyphs filled and stroked are bold. */
 function labelWeight(font: string): string {
   const { bold, italic } = styleOf(font);
-  return (bold ? 'b' : '') + (italic ? 'i' : '');
+  return (bold || font.endsWith(STROKED) ? 'b' : '') + (italic ? 'i' : '');
 }
 
 function formatDiff(a: Token, b: Token, refitted: boolean): FormatDetail | null {
@@ -2028,8 +2031,8 @@ function formatDiff(a: Token, b: Token, refitted: boolean): FormatDetail | null 
     d.sizeTo = Math.round(b.size * 10) / 10;
   }
   if (faces && sa.family && sb.family && sa.family !== sb.family) {
-    d.fontFrom = a.font;
-    d.fontTo = b.font;
+    d.fontFrom = a.font.replace(STROKED, '');
+    d.fontTo = b.font.replace(STROKED, '');
   }
   return Object.keys(d).length ? d : null;
 }

@@ -108,8 +108,9 @@ test('bold headings at the steps’ size in the steps’ column are not siblings
 test('headings that look like the steps under them are not siblings of the steps (T1-L1)', async () => {
   // Re-verifier counter-probes (synthetic). A step is inserted as 2 and the heading "3. Records" is
   // typed "4." by hand; the controls insert the step alone. Chromium, labels of steps and headings all
-  // bold (only the heading words are bold); Chromium, only the first step's label bold.
-  for (const id of ['T1L1-bold', 'T1L1-first']) {
+  // bold (only the heading words are bold); Chromium, only the first step's label bold; LibreOffice
+  // Writer, a CJK font without a bold face, the headings drawn filled and stroked (text render mode 2).
+  for (const id of ['T1L1-bold', 'T1L1-first', 'T1L1-stroke']) {
     const r = await probe(id);
     assert.deepEqual(numbers(r), ['Number changed: 3 → 4'], id);
     assert.deepEqual(minor(r), ['List renumbered: 2 → 3'], id);
@@ -122,6 +123,11 @@ test('headings that look like the steps under them are not siblings of the steps
     assert.equal(c.changes.length, 1, `${id} control: ${JSON.stringify(listed(c))}`);
     assert.deepEqual(minor(c), ['List renumbered: 2 → 3'], `${id} control`);
   }
+  // The stroked words are read as bold labels, not as a formatting change.
+  const doc = await extractText(await openPdf(`${fixtures}probe8-T1L1-stroke-before.pdf`), 'before.pdf');
+  const runs = doc.pages[0].runs;
+  assert.ok(runs.find((x) => x.str === '目的')!.font.endsWith(',Stroke'));
+  assert.ok(!runs.find((x) => x.str.startsWith('本规程'))!.font.endsWith(',Stroke'));
 });
 
 test('a heading inserted after steps nested under the heading above renumbers the later headings (T1-L1 control)', () => {
