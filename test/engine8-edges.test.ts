@@ -299,3 +299,19 @@ test('T2L2: a trailing minus removed from a right-aligned amount at a right crop
   assert.deepEqual(listed(h), [RIGHT]);
   assert.equal(h.changes[0].old.text, '(DRAFT)');
 });
+
+// Fourth pass (verifier counter-probe E2, synthetic reportlab, pypdf for the
+// page box): copied to test/fixtures/probe8-TV3-*.
+
+test('T-leftovers-V3: a word deleted at a line end that the edit before it would have set inside the page is a deletion', async () => {
+  // Box 595 → 527 pt; "… within 30 days, of the invoice date … another term (net)" → "… 30 days of … term".
+  // The comma removed moved "term" 3.1 pt left, within the tolerance for where the glyphs stand;
+  // "(net)", kept, would have started at x 525.0, inside the page.
+  const r = await run('TV3-before', 'TV3-deleted');
+  assert.deepEqual(listed(r).sort(), ['Deleted “(net)”', 'Deleted “,”', RIGHT].sort());
+  assert.deepEqual(texts(cut(r, 'right')[0]), ['invoice (EUR)', 'invoic']);
+  // Control: the crop alone cuts "(net)" with the end of the first line.
+  const c = await run('TV3-before', 'TV3-cut');
+  assert.deepEqual(listed(c), [RIGHT]);
+  assert.deepEqual(texts(c.changes[0]), ['invoice (EUR) (net)', 'invoic']);
+});

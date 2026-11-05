@@ -3963,7 +3963,11 @@ function foldClipped(changes: Change[], overflow: Change[], oldDoc: DocModel, ne
           const m = newOfOld[k];
           if (m >= 0 && Math.abs(na.span(lastRect(newDoc.tokens[m]))[1] - oa.span(lastRect(o[o.length - 1]))[1] - shift.along) <= 1) return false;
         }
-        return o.every((t) => oa.span(t.rects[0])[0] + shift.along > L - 0.5);
+        // Wholly beyond the edge, placed by the page's shift and by the word
+        // before, which that tolerance lets move ("30 days," → "30 days"
+        // earlier on the line would have set "(net)" inside the page).
+        const by = next === null ? [shift.along] : [shift.along, next];
+        return o.every((t) => by.every((d) => oa.span(t.rects[0])[0] + d > L - 0.5));
       }
       const a = squash(joinTokens(o));
       const b = squash(joinTokens(n));
