@@ -1834,6 +1834,9 @@ function extent(A: Box, B: Box, C: number, n: number, k: number, e: number, vali
 /**
  * Matched text whose appearance changed: colour or stroke weight (turned red,
  * synthetic bold), background (highlighted) or a line through or under it.
+ * `exact`: a word at the same place relative to the pixel grid in both
+ * rasters was drawn there in both (not so on a new page turned back, see
+ * unturnRaster: it was drawn on the turned page's grid).
  */
 function appearanceChanges(
   result: CompareResult,
@@ -1845,6 +1848,7 @@ function appearanceChanges(
   near: (a: Token, b: Token) => [Cover | null, Cover | null] | 'skip' | null,
   under: (a: Token, b: Token) => boolean = () => false,
   cover: (a: Token, b: Token) => [Cover | null, Cover | null] | 'skip' = () => [null, null],
+  exact = true,
 ): Change[] {
   const TA = result.oldDoc.tokens;
   const TB = result.newDoc.tokens;
@@ -2118,8 +2122,9 @@ function appearanceChanges(
     const change = Math.abs(ia.total - ib.total) / Math.max(ia.total, ib.total, 1);
     const weight = change > 0.3;
     // The same glyphs drawn heavier (or lighter) at the very same pixels,
-    // with nothing else drawn near them: shown even on a single word.
-    const bold = !colour && !covers && change > 0.1 && (ib.total > ia.total ? heavier(A, ka, B, kb) : heavier(B, kb, A, ka));
+    // with nothing else drawn near them: shown even on a single word. Not
+    // on a page turned back, whose glyphs were drawn on another pixel grid.
+    const bold = exact && !colour && !covers && change > 0.1 && (ib.total > ia.total ? heavier(A, ka, B, kb) : heavier(B, kb, A, ka));
     if (colour || weight || bold) hits.push({ a, b, colour, ink: ib, p, bold });
   }
   // A line found through or under a word goes on at the same height across
@@ -2939,7 +2944,7 @@ export function compareRasters(
   view.changes = result.changes.map(seen);
   view.minor = result.minor.map(seen);
   const pv = view.newDoc.pages[newPage];
-  const out = compareAligned(view, oldPage, newPage, ra, unturnRaster(rb, turn, pv.width, pv.height), options);
+  const out = compareAligned(view, oldPage, newPage, ra, unturnRaster(rb, turn, pv.width, pv.height), { ...options, turned: true });
   const forward = (q: { page: number; rect: Rect }) => (q.page === newPage ? { page: q.page, rect: toReal(q.rect) } : q);
   // Places the comparison added to listed changes (a row's fill, a change bar).
   const placed = new Map<{ page: number; rect: Rect }, { page: number; rect: Rect }>();
@@ -2973,7 +2978,7 @@ function compareAligned(
   newPage: number,
   ra: Raster,
   rb: Raster,
-  options: { appearance?: boolean; whole?: boolean },
+  options: { appearance?: boolean; whole?: boolean; turned?: boolean },
 ): Change[] {
   const A = prepare(result.oldDoc, oldPage, ra);
   const B = prepare(result.newDoc, newPage, rb);
@@ -3068,7 +3073,7 @@ function compareAligned(
       const cb = ob ? overlayInk(B, b.rects[0], A, a.rects[0], coverNew) : null;
       return ca?.partial || cb?.partial ? 'skip' : [ca, cb];
     };
-    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover));
+    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, !options.turned));
     // Running headers and footers left out of the text comparison: a line
     // through, under or a colour put on their words (a header's
     // "Confidential" struck through) is a difference in them, counted with
@@ -3076,7 +3081,7 @@ function compareAligned(
     if (result.options.ignoreFurniture && result.oldToNew[oldPage] === newPage) {
       const pairs = furniturePairs(result, oldPage, newPage);
       if (pairs.length)
-        for (const c of appearanceChanges({ ...result, matches: Int32Array.from(pairs) }, oldPage, newPage, A, B, () => false, near, () => false, cover)) {
+        for (const c of appearanceChanges({ ...result, matches: Int32Array.from(pairs) }, oldPage, newPage, A, B, () => false, near, () => false, cover, !options.turned)) {
           furnitureMarked.add(c);
           furniture.push(c);
         }
