@@ -48,3 +48,42 @@ test('R6-09: font names come from the page content’s operator list, without th
   assert.deepEqual(calls, [{ annotationMode: 0 }]);
   assert.equal(p.runs[0].font, 'Body-Bold');
 });
+
+test('T3-forms-N2: the widgets are drawn only on a page whose fields name their font by a key the form does not standardise', async () => {
+  const { extractPage, OPS_READ } = await import('../src/pdf/extract.ts');
+  // The operator codes read are those of the installed PDF.js.
+  const { OPS } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  assert.deepEqual(OPS_READ, {
+    setFont: OPS.setFont,
+    showText: [OPS.showText, OPS.showSpacedText, OPS.nextLineShowText, OPS.nextLineSetSpacingShowText],
+    beginAnnotation: OPS.beginAnnotation,
+    endAnnotation: OPS.endAnnotation,
+  });
+  const page = (fontName: string, calls: unknown[]) => ({
+    getViewport: () => ({ width: 595.28, height: 841.89, transform: [1, 0, 0, -1, 0, 841.89] }),
+    getTextContent: async () => ({ items: [{ str: 'Date', transform: [10, 0, 0, 10, 56, 700], width: 20, hasEOL: true, fontName: 'f1' }], styles: { f1: { fontFamily: 'sans-serif', ascent: 0.9, descent: -0.2 } } }),
+    getOperatorList: async (opts: { annotationMode: number }) => {
+      calls.push(opts);
+      // With the widgets: the field's appearance sets font g_d0_f2 and shows its text.
+      return opts.annotationMode === 1
+        ? { fnArray: [OPS.beginAnnotation, OPS.setFont, OPS.showText, OPS.endAnnotation], argsArray: [['12R'], ['g_d0_f2', 10], [[]], []] }
+        : { fnArray: [], argsArray: [] };
+    },
+    getAnnotations: async () => [{ id: '12R', subtype: 'Widget', fieldType: 'Tx', rect: [235, 690, 535, 708], fieldValue: '12 May 2026', defaultAppearanceData: { fontSize: 10, fontName } }],
+    commonObjs: { get: (id: string) => ({ name: id === 'g_d0_f2' ? 'Times-Roman' : 'Helvetica' }) },
+  });
+  let calls: unknown[] = [];
+  let p = await extractPage(page('Helv', calls) as never, 0);
+  assert.deepEqual(calls, [{ annotationMode: 0 }]);
+  assert.equal(p.runs.find((r) => r.field)?.font, 'Helvetica');
+  calls = [];
+  const formFonts = new Map<string, string>();
+  p = await extractPage(page('F1', calls) as never, 0, formFonts);
+  assert.deepEqual(calls, [{ annotationMode: 0 }, { annotationMode: 1 }]);
+  assert.equal(p.runs.find((r) => r.field)?.font, 'Times-Roman');
+  // A key is read once per document: the next page with /F1 is not drawn.
+  calls = [];
+  p = await extractPage(page('F1', calls) as never, 1, formFonts);
+  assert.deepEqual(calls, [{ annotationMode: 0 }]);
+  assert.equal(p.runs.find((r) => r.field)?.font, 'Times-Roman');
+});

@@ -136,8 +136,8 @@ test('R3-09: a form font renamed in the resources is no font change; a standard 
   // the appearance streams are byte for byte the same.
   assert.deepEqual(listed(await run('R3-09-before', 'R3-09-renamed')), []);
   // LibreOffice export without and with form fields: the field values are
-  // drawn in Times ("TiRo", a real change of face); "F3" is the key of a
-  // font of the form's own resources and says nothing about its face.
+  // drawn in Times ("TiRo", a real change of face); "F3", the key of a font
+  // of the form's own resources, stands for Liberation Sans, as before.
   const r = await run('R3-02-lo-plain', 'R3-02-lo-fields');
   assert.deepEqual(listed(r), [
     '“Lisbon” font LiberationSans → Times-Roman',
@@ -156,7 +156,21 @@ test('R3-09 control: a field set in another standard font is a font change', () 
   };
   assert.deepEqual(listed(compareDocs(doc('Helv'), doc('TiRo'))), ['“1,250.00” font Helvetica → Times-Roman']);
   assert.deepEqual(listed(compareDocs(doc('Helv'), doc('HeBo'))), ['“1,250.00” now bold']);
+  // Keys that are not standard, with no drawn font to tell (see T3-forms-N2): only the size is compared.
   assert.deepEqual(listed(compareDocs(doc('F1'), doc('F2'))), []);
+});
+
+test('T3-forms-N2: a field font named by a key of the form’s resources is the font the viewer draws', async () => {
+  // Room booking (pypdf): the new version adds /F1 = Times-Roman to the form's
+  // resources and sets the date and purpose fields to /F1. Values only in /V
+  // (the viewer draws them), and filled with appearance streams.
+  const times = ['“12 May 2026” font Helvetica → Times-Roman', '“Team meeting” font Helvetica → Times-Roman'];
+  assert.deepEqual(listed(await run('R3-09-vonly', 'R3-09-vonly-times')), times);
+  assert.deepEqual(listed(await run('R3-02-filled', 'R3-09-ap-times')), times);
+  // reportlab names Times-Roman /Time.
+  assert.deepEqual(listed(await run('R3-09-rl-before', 'R3-09-rl-times')), times);
+  // Control: Helvetica under /F1 in one version and /F2 in the other.
+  assert.deepEqual(listed(await run('R3-09-key-f1', 'R3-09-key-f2')), []);
 });
 
 test('R3-07: a widget turned by /MK /R is compared as text', async () => {

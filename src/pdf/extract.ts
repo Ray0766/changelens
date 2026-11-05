@@ -41,7 +41,11 @@ export const documentOptions = {
   verbosity: 0,
 };
 
-export async function extractPage(page: PDFPageProxy, index: number): Promise<PageText> {
+/**
+ * The text of one page. `formFonts`: the fonts of form field keys read so far
+ * in this document (see drawnFieldFonts), shared by its pages.
+ */
+export async function extractPage(page: PDFPageProxy, index: number, formFonts: Map<string, string> = new Map()): Promise<PageText> {
   const viewport = page.getViewport({ scale: 1 });
   const tc = await page.getTextContent();
   // Loading the operator list makes PDF.js resolve font objects, which gives
@@ -95,7 +99,8 @@ export async function extractPage(page: PDFPageProxy, index: number): Promise<Pa
   }
   let fields: FieldRuns = { runs: [], unread: 0 };
   try {
-    fields = fieldRuns((await page.getAnnotations({ intent: 'display' })) as WidgetData[], viewport.transform, runs);
+    const annotations = (await page.getAnnotations({ intent: 'display' })) as WidgetData[];
+    fields = fieldRuns(annotations, viewport.transform, runs, await drawnFieldFonts(page, annotations, formFonts));
   } catch {
     // The page's annotations could not be read: their values are compared as images only.
     fields = { runs: [], unread: -1 };
@@ -103,6 +108,66 @@ export async function extractPage(page: PDFPageProxy, index: number): Promise<Pa
   const page_: PageText = { index, width: viewport.width, height: viewport.height, runs: placeFieldRuns(runs, fields.runs), unmapped };
   if (fields.unread) page_.fieldsUnread = fields.unread;
   return page_;
+}
+
+/** The operators of a PDF.js operator list read here (OPS in pdfjs-dist 6.4.299). */
+export const OPS_READ = { setFont: 37, showText: [44, 45, 46, 47], beginAnnotation: 80, endAnnotation: 81 };
+
+/**
+ * The fonts PDF.js draws form field values in, by the key their default
+ * appearance names, for the keys of the form's resources that are not
+ * standard ("F1", "Time", "F3"): the key alone says nothing about the face,
+ * the font it stands for does. A key is read once per document (`byKey`),
+ * from the operator list of the first page whose fields show a value under
+ * it, with the widgets drawn: the font set for the first text of a widget
+ * with that key. That list loads every widget's appearance on the page (see
+ * extractPage), so it is loaded only for keys not read yet. A key whose font
+ * cannot be read this way stays unknown (''), and only the size of its
+ * values is compared.
+ */
+async function drawnFieldFonts(page: PDFPageProxy, annotations: WidgetData[], byKey: Map<string, string>): Promise<Map<string, string>> {
+  const keyOf = (a: WidgetData) => a.defaultAppearanceData?.fontName ?? '';
+  const shown = (a: WidgetData) =>
+    (Array.isArray(a.textContent) ? a.textContent.join('') : Array.isArray(a.fieldValue) ? a.fieldValue.join('') : typeof a.fieldValue === 'string' ? a.fieldValue : '').trim() !== '';
+  const keys = new Map<string, string>();
+  for (const a of annotations)
+    if (a.subtype === 'Widget' && !a.hidden && (a.fieldType === 'Tx' || a.fieldType === 'Ch') && a.id && shown(a) && !fieldFont(keyOf(a)) && !byKey.has(keyOf(a))) keys.set(a.id, keyOf(a));
+  if (!keys.size) return byKey;
+  const missing = new Set(keys.values());
+  try {
+    // annotationMode 1 (ENABLE): widgets drawn into the page, as the visual stage renders them.
+    const { fnArray, argsArray } = await page.getOperatorList({ annotationMode: 1 });
+    let key: string | null = null;
+    let font = '';
+    for (let k = 0; k < fnArray.length && missing.size; k++) {
+      const fn = fnArray[k];
+      if (fn === OPS_READ.beginAnnotation) {
+        key = keys.get(String(argsArray[k]?.[0] ?? '')) ?? null;
+        if (key !== null && !missing.has(key)) key = null;
+        font = '';
+      } else if (fn === OPS_READ.endAnnotation) key = null;
+      else if (key === null) continue;
+      else if (fn === OPS_READ.setFont) font = String(argsArray[k]?.[0] ?? '');
+      else if (OPS_READ.showText.includes(fn) && font) {
+        let name = '';
+        try {
+          name = (page.commonObjs.get(font) as { name?: string } | undefined)?.name ?? '';
+        } catch {
+          /* font not resolved */
+        }
+        name = cleanText(name).replace(/^[A-Z]{6}\+/, '');
+        if (name) {
+          byKey.set(key, name);
+          missing.delete(key);
+        }
+        key = null;
+      }
+    }
+  } catch {
+    // The widgets could not be drawn: their fonts stay unknown (and are not tried again).
+    for (const k of missing) byKey.set(k, '');
+  }
+  return byKey;
 }
 
 /** Every coordinate of the run is a finite number. */
@@ -185,6 +250,8 @@ function makeRun(
 
 /** The parts of a PDF.js widget annotation (page.getAnnotations()) read here. */
 export interface WidgetData {
+  /** The annotation's id ("12R"), as the operator list names it. */
+  id?: string;
   subtype?: string;
   fieldType?: string;
   fieldValue?: unknown;
@@ -244,15 +311,15 @@ const STANDARD_FONTS = new Set(Object.values(STANDARD_FORM_FONTS));
  * The font of a field's value, from the font resource named in its default
  * appearance: a standard font by its usual resource name ("Helv", "TiRo")
  * or its own name, else unknown (''). Any other name ("F1", "F3") is only
- * the key of a font in the form's resources, which PDF.js does not resolve
- * here, and re-saving a form may rename it: it says nothing about the face.
+ * the key of a font in the form's resources, and re-saving a form may
+ * rename it: it says nothing about the face (see drawnFieldFonts).
  */
 function fieldFont(name: string | undefined): string {
   if (!name) return '';
   return STANDARD_FORM_FONTS[name] ?? (STANDARD_FONTS.has(name) ? name : '');
 }
 
-/** Families of the standard form fonts ("Helv", "TiRo", "Cour", or a font resource name). */
+/** The family of a form font, by its name ("Times-Roman", "LiberationSans") or standard key ("Helv", "TiRo", "Cour"). */
 function fieldFamily(name: string | undefined): string {
   const s = (name ?? '').toLowerCase();
   if (/^cour|mono/.test(s)) return 'monospace';
@@ -274,13 +341,14 @@ function fieldFamily(name: string | undefined): string {
  * - Choice fields (Ch): the displayed text of the selected option(s).
  * - Check boxes, radio buttons, push buttons and signatures stay visual: the
  *   visual stage compares how they are drawn.
- * Hidden widgets are skipped (they are not shown). Password fields, rotated
- * widgets and values that are not text are counted as not compared, so a
- * notice can say so. Glyph positions inside a field are estimated from
- * standard font widths (PDF.js does not give them); the box, the first
- * glyph and the line are those of the widget.
+ * Hidden widgets are skipped (they are not shown). Password fields, widgets
+ * turned by other than a quarter turn and values that are not text are
+ * counted as not compared, so a notice can say so. Glyph positions inside a
+ * field are estimated from standard font widths (PDF.js does not give
+ * them); the box, the first glyph and the line are those of the widget.
+ * `drawn`: the fonts of the form's own font keys (see drawnFieldFonts).
  */
-export function fieldRuns(annotations: WidgetData[], vt: number[], content: TextRun[]): FieldRuns {
+export function fieldRuns(annotations: WidgetData[], vt: number[], content: TextRun[], drawn: Map<string, string> = new Map()): FieldRuns {
   const out: FieldRuns = { runs: [], unread: 0 };
   for (const a of annotations) {
     if (a.subtype !== 'Widget' || a.hidden) continue;
@@ -321,7 +389,7 @@ export function fieldRuns(annotations: WidgetData[], vt: number[], content: Text
     // The value is already part of the page content (a form filled and
     // flattened while its widgets were kept): compare it once.
     if (shownByContent(lines, r, vt, content)) continue;
-    out.runs.push(layoutField(a, lines, r, vt));
+    out.runs.push(layoutField(a, lines, r, vt, drawn.get(a.defaultAppearanceData?.fontName ?? '') ?? ''));
   }
   return out;
 }
@@ -385,13 +453,14 @@ const TURNS = new Set([0, 90, 180, 270]);
  * drawn, upright, from (0, 0); a widget turned by /MK /R (90, 180 or 270)
  * maps it into its rect turned by that angle, as PDF.js draws it.
  */
-function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[]): TextRun[] {
-  const family = fieldFamily(a.defaultAppearanceData?.fontName);
+function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[], drawnFont: string): TextRun[] {
+  // The font named by a standard key, else the one the viewer draws the value in.
+  const font = fieldFont(a.defaultAppearanceData?.fontName) || drawnFont;
+  const family = fieldFamily(font || a.defaultAppearanceData?.fontName);
   // The glyph box of the standard font of that family, as PDF.js measures
   // page text set in it (Helvetica, Times and Courier are drawn with the
   // Liberation fonts): a value burned into the page has the same box.
   const [ascent, descent] = FIELD_METRICS[family];
-  const font = fieldFont(a.defaultAppearanceData?.fontName);
   const rot = a.rotation ?? 0;
   const rw = r[2] - r[0];
   const rh = r[3] - r[1];
@@ -669,9 +738,10 @@ export async function extractText(
   onPage?: (done: number, total: number) => void,
 ): Promise<DocText> {
   const pages: PageText[] = [];
+  const formFonts = new Map<string, string>();
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    pages.push(await extractPage(page, i - 1));
+    pages.push(await extractPage(page, i - 1, formFonts));
     onPage?.(i, pdf.numPages);
   }
   return { name, pages };
