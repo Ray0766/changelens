@@ -1950,7 +1950,7 @@ function extent(A: Box, B: Box, C: number, n: number, k: number, e: number, vali
  * unturnRaster: it was drawn on the turned page's grid). `graphicAt`: a
  * region where the graphics comparison found differences takes in the word
  * (a stamp drawn across the text, whose border crosses it within the text's
- * mask).
+ * mask). `graphicIn`: such a region on that page takes in the place.
  */
 function appearanceChanges(
   result: CompareResult,
@@ -1964,6 +1964,7 @@ function appearanceChanges(
   cover: (a: Token, b: Token) => [Cover | null, Cover | null] | 'skip' = () => [null, null],
   exact = true,
   graphicAt: (a: Token, b: Token) => boolean = () => false,
+  graphicIn: (side: 'old' | 'new', r: Rect) => boolean = () => false,
 ): Change[] {
   const TA = result.oldDoc.tokens;
   const TB = result.newDoc.tokens;
@@ -2030,41 +2031,90 @@ function appearanceChanges(
     const clip = (r: Rect) => ({ x: r.x, y: r.y + top, w: r.w, h: Math.max(1, r.h - top - bottom) });
     return [clip(a.rects[0]), clip(b.rects[0])];
   };
+  // A pixel row of `P` between columns x0 and x1: its colour where it is of
+  // one colour (85 % of it within the tolerance of its median), else
+  // (glyphs) null. Off the page it is paper.
+  const rowColour = (P: Prepared, y: number, x0: number, x1: number): number[] | null => {
+    if (y < 0 || y >= P.r.height) return [255, 255, 255];
+    const v: [number, number, number][] = [];
+    for (let x = Math.max(0, x0); x < Math.min(P.r.width, x1); x++) v.push(rgb(P.r, y * P.r.width + x));
+    if (!v.length) return null;
+    const med = [0, 1, 2].map((c) => v.map((p) => p[c]).sort((a, b) => a - b)[v.length >> 1]);
+    return v.filter((p) => p.every((c, k) => Math.abs(c - med[k]) <= THRESH)).length < 0.85 * v.length ? null : med;
+  };
+  const isPaper = (c: number[]) => Math.min(...c) >= 255 - THRESH;
   // An "underline" that runs on past an end of the word's line of text, at
   // its rows, for 12 pt or more is a rule or the edge of a fill along the
   // table row (the border of a row split at the page foot, the lower edge
   // of a dark header band 0.7 pt off after a re-flow), not a line under
   // the text. An underline ends with the text, or a few spaces after it
   // (an underlined field with trailing spaces: 3–6 pt); the table rules
-  // and bands seen run on for 30 pt or more. So is a line along the edge of
-  // a fill the text stands on (a red rule drawn right under a header band
-  // in white on blue: the band above it, paper below), when the graphics
-  // comparison sees it (`seen`: differences next to a word of the line).
-  // Null for that, else the line found.
-  const rowEdge = (found: FoundLine | null, X: Prepared, lines: DocModel['lines'], t: Token, seen: () => boolean) => {
+  // and bands seen run on for 30 pt or more.
+  //
+  // So is a line along the edge of a fill the text stands on (a red rule
+  // drawn right under a header band in white on blue: the band above it,
+  // paper below) when it goes on along that edge past the word, through a
+  // gap between the line's runs wider than a space, and the graphics
+  // comparison found differences there, outside the text, where it lists
+  // the line. A word underlined on a shaded row whose band ends right under
+  // it stays an underline, whatever else changed on the row.
+  //
+  // `X` has the line, `t` is the word there. Null for a rule or an edge,
+  // else the line found.
+  const rowEdge = (found: FoundLine | null, X: Prepared, lines: DocModel['lines'], t: Token) => {
     if (!found || found.line !== 'underline') return found;
     const l = lines.find((x) => x.id === t.line);
     if (!l) return found;
     const s = X.r.scale;
+    const r = t.rects[0];
     const d = 12;
     const [y0, y1] = found.rows;
     // The line's own rows: a rule both versions have, a row below an
     // underline (a cell's bottom border), is no line going on past the text.
     const [l0, l1] = found.core;
-    // A pixel row along the line of text: of one colour (85 % of it within
-    // the tolerance of its median), 'fill' or 'paper'; else (glyphs) null.
+    // A pixel row along the line of text, 'fill' or 'paper' (see rowColour).
     const row = (y: number): 'fill' | 'paper' | null => {
-      if (y < 0 || y >= X.r.height) return 'paper';
-      const v: [number, number, number][] = [];
-      for (let x = Math.max(0, Math.round(l.rect.x * s)); x < Math.min(X.r.width, Math.round((l.rect.x + l.rect.w) * s)); x++) v.push(rgb(X.r, y * X.r.width + x));
-      if (!v.length) return null;
-      const med = [0, 1, 2].map((c) => v.map((p) => p[c]).sort((a, b) => a - b)[v.length >> 1]);
-      if (v.filter((p) => p.every((c, k) => Math.abs(c - med[k]) <= THRESH)).length < 0.85 * v.length) return null;
-      return Math.min(...med) >= 255 - THRESH ? 'paper' : 'fill';
+      const c = rowColour(X, y, Math.round(l.rect.x * s), Math.round((l.rect.x + l.rect.w) * s));
+      return c && (isPaper(c) ? 'paper' : 'fill');
+    };
+    // Dark across the line's rows at column x (as the line goes on).
+    const across = (x: number) => {
+      let sum = 0;
+      for (let y = Math.max(0, l0 - 1); y <= Math.min(X.r.height - 1, l1 + 1); y++) sum += (255 - X.lum[y * X.r.width + x]) / 255;
+      return sum >= 0.6;
     };
     const up = row(y0 - 2);
     const down = row(y1 + 2);
-    if (up && down && up !== down && seen()) return null;
+    if (up && down && up !== down) {
+      // The line followed from the word along its rows to where it ends,
+      // and its stretches past the word outside the text's mask (where the
+      // graphics comparison looks).
+      const wa = Math.floor(r.x * s);
+      const wb = Math.ceil((r.x + r.w) * s) - 1;
+      let xa = wa;
+      let xb = wb;
+      while (xa > 0 && across(xa - 1)) xa--;
+      while (xb < X.r.width - 1 && across(xb + 1)) xb++;
+      const outside = (x: number) => {
+        if (x >= wa && x <= wb) return false;
+        for (let y = Math.max(0, l0); y <= Math.min(X.r.height - 1, l1); y++) {
+          const v = X.mask[y * X.r.width + x];
+          if (v === GLYPH || v === PAD) return false;
+        }
+        return true;
+      };
+      const min = Math.max(6, 0.6 * r.h) * s;
+      for (let x = xa; x <= xb; ) {
+        if (!outside(x)) {
+          x++;
+          continue;
+        }
+        let e = x;
+        while (e < xb && outside(e + 1)) e++;
+        if (e - x + 1 >= min && graphicIn(X === A ? 'old' : 'new', { x: x / s, y: y0 / s, w: (e - x + 1) / s, h: (y1 - y0 + 1) / s })) return null;
+        x = e + 1;
+      }
+    }
     // The hue of what lies in the line's rows between x0 and x1: each
     // channel's difference from the luminance, weighted by darkness (grey
     // and black are 0, 0, 0; anti-aliasing does not change it). Null where
@@ -2083,7 +2133,7 @@ function appearanceChanges(
         }
       return w ? c.map((v) => v / w) : null;
     };
-    const own = hue(t.rects[0].x, t.rects[0].x + t.rects[0].w);
+    const own = hue(r.x, r.x + r.w);
     // Dark across the line's rows, in the line's own colour: the same rule
     // or edge going on (a stamp's letters in another colour beside the end
     // of an underlined line are not).
@@ -2091,16 +2141,16 @@ function appearanceChanges(
       let n = 0;
       let m = 0;
       for (let x = Math.max(0, Math.round(x0 * s)); x < Math.min(X.r.width, Math.round(x1 * s)); x++) {
-        let sum = 0;
-        for (let y = Math.max(0, l0 - 1); y <= Math.min(X.r.height - 1, l1 + 1); y++) sum += (255 - X.lum[y * X.r.width + x]) / 255;
         m++;
-        if (sum >= 0.6) n++;
+        if (across(x)) n++;
       }
       if (m === 0 || n < 0.85 * m) return false;
       const there = hue(x0, x1);
       return !own || !there || Math.hypot(own[0] - there[0], own[1] - there[1], own[2] - there[2]) <= 30;
     };
-    return dark(l.rect.x - d - 1, l.rect.x - 1) || dark(l.rect.x + l.rect.w + 1, l.rect.x + l.rect.w + d + 1) ? null : found;
+    const before: [number, number] = [l.rect.x - d - 1, l.rect.x - 1];
+    const after: [number, number] = [l.rect.x + l.rect.w + 1, l.rect.x + l.rect.w + d + 1];
+    return [before, after].some(([x0, x1]) => dark(x0, x1)) ? null : found;
   };
   // An "underline" that ends, at both ends, in a stroke rising from it past
   // the text (and not going on below it, as the side of a stamp drawn
@@ -2179,9 +2229,6 @@ function appearanceChanges(
   // fainter line on each (see below).
   const tried = new Map<number, { a: Token; b: Token; p: number; weak: (added: boolean) => FoundLine | null }>();
   const hits: Hit[] = [];
-  // Lines of text (new side) next to which the graphics comparison found
-  // differences, at some word of the line (see rowEdge).
-  const seenLine = new Map<number, boolean>();
   // A word whose text runs another way than in the other version, by a
   // quarter or a half turn (a label set upright in one and turned in the
   // other, a page turned by /Rotate that could not be turned back), cannot
@@ -2204,27 +2251,14 @@ function appearanceChanges(
     if (over === 'skip') continue;
     const [ca, cb] = over;
     const few = b.kind === 'cjk' || [...b.text].length <= 2;
-    const seen = () => {
-      let v = seenLine.get(b.line);
-      if (v === undefined) {
-        v = false;
-        for (let q = 0; q < m.length && !v; q += 2) {
-          const u = TA[m[q]];
-          const w = TB[m[q + 1]];
-          if (w.line === b.line && u.page === oldPage && w.page === newPage && u.rects.length === 1 && w.rects.length === 1) v = near(u, w) !== null;
-        }
-        seenLine.set(b.line, v);
-      }
-      return v;
-    };
     // A graphic that changed next to (or behind) the word or around it, or
     // an overlay on it: its strokes may cross the word at a slant (see
     // level).
     const g = near(a, b);
     const opts = { drift: b.kind !== 'cjk', cjk: b.kind === 'cjk', rows: own(a, b), exact, level: !!(ca || cb || g) || graphicAt(a, b) };
     const lines = (ga: Cover | null, gb: Cover | null) => {
-      const added = framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, ga, gb, opts), B, pageLines.new, b, seen), B, A, b, a);
-      const removed = added ? null : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, gb, ga, opts), A, pageLines.old, a, seen), A, B, a, b);
+      const added = framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, ga, gb, opts), B, pageLines.new, b), B, A, b, a);
+      const removed = added ? null : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, gb, ga, opts), A, pageLines.old, a), A, B, a, b);
       return added ? { line: added.line, added: true, rows: added.rows } : removed ? { line: removed.line, added: false, rows: removed.rows } : null;
     };
     let line = turned ? null : lines(ca, cb);
@@ -2240,8 +2274,8 @@ function appearanceChanges(
     const weak = { ...opts, weak: true, drift: false };
     const fainter = (added: boolean) =>
       added
-        ? framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, wa, wb, weak), B, pageLines.new, b, seen), B, A, b, a)
-        : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, wb, wa, weak), A, pageLines.old, a, seen), A, B, a, b);
+        ? framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, wa, wb, weak), B, pageLines.new, b), B, A, b, a)
+        : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, wb, wa, weak), A, pageLines.old, a), A, B, a, b);
     tried.set(b.i, { a, b, p, weak: (added) => (turned ? null : fainter(added)) });
     if (line) {
       hits.push({ a, b, colour: false, line, p });
@@ -3215,7 +3249,9 @@ function compareAligned(
     // The regions where the graphics comparison found differences, about a
     // word (see appearanceChanges).
     const graphicAt = (a: Token, b: Token) => oldRects.some((r) => intersects(r, a.rects[0])) || newRects.some((r) => intersects(r, b.rects[0]));
-    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, !options.turned, graphicAt));
+    // Those regions at a place of either page (see rowEdge).
+    const graphicIn = (side: 'old' | 'new', at: Rect) => (side === 'old' ? oldRects : newRects).some((r) => intersects(r, at));
+    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, !options.turned, graphicAt, graphicIn));
     // Running headers and footers left out of the text comparison: a line
     // through, under or a colour put on their words (a header's
     // "Confidential" struck through) is a difference in them, counted with
@@ -3223,7 +3259,7 @@ function compareAligned(
     if (result.options.ignoreFurniture && result.oldToNew[oldPage] === newPage) {
       const pairs = furniturePairs(result, oldPage, newPage);
       if (pairs.length)
-        for (const c of appearanceChanges({ ...result, matches: Int32Array.from(pairs) }, oldPage, newPage, A, B, () => false, near, () => false, cover, !options.turned, graphicAt)) {
+        for (const c of appearanceChanges({ ...result, matches: Int32Array.from(pairs) }, oldPage, newPage, A, B, () => false, near, () => false, cover, !options.turned, graphicAt, graphicIn)) {
           furnitureMarked.add(c);
           furniture.push(c);
         }
