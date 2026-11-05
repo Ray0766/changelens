@@ -1850,7 +1850,12 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   aggregateReplacements(changes);
   if (options.detectFormatting) {
     // The final pairing: relabel may have paired a label and the words after it anew.
-    const formats = [...detectFormatting(ctx, relabelled.pairs === pairs0 ? ops : opsOfPairs(relabelled.pairs)), ...detectFormatting(ctx, moved.innerOps)];
+    // Words matched in place (inPlaceTokens) are matched text like any other.
+    const formats = [
+      ...detectFormatting(ctx, relabelled.pairs === pairs0 ? ops : opsOfPairs(relabelled.pairs)),
+      ...detectFormatting(ctx, moved.innerOps),
+      ...detectFormatting(ctx, opsOfInPlace(stray.pairs)),
+    ];
     changes.push(...aggregateFormatting(formats, ctx, pairs));
     changes.push(...detectPositions(ctx, pairs));
   }

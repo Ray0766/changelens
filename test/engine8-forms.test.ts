@@ -111,6 +111,16 @@ test('R3-02: a filled form against its flattened copy: the same words at the sam
   assert.ok(!r.changes.some((c) => c.category === 'text'), JSON.stringify(listed(r)));
 });
 
+test('T3-forms-N1: words matched at the same place are checked for formatting like other matched words', async () => {
+  // The flattened copy sets the date in Helvetica-Bold (DA /HeBo) and
+  // "Number of people" in 11.5 pt instead of 10 (pypdf fill against pypdf flatten).
+  const formats = ['“12 May 2026” now bold', '“8” size 10 → 11.5 pt'];
+  assert.deepEqual(listed(await run('R3-02-filled', 'R3-02-flat-format')), formats);
+  // The same edits on a page drawn row by row (label, value) against labels
+  // first and then the values (reportlab, no form fields).
+  assert.deepEqual(listed(await run('R3-02-rows', 'R3-02-rows-format')), formats);
+});
+
 test('R3-04: a longer field value inside its widget does not stick out into the margin', async () => {
   // Room booking: "Team meeting" → "Quarterly planning meeting with the
   // regional sales team" (ends at x 484, inside the box, 111 pt from the edge).
