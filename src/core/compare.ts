@@ -1646,7 +1646,10 @@ interface RunningSlot {
  * header and footer differences ("repeated"). A running value that one of
  * the two pages shows and the other does not, where that page's header or
  * footer line shows the label but no value, and no other change stands
- * there, was cleared or filled in there. Any other value is listed.
+ * there, was cleared or filled in there. A running value where the partner
+ * shows another value at its place is compared with it, unless that change
+ * is listed already (a policy number changed on every page): then it comes
+ * with its page. Any other value is listed.
  */
 function runningFieldValues(
   ctx: Ctx,
@@ -1803,19 +1806,27 @@ function runningFieldValues(
     listed(c, h);
   };
   const fold = foldRule(ctx);
-  /** Two values facing each other: compared like any text. */
-  const facing = (a: RunningSlot, b: RunningSlot) => {
+  const textOf = (T: Token[], s: RunningSlot) => T.slice(s.k0, s.k1).map((t) => t.key).join('\u0001');
+  /** The changes listed between two values, old text to new text. */
+  const changedValues = new Set<string>();
+  /**
+   * Two values facing each other: compared like any text. A value already
+   * matched to another (paired false) is compared, but its words keep that
+   * match.
+   */
+  const facing = (a: RunningSlot, b: RunningSlot, paired = true) => {
     if (sameText(A, a, B, b)) {
       for (let k = 0; k < a.k1 - a.k0; k++) out.pairs.push(a.k0 + k, b.k0 + k);
       return;
     }
+    changedValues.add(textOf(A, a) + '\u0000' + textOf(B, b));
     const local = opsFromMatches(matchSequences(ctx.ka.subarray(a.k0, a.k1), ctx.kb.subarray(b.k0, b.k1)), a.k1 - a.k0, b.k1 - b.k0);
     const ops = refine(
       ctx,
       local.map((o) => ({ ...o, a0: o.a0 + a.k0, a1: o.a1 + a.k0, b0: o.b0 + b.k0, b1: o.b1 + b.k0 })),
       fold,
     );
-    for (const o of ops) if (o.type === 'equal') for (let k = 0; k < o.a1 - o.a0; k++) out.pairs.push(o.a0 + k, o.b0 + k);
+    if (paired) for (const o of ops) if (o.type === 'equal') for (let k = 0; k < o.a1 - o.a0; k++) out.pairs.push(o.a0 + k, o.b0 + k);
     for (const h of hunksOf(ops).flatMap((x) => splitHunk(ctx, x, false))) {
       const c = textChange(ctx, h);
       if (h.a0 === h.a1) c.old = { pages: [a.page], rects: [], text: '', caret: caretIn(A, h.a0, a) };
@@ -1951,8 +1962,19 @@ function runningFieldValues(
           continue;
         }
         const running = repeats(slots, T, page, s);
+        const [a, b] = side === 'a' ? [s, t] : [t, s];
         // A running value where the page sharing its text shows none (and no other change stands there): cleared, or filled in, there.
         if (!t && running && p >= 0 && !isMarked(other, p, s) && blankAt(theirDoc, p, T, s, doc)) alone(side, s, p);
+        // A running value where that page shows another one at its place:
+        // the same change as one listed between two pages paired comes with
+        // its page (a policy number changed on every page); any other
+        // change is listed there.
+        else if (t && running && !changedValues.has(textOf(A, a!) + '\u0000' + textOf(B, b!))) {
+          const paired = !used.has(t);
+          used.add(s);
+          used.add(t);
+          facing(a!, b!, paired);
+        }
         // Else a running value comes with its page.
         else if (running) out.repeated++;
         else alone(side, s, p >= 0 ? p : Math.min(page, nOther - 1));

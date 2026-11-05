@@ -151,6 +151,30 @@ test('T3-forms-V1: a page code in the footer stays with its page when the text r
   assert.equal(r.changes.find((c) => c.field)!.new.caret?.page, 1);
 });
 
+test('T-leftovers-V1: a running footer value changed on a page the re-flow leaves unpaired is listed there', async () => {
+  // The re-flow above (old p. 3 and new p. 2 left over); the holder's
+  // initials are K.B., K.A., K.B. on pages 1–3. Old p. 3 is held against new
+  // p. 3, the page sharing its text. Its K.B. stands on old p. 1 too (a
+  // running value), but new p. 3 shows K.A. at its place, and no such change
+  // is listed between paired pages: the initials of p. 3 changed.
+  const fieldItems = (r: CompareResult) => r.changes.filter((c) => c.field).map((c) => [describeChange('en', c), c.old.rects.map((x) => x.page + 1), c.new.rects.map((x) => x.page + 1)]);
+  let r = await run('TV1-initials-before', 'TV1-initials-p3-edit');
+  assert.deepEqual(fieldItems(r), [['Changed “B” → “A” (form field)', [3], [3]]]);
+  assert.equal(r.ignored.furniture, 3);
+  r = await run('TV1-initials-p3-edit', 'TV1-initials-before');
+  assert.deepEqual(fieldItems(r), [['Changed “A” → “B” (form field)', [3], [3]]]);
+  // Control: the initials kept by page, the policy number changed on every
+  // page. On the pages left over, the policy number faces the new one, the
+  // same change as on the pages paired: it comes with its page and is
+  // counted, not listed again.
+  r = await run('TV1-initials-before', 'TV1-initials-polno');
+  assert.deepEqual(fieldItems(r), [
+    ['Number changed: PN-0042-771 → PN-0042-772 (form field)', [1], [1]],
+    ['Number changed: PN-0042-771 → PN-0042-772 (form field)', [2], [3]],
+  ]);
+  assert.equal(r.ignored.furniture, 2);
+});
+
 test('R3-05: a comb value is located on the cells it is drawn in (right-aligned, padded, centred)', async () => {
   // Annual income statement: 9-cell comb fields at x 383–545 (18 pt cells).
   // Right-aligned by the appearance (/Q 2, as Acrobat draws it), and
