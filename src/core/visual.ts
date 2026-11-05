@@ -2359,27 +2359,40 @@ interface Cover {
  * of at most `sb`, less each old-side overlay's times one of at most `sa`:
  * the share of the measured glyph darkness (see ink) that lies on the
  * overlay's ink or under it on that side. The distance from `d` to the
- * nearest such sum is returned (found coordinate by coordinate; the shares
- * are independent, so this converges). A red stamp over a black figure
- * that turned blue is beyond it, and so is a figure that turned red next
- * to a red icon that does not touch its glyphs; a figure that turned the
- * stamp's red is not, where the stamp lies over it.
+ * nearest such sum is returned (found coordinate by coordinate). The
+ * shares of one side's colours lie in the same pixels, so together they
+ * are at most that side's share; and an overlay found by more than one
+ * test (a stamp written as text: text on one side only, a graphic that
+ * differs next to the word and text set at a slant) is one colour there,
+ * counted once. A red stamp over a black figure that turned blue is
+ * beyond it, and so is a figure that turned red next to a red icon that
+ * does not touch its glyphs; a figure that turned the stamp's red is not,
+ * where the stamp lies over it.
  */
 function beyondOverlays(d: number[], oa: Cover[], sa: number, ob: Cover[], sb: number): number {
   const chroma = (c: number[], sign: number) => {
     const l = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
     return c.map((v) => sign * (v - l));
   };
-  const gens = [...ob.flatMap((c) => c.colours.map((k) => ({ g: chroma(k, 1), max: sb }))), ...oa.flatMap((c) => c.colours.map((k) => ({ g: chroma(k, -1), max: sa })))];
+  const colours = (cs: Cover[]) => {
+    const out: number[][] = [];
+    for (const c of cs) for (const k of c.colours) if (!out.some((o) => o.every((v, i) => Math.abs(v - k[i]) <= 8))) out.push(k);
+    return out;
+  };
+  const gens = [...colours(ob).map((k) => ({ g: chroma(k, 1), side: 1 })), ...colours(oa).map((k) => ({ g: chroma(k, -1), side: 0 }))];
+  const max = [sa, sb];
+  const used = [0, 0];
   const t = gens.map(() => 0);
   const r = d.slice();
   for (let round = 0; round < 4; round++)
     for (let k = 0; k < gens.length; k++) {
-      const { g, max } = gens[k];
+      const { g, side } = gens[k];
       const gg = g[0] * g[0] + g[1] * g[1] + g[2] * g[2];
       if (gg < 1e-6) continue;
       for (let c = 0; c < 3; c++) r[c] += t[k] * g[c];
-      t[k] = Math.max(0, Math.min(max, (r[0] * g[0] + r[1] * g[1] + r[2] * g[2]) / gg));
+      used[side] -= t[k];
+      t[k] = Math.max(0, Math.min(max[side] - used[side], (r[0] * g[0] + r[1] * g[1] + r[2] * g[2]) / gg));
+      used[side] += t[k];
       for (let c = 0; c < 3; c++) r[c] -= t[k] * g[c];
     }
   return Math.hypot(r[0], r[1], r[2]);

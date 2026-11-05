@@ -197,3 +197,25 @@ test('R4-07: graphic edits inside the box of a diagonal watermark in both versio
   const removed = r.changes.find((c) => describeChange('en', c) === 'Graphic or image removed')!;
   assert.ok(removed.old.rects.some((q) => q.rect.w >= 150), JSON.stringify(removed.old.rects));
 });
+
+test('V3-V1: an overlay found by more than one test explains its colour once', { skip }, async () => {
+  // Chromium invoice (counter-probe of review round 8): a semi-transparent
+  // blue RECEIVED stamp added over the amount column, and 1,330.00 under
+  // its letters turned #1f4fbf. The stamp is text on one side only, a
+  // graphic that differs next to the figure and text set at a slant: three
+  // covers of one colour. Before: its chroma was allowed three times over
+  // and the figure was not listed, with no notice.
+  const r = await run('probe8-V3V1-stamp-before.pdf', 'probe8-V3V1-stamp-blue.pdf');
+  for (const w of ['640.00', '1,330.00']) assert.ok(recoloured(r).includes(w), `${w}: ${show(r)}`);
+  assert.ok(list(r.changes).includes('Added “RECEIVED”'), show(r));
+  // Control: the stamp alone recolours no figure.
+  const ctrl = await run('probe8-V3V1-stamp-before.pdf', 'probe8-V3V1-stamp-blue-ctrl.pdf');
+  assert.deepEqual(recoloured(ctrl), [], show(ctrl));
+  // A grey DRAFT replaced by a red CONFIDENTIAL at -30° over the text, and
+  // three words under it turned red, dark red and light red. Before:
+  // “resell” (#8b0000) was not listed.
+  const wm = await run('probe8-V3V1-wm-draft.pdf', 'probe8-V3V1-wm-conf-edits.pdf');
+  assert.deepEqual(recoloured(wm), ['acceptance', 'resell', 'property'], show(wm));
+  const wc = await run('probe8-V3V1-wm-draft.pdf', 'probe8-V3V1-wm-conf-ctrl.pdf');
+  assert.deepEqual(recoloured(wc), [], show(wc));
+});
