@@ -2043,13 +2043,19 @@ function appearanceChanges(
     return v.filter((p) => p.every((c, k) => Math.abs(c - med[k]) <= THRESH)).length < 0.85 * v.length ? null : med;
   };
   const isPaper = (c: number[]) => Math.min(...c) >= 255 - THRESH;
+  const apart = (c: number[], d: number[]) => c.some((v, k) => Math.abs(v - d[k]) > THRESH);
   // An "underline" that runs on past an end of the word's line of text, at
   // its rows, for 12 pt or more is a rule or the edge of a fill along the
   // table row (the border of a row split at the page foot, the lower edge
   // of a dark header band 0.7 pt off after a re-flow), not a line under
-  // the text. An underline ends with the text, or a few spaces after it
-  // (an underlined field with trailing spaces: 3–6 pt); the table rules
-  // and bands seen run on for 30 pt or more.
+  // the text, when the other version has a rule or a fill's edge along the
+  // row there too, within one and a half lines of where the line would be
+  // (the same table's rules, which the text moved against). An underline
+  // ends with the text, or a few spaces after it (an underlined field with
+  // trailing spaces: 3–6 pt); the table rules and bands seen run on for 30
+  // pt or more. One drawn on past the text where the other version has
+  // nothing along the row (a signature line, a name underlined to the
+  // margin) stays an underline.
   //
   // So is a line along the edge of a fill the text stands on (a red rule
   // drawn right under a header band in white on blue: the band above it,
@@ -2059,14 +2065,17 @@ function appearanceChanges(
   // the line. A word underlined on a shaded row whose band ends right under
   // it stays an underline, whatever else changed on the row.
   //
-  // `X` has the line, `t` is the word there. Null for a rule or an edge,
-  // else the line found.
-  const rowEdge = (found: FoundLine | null, X: Prepared, lines: DocModel['lines'], t: Token) => {
+  // `X` has the line, `t` is the word there, and `u` the same word in the
+  // other version. Null for a rule or an edge, else the line found.
+  const rowEdge = (found: FoundLine | null, X: Prepared, lines: DocModel['lines'], t: Token, u: Token) => {
     if (!found || found.line !== 'underline') return found;
     const l = lines.find((x) => x.id === t.line);
     if (!l) return found;
+    const O = X === A ? B : A;
     const s = X.r.scale;
+    const so = O.r.scale;
     const r = t.rects[0];
+    const q = u.rects[0];
     const d = 12;
     const [y0, y1] = found.rows;
     // The line's own rows: a rule both versions have, a row below an
@@ -2148,9 +2157,29 @@ function appearanceChanges(
       const there = hue(x0, x1);
       return !own || !there || Math.hypot(own[0] - there[0], own[1] - there[1], own[2] - there[2]) <= 30;
     };
+    // A rule or a fill's edge in the other version along the same columns
+    // (placed by the word), within one and a half of its lines' height of
+    // where the line would be: a row of one colour, not paper, with paper
+    // or another colour two pixel rows above or below it.
+    const ruled = (x0: number, x1: number) => {
+      const c0 = Math.round((x0 - r.x + q.x) * so);
+      const c1 = Math.round((x1 - r.x + q.x) * so);
+      if (c1 - c0 < 3) return false;
+      const reach = Math.round(1.5 * q.h * so);
+      const at = (y: number) => Math.round((y / s - r.y + q.y) * so);
+      for (let y = at(y0) - reach; y <= at(y1) + reach; y++) {
+        const c = rowColour(O, y, c0, c1);
+        if (!c || isPaper(c)) continue;
+        for (const e of [y - 2, y + 2]) {
+          const k = rowColour(O, e, c0, c1);
+          if (k && apart(c, k)) return true;
+        }
+      }
+      return false;
+    };
     const before: [number, number] = [l.rect.x - d - 1, l.rect.x - 1];
     const after: [number, number] = [l.rect.x + l.rect.w + 1, l.rect.x + l.rect.w + d + 1];
-    return [before, after].some(([x0, x1]) => dark(x0, x1)) ? null : found;
+    return [before, after].some(([x0, x1]) => dark(x0, x1) && ruled(x0, x1)) ? null : found;
   };
   // An "underline" that ends, at both ends, in a stroke rising from it past
   // the text (and not going on below it, as the side of a stamp drawn
@@ -2257,8 +2286,8 @@ function appearanceChanges(
     const g = near(a, b);
     const opts = { drift: b.kind !== 'cjk', cjk: b.kind === 'cjk', rows: own(a, b), exact, level: !!(ca || cb || g) || graphicAt(a, b) };
     const lines = (ga: Cover | null, gb: Cover | null) => {
-      const added = framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, ga, gb, opts), B, pageLines.new, b), B, A, b, a);
-      const removed = added ? null : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, gb, ga, opts), A, pageLines.old, a), A, B, a, b);
+      const added = framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, ga, gb, opts), B, pageLines.new, b, a), B, A, b, a);
+      const removed = added ? null : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, gb, ga, opts), A, pageLines.old, a, b), A, B, a, b);
       return added ? { line: added.line, added: true, rows: added.rows } : removed ? { line: removed.line, added: false, rows: removed.rows } : null;
     };
     let line = turned ? null : lines(ca, cb);
@@ -2274,8 +2303,8 @@ function appearanceChanges(
     const weak = { ...opts, weak: true, drift: false };
     const fainter = (added: boolean) =>
       added
-        ? framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, wa, wb, weak), B, pageLines.new, b), B, A, b, a)
-        : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, wb, wa, weak), A, pageLines.old, a), A, B, a, b);
+        ? framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, wa, wb, weak), B, pageLines.new, b, a), B, A, b, a)
+        : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, wb, wa, weak), A, pageLines.old, a, b), A, B, a, b);
     tried.set(b.i, { a, b, p, weak: (added) => (turned ? null : fainter(added)) });
     if (line) {
       hits.push({ a, b, colour: false, line, p });

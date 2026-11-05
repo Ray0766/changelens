@@ -57,3 +57,20 @@ test('V1-L1: a word underlined on a shaded header row is listed when another edi
   assert.ok(!list(band.changes).some((d) => d.startsWith('Underlined')), list(band.changes).join(' | '));
   assert.ok(graphics(band).some((c) => hits(c, 'new', 3, 200, 88)), list(band.changes).join(' | '));
 });
+
+test('V1-L3: an underline drawn on past its line where the other version has no rule is an underline', { skip }, async () => {
+  // reportlab letter: the line underlined from its start to 16 pt past its
+  // end; a name underlined to 60 pt past it. Before: only "Graphic or image
+  // added" for the part past the text.
+  const deposit = await run('probe8-V1-L3-before.pdf', 'probe8-V1-L3-ul16.pdf');
+  assert.ok(list(deposit.changes).includes('Underlined: “The deposit of 1,800.00 is refu…”'), list(deposit.changes).join(' | '));
+  const name = await run('probe8-V1-L3-before.pdf', 'probe8-V1-L3-name-ul60.pdf');
+  assert.ok(list(name.changes).includes('Underlined: “Tenant: Adaeze Okafor”'), list(name.changes).join(' | '));
+  // The controls of R5-12 and R5-V02 (visual8-appearance) hold: a table
+  // rule or a band edge that both versions have along a re-flowed row is
+  // no underline.
+  const w = await run('probe8-R5-12-before.pdf', 'probe8-R5-12-reflow.pdf');
+  assert.ok(!list(w.changes).some((d) => d.startsWith('Underline')), list(w.changes).join(' | '));
+  const d = await run('probe8-R5-V02-before.pdf', 'probe8-R5-V02-two-notes.pdf');
+  assert.deepEqual(list(d.changes), ['Added 2 paragraphs']);
+});
