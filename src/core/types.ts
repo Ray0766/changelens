@@ -49,6 +49,8 @@ export interface TextRun {
   comb?: true;
   /** (Form fields) The field's font size is automatic: the viewer fits it to the value and the box. */
   autoSize?: true;
+  /** (Form fields) The widget that shows the value, numbered on its page. */
+  widget?: number;
 }
 
 export interface PageText {
@@ -122,6 +124,8 @@ export interface Token {
   comb?: true;
   /** Part of the value of a field with an automatic font size (see TextRun.autoSize). */
   autoSize?: true;
+  /** The widget of a form field's value, numbered on its page (see TextRun.widget). */
+  widget?: number;
 }
 
 export interface Line {

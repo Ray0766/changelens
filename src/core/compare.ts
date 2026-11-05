@@ -1958,13 +1958,14 @@ function formatDiff(a: Token, b: Token, refitted: boolean): FormatDetail | null 
  * changed size was fitted to another box or font: its size is compared.
  */
 function refittedValues(oldDoc: DocModel, newDoc: DocModel, newOfOld: Int32Array): (a: Token, b: Token) => boolean {
-  /** The words of the auto-sized value around token i. */
+  /** The words of the auto-sized value around token i (of its widget). */
   const value = (doc: DocModel, i: number) => {
     const T = doc.tokens;
+    const same = (k: number) => T[k].field && T[k].autoSize && T[k].page === T[i].page && T[k].widget === T[i].widget;
     let s = i;
-    while (s > 0 && T[s - 1].field && T[s - 1].autoSize) s--;
+    while (s > 0 && same(s - 1)) s--;
     let e = i + 1;
-    while (e < T.length && T[e].field && T[e].autoSize) e++;
+    while (e < T.length && same(e)) e++;
     const words: number[] = [];
     for (let k = s; k < e; k++) if (T[k].kind !== 'punct') words.push(k);
     return words;

@@ -389,7 +389,9 @@ export function fieldRuns(annotations: WidgetData[], vt: number[], content: Text
     // The value is already part of the page content (a form filled and
     // flattened while its widgets were kept): compare it once.
     if (shownByContent(lines, r, vt, content)) continue;
-    out.runs.push(layoutField(a, lines, r, vt, drawn.get(a.defaultAppearanceData?.fontName ?? '') ?? ''));
+    const group = layoutField(a, lines, r, vt, drawn.get(a.defaultAppearanceData?.fontName ?? '') ?? '');
+    for (const run of group) run.widget = out.runs.length;
+    out.runs.push(group);
   }
   return out;
 }

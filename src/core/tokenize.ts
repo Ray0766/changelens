@@ -515,6 +515,7 @@ export function buildDocModel(doc: DocText): DocModel {
           ...(main.field ? { field: true as const } : {}),
           ...(main.comb ? { comb: true as const } : {}),
           ...(main.autoSize ? { autoSize: true as const } : {}),
+          ...(main.widget !== undefined ? { widget: main.widget } : {}),
         });
       }
       const line: Line = {

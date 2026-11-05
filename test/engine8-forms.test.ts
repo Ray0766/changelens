@@ -347,3 +347,15 @@ test('T3-forms-N5: an auto-sized value that reads the same and is fitted to a sm
   const auto = await run('R3-06-auto-before', 'R3-06-auto-after');
   assert.deepEqual(auto.changes.filter((c) => c.kind === 'format'), []);
 });
+
+test('T3-forms-V3: an auto-sized value is told from the auto-sized value of the next widget', async () => {
+  // Shipping label request, labels above two boxes side by side, so both
+  // values come after the label line: "Brightwater Labs" → "Brightwater
+  // Labs Ltd" (Consignee), and the Reference box 18 → 10 pt high, its value
+  // 77812 the same. The two values were read as one, and the Consignee edit
+  // hid the Reference's size change.
+  const r = await run('V3-labels-above-before', 'V3-labels-above-after');
+  assert.deepEqual(listed(r), ['“77812” size 11.9 → 5.9 pt', 'Added “Ltd” (form field)']);
+  // The Consignee words keep no size item: their size follows from the edit.
+  assert.deepEqual(r.changes.filter((c) => c.kind === 'format').map((c) => c.new.text), ['77812']);
+});
