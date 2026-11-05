@@ -2267,8 +2267,10 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   const options: DiffOptions = { ...defaultOptions, ...opts };
   syncFurniture(oldDoc, newDoc);
   // Furniture may have changed the lines a label's parent is looked up in.
-  parentAbove.delete(oldDoc);
-  parentAbove.delete(newDoc);
+  for (const doc of [oldDoc, newDoc]) {
+    parentAbove.delete(doc);
+    shallowerAbove.delete(doc);
+  }
   syncHyphenation(oldDoc, newDoc);
   const include = (t: Token) =>
     !(options.ignoreFurniture && t.furniture) && !(options.ignorePunctuation && t.kind === 'punct');
@@ -2612,6 +2614,30 @@ const clauseLevels = (levels: string[]) => !levels.some((p) => Number(p) === 0) 
 
 /** Per document and line: whether a tight column's label has its parent clause above it (see labelAt). */
 const parentAbove = new WeakMap<DocModel, Map<number, boolean>>();
+/**
+ * Per document and depth d: for each line, the nearest line above it (not
+ * furniture) that starts with a number of fewer than d levels, or -1. The
+ * search for a parent clause visits only those lines, so a long table of
+ * "N.M" figures is read in linear time.
+ */
+const shallowerAbove = new WeakMap<DocModel, Map<number, Int32Array>>();
+function shallowerLines(doc: DocModel, d: number): Int32Array {
+  let byDepth = shallowerAbove.get(doc);
+  if (!byDepth) shallowerAbove.set(doc, (byDepth = new Map()));
+  let prev = byDepth.get(d);
+  if (prev) return prev;
+  prev = new Int32Array(doc.lines.length);
+  let last = -1;
+  for (let j = 0; j < doc.lines.length; j++) {
+    prev[j] = last;
+    const l = doc.lines[j];
+    if (l.furniture || l.end <= l.start) continue;
+    const u = doc.tokens[l.start];
+    if (u.kind === 'number' && u.text.normalize('NFKC').replace(/\.$/, '').split('.').length < d) last = j;
+  }
+  byDepth.set(d, prev);
+  return prev;
+}
 
 /**
  * The label that token k (a document token index) is, if any: the first
@@ -2678,29 +2704,21 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
    * line above (furniture left out) that starts with a number of fewer
    * levels starts with this label's parent ("5" or "5." above "5.3"). A
    * number of fewer levels in this label's column that is not the parent
-   * ends the search. A sibling above in the column ("5.2") that was looked
-   * up already gives its answer, so a long list is read in one pass.
+   * ends the search. Only lines that start with a number of fewer levels
+   * are visited (see shallowerLines), and each line's answer is kept.
    */
   const parent = () => {
     let known = parentAbove.get(doc);
     if (!known) parentAbove.set(doc, (known = new Map()));
+    const hit = known.get(t.line);
+    if (hit !== undefined) return hit;
     const want = levels.slice(0, -1).join('.');
+    const prev = shallowerLines(doc, levels.length);
     let found = false;
-    for (let j = t.line - 1; j >= 0; j--) {
-      const l = doc.lines[j];
-      if (l.furniture || l.end <= l.start) continue;
-      const u = doc.tokens[l.start];
-      if (u.kind !== 'number') continue;
-      const v = u.text.normalize('NFKC').replace(/\.$/, '');
-      const depth = v.split('.').length;
-      const column = Math.abs(u.rects[0].x - t.rects[0].x) <= 1.5;
-      if (depth === levels.length && column && known.has(j) && v.slice(0, v.lastIndexOf('.')) === want) {
-        found = known.get(j)!;
-        break;
-      }
-      if (depth >= levels.length) continue;
-      found = v === want;
-      if (found || column) break;
+    for (let j = prev[t.line]; j >= 0; j = prev[j]) {
+      const u = doc.tokens[doc.lines[j].start];
+      found = u.text.normalize('NFKC').replace(/\.$/, '') === want;
+      if (found || Math.abs(u.rects[0].x - t.rects[0].x) <= 1.5) break;
     }
     known.set(t.line, found);
     return found;

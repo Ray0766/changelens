@@ -155,6 +155,30 @@ test('a tight table of measures numbered on from 2.1 is not a clause list (R1-14
   }
 });
 
+test('a long tight table of measures is read in linear time (T1-L3)', () => {
+  // 6,000 rows "100.1 mm" … "766.6 mm" without row spacing, 60 to a page, and no clause above
+  // them: the search for a parent clause visited every row above each "N.1" row.
+  const doc = (name: string, ins: boolean): DocText => {
+    const rows = Array.from({ length: 6000 }, (_, k) => [`${100 + Math.floor(k / 9)}.${(k % 9) + 1}`, `mm board, use ${k}`]);
+    if (ins) rows.splice(1500, 0, ['266.7', 'mm board, re-sawn']);
+    const run = (str: string, x: number, y: number, eol = false): TextRun => ({ str, x, y: y - 9, w: str.length * 5, h: 11, baseline: y, fontSize: 10, font: 'Body', family: 'sans-serif', eol, angle: 0 });
+    const pages: DocText['pages'] = [];
+    for (let p = 0; p * 60 < rows.length; p++) {
+      const runs = rows.slice(p * 60, p * 60 + 60).flatMap(([n, t], k) => [run(n, 56, 60 + 12 * k), run(t, 100, 60 + 12 * k, true)]);
+      pages.push({ index: p, width: 595, height: 842, runs });
+    }
+    return { name, pages };
+  };
+  const a = buildDocModel(doc('a', false));
+  const b = buildDocModel(doc('b', true));
+  const t0 = performance.now();
+  const r = compareDocs(a, b);
+  const ms = performance.now() - t0;
+  assert.deepEqual(listed(r), ['Added “266.7 mm board, re-sawn”']);
+  // About 0.6 s on the 4-core test VM; 4 s when each row's search ran to the top.
+  assert.ok(ms < 2000, `took ${ms.toFixed(0)} ms`);
+});
+
 test('a contents page number after a leader gets no percentage; other line-end figures keep theirs (R1-15)', () => {
   const line = (name: string, str: string): DocText => ({ name, pages: [{ index: 0, width: 595, height: 842, runs: [{ str, x: 56, y: 71, w: str.length * 5, h: 11, baseline: 80, fontSize: 10, font: 'Body', family: 'sans-serif', eol: true, angle: 0 }] }] });
   // A run of full stops (one token), spaced stops (Chromium dot leaders) and an ellipsis leader.
