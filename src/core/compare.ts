@@ -1599,47 +1599,51 @@ function runningFieldValues(
   const nOld = oldDoc.pages.length;
   const nNew = newDoc.pages.length;
 
-  // The heaviest chain of links rising on both sides (pages paired by hand first).
-  const links = [...map.links.map((l) => ({ o: l.oldPage, n: l.newPage, w: l.weight })), ...manual.map(([o, n]) => ({ o, n, w: 1e9 }))];
-  links.sort((x, y) => x.o - y.o || y.n - x.n);
-  const tree = new Float64Array(nNew + 1);
-  const treeAt = new Int32Array(nNew + 1).fill(-1);
-  const total = new Float64Array(links.length);
-  const prev = new Int32Array(links.length).fill(-1);
-  links.forEach((l, k) => {
-    let best = 0;
-    let at = -1;
-    for (let i = l.n; i > 0; i -= i & -i)
-      if (tree[i] > best) {
-        best = tree[i];
-        at = treeAt[i];
-      }
-    total[k] = best + l.w;
-    prev[k] = at;
-    for (let i = l.n + 1; i <= nNew; i += i & -i)
-      if (total[k] > tree[i]) {
-        tree[i] = total[k];
-        treeAt[i] = k;
-      }
-  });
+  // The heaviest chain of links rising on both sides (pages paired by hand
+  // first); then, among the pages left, the heaviest chain of their own
+  // links (a page moved elsewhere), until no link is left between them.
   const newOf = new Int32Array(nOld).fill(-1);
   const oldOf = new Int32Array(nNew).fill(-1);
-  let top = -1;
-  for (let k = 0; k < links.length; k++) if (top < 0 || total[k] > total[top]) top = k;
-  for (let k = top; k >= 0; k = prev[k]) {
-    newOf[links[k].o] = links[k].n;
-    oldOf[links[k].n] = links[k].o;
+  const all = [...map.links.map((l) => ({ o: l.oldPage, n: l.newPage, w: l.weight })), ...manual.map(([o, n]) => ({ o, n, w: 1e9 }))];
+  for (let links = all; links.length; links = links.filter((l) => newOf[l.o] < 0 && oldOf[l.n] < 0)) {
+    links.sort((x, y) => x.o - y.o || y.n - x.n);
+    const tree = new Float64Array(nNew + 1);
+    const treeAt = new Int32Array(nNew + 1).fill(-1);
+    const total = new Float64Array(links.length);
+    const prev = new Int32Array(links.length).fill(-1);
+    links.forEach((l, k) => {
+      let best = 0;
+      let at = -1;
+      for (let i = l.n; i > 0; i -= i & -i)
+        if (tree[i] > best) {
+          best = tree[i];
+          at = treeAt[i];
+        }
+      total[k] = best + l.w;
+      prev[k] = at;
+      for (let i = l.n + 1; i <= nNew; i += i & -i)
+        if (total[k] > tree[i]) {
+          tree[i] = total[k];
+          treeAt[i] = k;
+        }
+    });
+    let top = 0;
+    for (let k = 1; k < links.length; k++) if (total[k] > total[top]) top = k;
+    for (let k = top; k >= 0; k = prev[k]) {
+      newOf[links[k].o] = links[k].n;
+      oldOf[links[k].n] = links[k].o;
+    }
   }
   // Pages without shared text between two pairs, as many on each side.
-  const linkedA = new Set(links.map((l) => l.o));
-  const linkedB = new Set(links.map((l) => l.n));
+  const linkedA = new Set(all.map((l) => l.o));
+  const linkedB = new Set(all.map((l) => l.n));
   for (let p = 0, q = 0; p <= nOld && q <= nNew; ) {
     let p1 = p;
     while (p1 < nOld && newOf[p1] < 0) p1++;
     const q1 = p1 < nOld ? newOf[p1] : nNew;
     if (q1 >= q && p1 - p === q1 - q)
       for (let k = 0; k < p1 - p; k++)
-        if (!linkedA.has(p + k) && !linkedB.has(q + k)) {
+        if (!linkedA.has(p + k) && !linkedB.has(q + k) && newOf[p + k] < 0 && oldOf[q + k] < 0) {
           newOf[p + k] = q + k;
           oldOf[q + k] = p + k;
         }
@@ -2105,8 +2109,7 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   const crossed = crossedPageBreak(ctx, splitEmbedded(ctx, relabelled.hunks), pairs);
   const hunks = crossed.hunks;
   const repeated = repeatedAtPageTop(ctx, hunks, pairs);
-  const pages = pageMap(oldDoc, newDoc, A, B, pairs);
-  const oldToNew = pages.oldToNew;
+  const oldToNew = pageMap(oldDoc, newDoc, A, B, pairs).oldToNew;
   const manual = validPairs(options.manualPairs ?? [], oldDoc.pages.length, newDoc.pages.length);
   const moved = detectMoves(ctx, hunks.filter((h) => !repeated.has(h)), fold, oldToNew);
   moved.inPlace.push(...crossed.pairs);
@@ -2136,7 +2139,10 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
     RA.map((t) => t.key),
     RB.map((t) => t.key),
   );
-  const runningValues = runningFieldValues(ctxR, pages, manual);
+  // Pages paired by all the text they share, moved passages included.
+  const shared = [...pairs, ...moved.inPlace];
+  for (const o of moved.innerOps) for (let k = 0; k < o.a1 - o.a0; k++) shared.push(o.a0 + k, o.b0 + k);
+  const runningValues = runningFieldValues(ctxR, pageMap(oldDoc, newDoc, A, B, Int32Array.from(shared)), manual);
   for (let p = 0; p < runningValues.pairs.length; p += 2) newOfOld[RA[runningValues.pairs[p]].i] = RB[runningValues.pairs[p + 1]].i;
   // Text cut by a narrower page, place by place, before equal edits are grouped.
   const overflow = findOverflow(oldDoc, newDoc, A, B, pairs);

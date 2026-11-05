@@ -92,6 +92,17 @@ test('T3-forms-N3: header and footer field values are compared page by page when
   assert.equal(r.ignored.furniture, 6);
 });
 
+test('T3-forms-N3: a page moved elsewhere keeps its header field value', async () => {
+  // Four sheets, each with its own reference in the header (REF-A … REF-D);
+  // the new version puts sheet 2 after sheet 3, its reference with it.
+  let r = await run('N3-swap-before', 'N3-swap-same');
+  assert.deepEqual(listed(r), ['Moved a paragraph']);
+  // The moved sheet's reference also changed: one change, from p. 2 to p. 3.
+  r = await run('N3-swap-before', 'N3-swap-ref-edit');
+  assert.deepEqual(listed(r), ['Changed “REF-B” → “REF-X” (form field)', 'Moved a paragraph']);
+  assert.deepEqual(pages(r)[0], [[2], [3]]);
+});
+
 test('R3-05: a comb value is located on the cells it is drawn in (right-aligned, padded, centred)', async () => {
   // Annual income statement: 9-cell comb fields at x 383–545 (18 pt cells).
   // Right-aligned by the appearance (/Q 2, as Acrobat draws it), and
