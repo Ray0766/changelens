@@ -132,3 +132,48 @@ test('R4-11: strikes and colours under and beside an added stamp are listed afte
   const v = await run('probe8-R4-11-v-before.pdf', 'probe8-R4-11-v-r140-stamp-edits.pdf');
   assert.ok(recoloured(v).includes('1,330.00'), show(v));
 });
+
+test('R4-13: a watermark that moved, turned or was recoloured recolours no word under it, and strikes there are listed', { skip }, async () => {
+  // Chromium supply agreement, a 130 pt DRAFT at -45°, 35 % grey over the
+  // text. Before: 12-15 "Text colour or weight changed" on unchanged words
+  // under the watermark moved 30 pt right and 40 pt down, 9 when turned to
+  // -30° or recoloured red.
+  const moved = await run('probe8-R4-13-draft.pdf', 'probe8-R4-13-moved.pdf');
+  assert.ok(list(moved.changes).includes('“DRAFT” moved 11 mm to the right'), show(moved));
+  assert.ok(recoloured(moved).length <= 1, show(moved));
+  const red = await run('probe8-R4-13-draft.pdf', 'probe8-R4-13-red.pdf');
+  assert.deepEqual(recoloured(red), [], show(red));
+  const angle = await run('probe8-R4-13-draft.pdf', 'probe8-R4-13-angle.pdf');
+  assert.deepEqual(recoloured(angle), [], show(angle));
+  // The same move with “thirty (30)” and “ninety” struck under it. Before:
+  // the strikes were not listed (only colour items, as on the unchanged
+  // words around them).
+  const edits = await run('probe8-R4-13-draft.pdf', 'probe8-R4-13-moved-edits.pdf');
+  for (const w of ['Struck through: “thirty (30)”', 'Struck through: “ninety”', 'Underlined: “exclusive”']) assert.ok(list(edits.changes).includes(w), `${w}: ${show(edits)}`);
+  // Controls: the strikes under the watermark left as it was, or only
+  // made lighter, are listed as before.
+  for (const file of ['probe8-R4-13-draft-edits.pdf', 'probe8-R4-13-faint-edits.pdf']) {
+    const c = await run('probe8-R4-13-draft.pdf', file);
+    assert.ok(list(c.changes).some((d) => d.startsWith('Struck through: “') && d.includes('(30)')), `${file}: ${show(c)}`);
+    assert.ok(list(c.changes).includes('Underlined: “exclusive”'), `${file}: ${show(c)}`);
+  }
+  // reportlab agreement, DRAFT moved 30 / -30 pt: five strikes and a red
+  // word under it, and nothing else. Before: 11 more colour items.
+  const v = await run('probe8-R4-06-v-draft.pdf', 'probe8-R4-13-v-moved-edits.pdf');
+  assert.deepEqual(recoloured(v), ['fifteen'], show(v));
+  for (const w of ['three', 'forty', 'eight', 'ninety', 'six']) assert.ok(list(v.changes).includes(`Struck through: “${w}”`), `${w}: ${show(v)}`);
+  const vm = await run('probe8-R4-06-v-draft.pdf', 'probe8-R4-13-v-moved.pdf');
+  assert.deepEqual(list(vm.changes), ['“DRAFT” moved 11 mm to the right'], show(vm));
+});
+
+test('R4-07: graphic edits inside the box of a diagonal watermark in both versions are listed', { skip }, async () => {
+  // Chromium purchase order with a grey COPY at -38° behind the content in
+  // both versions: a red tick added, a row fill, the signature rule
+  // removed. Before (round 7): the tick missing and the 200 pt rule
+  // reported as a 12 pt sliver (the watermark's whole bounding box was
+  // masked as text). Fixed by masking slanted text along its letters only.
+  const r = await run('probe8-R4-07-wm-before.pdf', 'probe8-R4-07-wm-after.pdf');
+  assert.deepEqual(graphics(r).sort(), ['Graphic or image added', 'Graphic or image changed', 'Graphic or image removed'], show(r));
+  const removed = r.changes.find((c) => describeChange('en', c) === 'Graphic or image removed')!;
+  assert.ok(removed.old.rects.some((q) => q.rect.w >= 150), JSON.stringify(removed.old.rects));
+});

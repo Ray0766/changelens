@@ -1785,6 +1785,7 @@ function appearanceChanges(
   near: (a: Token, b: Token) => [Cover | null, Cover | null] | 'skip' | null,
   under: (a: Token, b: Token) => boolean = () => false,
   cover: (a: Token, b: Token) => [Cover | null, Cover | null] | 'skip' = () => [null, null],
+  slant: (a: Token, b: Token) => [Cover | null, Cover | null] | 'skip' = () => [null, null],
 ): Change[] {
   const TA = result.oldDoc.tokens;
   const TB = result.newDoc.tokens;
@@ -2030,6 +2031,12 @@ function appearanceChanges(
     const again = !line && g && g !== 'skip' && (g[0] || g[1]) && !(ca && g[0]) && !(cb && g[1]);
     if (again) line = lines(ca ?? g[0], cb ?? g[1]);
     const [wa, wb] = again ? [ca ?? g[0], cb ?? g[1]] : [ca, cb];
+    // So is a line under a watermark that moved, turned or was recoloured
+    // (see slant), outside its ink; where its ink cannot be told, the word
+    // is measured as it is.
+    const sl = slant(a, b);
+    const t = sl === 'skip' ? null : sl;
+    if (!line && t && (t[0] || t[1])) line = lines(wa ?? t[0], wb ?? t[1]);
     const weak = { ...opts, weak: true, drift: false };
     tried.set(b.i, {
       a,
@@ -2045,8 +2052,8 @@ function appearanceChanges(
       continue;
     }
     if (g === 'skip') continue;
-    const oa = [ca, g?.[0]].filter((c): c is Cover => !!c);
-    const ob = [cb, g?.[1]].filter((c): c is Cover => !!c);
+    const oa = [ca, g?.[0], t?.[0]].filter((c): c is Cover => !!c);
+    const ob = [cb, g?.[1], t?.[1]].filter((c): c is Cover => !!c);
     const covers = oa.length + ob.length > 0;
     const [ka, kb] = pitch(a, b);
     if (!covers) {
@@ -2346,11 +2353,13 @@ function beyondOverlays(d: number[], oa: Cover[], sa: number, ob: Cover[], sb: n
  * colour laid over the other side's pixel (see laidOver), is under it.
  * The word is then compared outside that ink (see addedLine and
  * appearanceChanges), so an edit of the word itself is still seen where it
- * is visible in both versions. Null when no
+ * is visible in both versions. With `known`, the overlay's colours are
+ * those of the ones given that its ink has (see knownColours); with
+ * `beyond` false, its ink is in the shapes only. Null when no
  * such ink lies near the word (it
  * sits between the overlay's strokes, or the overlay is as light as paper).
  */
-function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[]): Cover | null {
+function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[], known?: number[][], beyond = true): Cover | null {
   const sx = X.r.scale;
   const sy = Y.r.scale;
   const W = X.r.width;
@@ -2405,7 +2414,7 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[])
       if (r0 >= 160 && r1 >= 160 && r2 >= 160 && Math.max(Math.abs(dx[p] - r0), Math.abs(dx[p + 1] - r1), Math.abs(dx[p + 2] - r2)) > 8) (r0 >= 240 && r1 >= 240 && r2 >= 240 ? samples : onFill).push(p);
     }
   }
-  const inks = overlayColours(dx, samples.length >= 8 ? samples : onFill);
+  const inks = known ? knownColours(dx, samples.length >= 8 ? samples : onFill, known) : overlayColours(dx, samples.length >= 8 ? samples : onFill);
   if (!inks.length) return null;
   // The tolerance of the overlay colour a pixel has (byte offset p in X), or -1.
   const ownAt = (p: number) => {
@@ -2428,7 +2437,7 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[])
   // Not through the other side's glyphs: a figure that turned red next to
   // a red icon it touches is not the icon.
   const stack: number[] = [];
-  for (let k = 0; k < n; k++) if (state[k] === INK) stack.push(k);
+  if (beyond) for (let k = 0; k < n; k++) if (state[k] === INK) stack.push(k);
   while (stack.length) {
     const k = stack.pop()!;
     const i = k % w;
@@ -2514,6 +2523,24 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[])
       return left > 0.2 * differ;
     },
   };
+}
+
+/**
+ * Of the colours `known` (a watermark's letters, see slantInks), those that
+ * eight or more of the samples have, or a blend of with paper: the
+ * overlay's colours where they are known (see overlayColours).
+ */
+function knownColours(d: Uint8ClampedArray | Uint8Array, samples: number[], known: number[][]): { colour: number[]; tol: number }[] {
+  const out: { colour: number[]; tol: number }[] = [];
+  for (const colour of known) {
+    const dev = 255 - Math.min(...colour);
+    const tol = Math.min(40, dev / 2);
+    if (dev < 12 || out.some((c) => c.colour.every((v, k) => Math.abs(v - colour[k]) <= 8))) continue;
+    let n = 0;
+    for (const p of samples) if (onPaper(d, p, colour, tol) && ++n >= 8) break;
+    if (n >= 8) out.push({ colour, tol });
+  }
+  return out;
 }
 
 /** Pixel `p` of `d` (a byte offset) is colour `c` laid over paper at some share, within `tol`: an anti-aliased edge of ink of that colour. */
@@ -3221,6 +3248,43 @@ function compareAligned(
     // put down to the overlay.
     const coverOld = overlays(result, 'old', oldPage);
     const coverNew = overlays(result, 'new', newPage);
+    // So does text set at an angle (a watermark) that moved, turned or
+    // changed colour, or under which the text re-flowed: its letters lie
+    // elsewhere over the word in each version. Its ink is its own colour
+    // (see slantInks). Where the other version has the same run, of the
+    // same colour, at the same place relative to the word, it is the same
+    // over the word in both: no overlay (a strike drawn under it is not its
+    // ink, though grey like its anti-aliased edge).
+    const twin = (k: SlantInk, others: SlantInk[]) =>
+      others.find((o) => o.run.str === k.run.str && Math.abs(o.run.angle - k.run.angle) <= 0.5 && o.colour.every((v, c) => Math.abs(v - k.colour[c]) <= 16))?.run ?? null;
+    // Its shape is its letters (see slantHeld), not its band: a strike
+    // between them is not its ink.
+    const letters = (P: Prepared, all: SlantInk[], k: SlantInk) => {
+      const band = slantBand(k.run, 0);
+      const s = P.r.scale;
+      const x0 = Math.max(0, Math.floor(band.box.x * s));
+      const y0 = Math.max(0, Math.floor(band.box.y * s));
+      const x1 = Math.min(P.r.width, Math.ceil((band.box.x + band.box.w) * s));
+      const y1 = Math.min(P.r.height, Math.ceil((band.box.y + band.box.h) * s));
+      let held: Uint8Array | null = null;
+      return {
+        box: band.box,
+        inside: (x: number, y: number) => {
+          if (!band.inside(x, y)) return false;
+          const px = Math.floor(x * s);
+          const py = Math.floor(y * s);
+          if (px < x0 || py < y0 || px >= x1 || py >= y1) return false;
+          held ??= slantHeld(P, all, x0, y0, x1, y1);
+          return held[(py - y0) * (x1 - x0) + px - x0] === 1;
+        },
+        colour: k.colour,
+        run: k.run,
+      };
+    };
+    const slantOld = inks.old.map((k) => ({ ...letters(A, inks.old, k), twin: twin(k, inks.new) }));
+    const slantNew = inks.new.map((k) => ({ ...letters(B, inks.new, k), twin: twin(k, inks.old) }));
+    const moved = (run: TextRun, other: TextRun | null, t: Token, u: Token) =>
+      !other || Math.abs(run.x - t.rects[0].x - (other.x - u.rects[0].x)) > 0.5 || Math.abs(run.y - t.rects[0].y - (other.y - u.rects[0].y)) > 0.5;
     // A list number shown as a tracked change ("4.3[4.4]" in the reviewer's
     // colour): its colour is part of that consequence of a renumbering,
     // which is counted and shown on request.
@@ -3246,7 +3310,22 @@ function compareAligned(
       const cb = ob ? overlayInk(B, b.rects[0], A, a.rects[0], coverNew) : null;
       return partly(ca, cb) || partly(cb, ca) ? 'skip' : [ca, cb];
     };
-    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover));
+    // The ink of such a watermark is told from the word's by its colour
+    // only, which a grey watermark shares with a strike's anti-aliased
+    // edge: a line through or under the word is looked for outside it only
+    // where none is found without (see appearanceChanges).
+    const slant = (a: Token, b: Token): [Cover | null, Cover | null] | 'skip' => {
+      const la = slantOld.filter((f) => moved(f.run, f.twin, a, b));
+      const lb = slantNew.filter((f) => moved(f.run, f.twin, b, a));
+      const sa = la.length > 0 && covered(a.rects[0], over(a.rects[0], la)) >= OVERLAY_SHARE;
+      const sb = lb.length > 0 && covered(b.rects[0], over(b.rects[0], lb)) >= OVERLAY_SHARE;
+      if (!sa && !sb) return [null, null];
+      if (!sameShape(a.rects[0], b.rects[0])) return 'skip';
+      const ca = sa ? overlayInk(A, a.rects[0], B, b.rects[0], la, la.map((f) => f.colour), false) : null;
+      const cb = sb ? overlayInk(B, b.rects[0], A, a.rects[0], lb, lb.map((f) => f.colour), false) : null;
+      return partly(ca, cb) || partly(cb, ca) ? 'skip' : [ca, cb];
+    };
+    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, slant));
     // Running headers and footers left out of the text comparison: a line
     // through, under or a colour put on their words (a header's
     // "Confidential" struck through) is a difference in them, counted with
@@ -3254,7 +3333,7 @@ function compareAligned(
     if (result.options.ignoreFurniture && result.oldToNew[oldPage] === newPage) {
       const pairs = furniturePairs(result, oldPage, newPage);
       if (pairs.length)
-        for (const c of appearanceChanges({ ...result, matches: Int32Array.from(pairs) }, oldPage, newPage, A, B, () => false, near, () => false, cover)) {
+        for (const c of appearanceChanges({ ...result, matches: Int32Array.from(pairs) }, oldPage, newPage, A, B, () => false, near, () => false, cover, slant)) {
           furnitureMarked.add(c);
           furniture.push(c);
         }
