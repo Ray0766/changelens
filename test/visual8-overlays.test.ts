@@ -1,0 +1,134 @@
+// Visual stage, fix round 8: the colour and weight of words next to an
+// overlay (review round 7). An overlay is what one version draws over or
+// behind a word that the other does not: a page tint or a panel fill, a
+// cell fill, a stamp, a seal, an icon, a watermark that was added, removed,
+// replaced, moved or recoloured. The word is compared outside the overlay's
+// ink, and its glyphs' chroma may differ by what the overlay's own colour
+// explains where it touches them. Before: false "Text colour or weight
+// changed" items on unchanged words under tints, stamps and seals, and real
+// colour edits and strikes next to icons, fills, stamps and watermarks
+// skipped silently. Each probe asserts what the reviewer must see, next to
+// its control. Fixtures test/fixtures/probe8-R4-04-* … probe8-R7-06-* are
+// copies of the SYNTHETIC probe and verifier PDFs of round 7 (Chromium via
+// Playwright, LibreOffice Calc from openpyxl, reportlab).
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { openPdf } from '../src/node/pdf.ts';
+import { renderPage, canRender } from '../src/node/render.ts';
+import { extractText } from '../src/pdf/extract.ts';
+import { buildDocModel } from '../src/core/tokenize.ts';
+import { compareDocs } from '../src/core/compare.ts';
+import { addVisualChanges } from '../src/core/pipeline.ts';
+import { describeChange } from '../src/core/describe.ts';
+import type { Change, CompareResult } from '../src/core/types.ts';
+
+const fixtures = new URL('./fixtures/', import.meta.url).pathname;
+const skip = !(await canRender()) && 'no canvas';
+
+async function run(before: string, after: string): Promise<CompareResult> {
+  const pa = await openPdf(fixtures + before);
+  const pb = await openPdf(fixtures + after);
+  const r = compareDocs(buildDocModel(await extractText(pa, 'old')), buildDocModel(await extractText(pb, 'new')));
+  await addVisualChanges(r, (p) => renderPage(pa, p, 1.5), (p) => renderPage(pb, p, 1.5));
+  return r;
+}
+const list = (cs: Change[]) => cs.map((c) => describeChange('en', c));
+/** The words of the colour or weight items (new side). */
+const recoloured = (r: CompareResult) => r.changes.filter((c) => c.format?.appearanceChanged && !c.format.decoration).map((c) => c.new.text ?? '');
+const graphics = (r: CompareResult) => list(r.changes.filter((c) => c.kind === 'graphic' && !c.format && !c.pageChange));
+const show = (r: CompareResult) => list(r.changes).join(' | ');
+
+test('R6-04, R6-V02: a page tint added behind small or CJK text recolours no word', { skip }, async () => {
+  // reportlab equipment schedule at 5.5 pt, one rating changed and a light
+  // tint (#fdf8e4) put on all 9 pages. Before: 57 "Text colour or weight
+  // changed" items on words such as “unit”.
+  const small = await run('probe8-R6-04-small-old.pdf', 'probe8-R6-04-small-new.pdf');
+  assert.deepEqual(recoloured(small), [], show(small));
+  assert.ok(list(small.changes).includes('Number changed: 11.0 → 15.0 (+36%)'), show(small));
+  assert.equal(graphics(small).length, 9, show(small));
+  // Chromium progress reports with a #fffbe6 body background, in Chinese
+  // (WenQuanYi Zen Hei 10.5 pt) and English. Before: 40 items on 额, 果 and
+  // 规, and 5 on “agreed criteria” at the top of each page.
+  for (const lang of ['zh', 'en']) {
+    const r = await run(`probe8-R6-V02-${lang}-old.pdf`, `probe8-R6-V02-${lang}-new.pdf`);
+    assert.deepEqual(recoloured(r), [], `${lang}: ${show(r)}`);
+    assert.ok(list(r.changes).includes('Number changed: 4,800,000 → 4,300,000 (-10%)'), `${lang}: ${show(r)}`);
+  }
+});
+
+test('R7-06, R4-12: a seal or a transparent stamp laid over words recolours none of them', { skip }, async () => {
+  // reportlab contract: a red company seal (PNG, 85 % opaque) placed over
+  // “乙方（盖章）：示例科技有限公司”. Before: “章” and “示例科技” recoloured.
+  const seal = await run('probe8-R7-06-seal-before.pdf', 'probe8-R7-06-seal-after.pdf');
+  assert.deepEqual(list(seal.changes), ['Graphic or image added'], show(seal));
+  // Chromium remittance statement: semi-transparent PAID, RECEIVED and
+  // CHECKED stamps over the amount columns, no figure edited. Before:
+  // “223.71” under the P recoloured.
+  const stamp = await run('probe8-R4-12-before.pdf', 'probe8-R4-12-stamp.pdf');
+  assert.deepEqual(recoloured(stamp), [], show(stamp));
+  for (const word of ['PAID', 'RECEIVED', 'CHECKED']) assert.ok(list(stamp.changes).includes(`Added “${word}”`), show(stamp));
+});
+
+test('R4-04: a figure that turns red next to an added red arrow icon is listed', { skip }, async () => {
+  // Chromium KPI table: “-4.2%” turns #c00000 and gets an 8 px red arrow
+  // before it. Before: the arrow only (the icon's colour was read from its
+  // anti-aliased edge, so its inside was not its ink and the word skipped).
+  const r = await run('probe8-R4-04-before.pdf', 'probe8-R4-04-icon-red.pdf');
+  const words = recoloured(r);
+  assert.ok(words.some((t) => t.includes('-4.2')), show(r));
+  assert.ok(words.some((t) => t.includes('+3.1')), show(r));
+  assert.ok(graphics(r).includes('Graphic or image added'), show(r));
+  // Control: the icons alone recolour nothing.
+  const icons = await run('probe8-R4-04-before.pdf', 'probe8-R4-04-icon-only.pdf');
+  assert.deepEqual(list(icons.changes), ['Graphic or image added'], show(icons));
+});
+
+test('R4-05: figures recoloured inside a cell fill that was added or changed are listed', { skip }, async () => {
+  // Calc budget: “light red fill with dark red text” on 1,850 and 2,900
+  // (fill added) and on 6,200 (green fill and text before). Before: one
+  // "Graphic or image changed" for the cells (the glyphs were all taken
+  // for what the fill encloses, or the fill's strips for a rule across
+  // the words).
+  const r = await run('probe8-R4-05-before.pdf', 'probe8-R4-05-after.pdf');
+  const words = recoloured(r);
+  for (const w of ['1,850', '2,900', '6,200']) assert.ok(words.includes(w), `${w}: ${show(r)}`);
+  assert.deepEqual(graphics(r), ['Graphic or image changed'], show(r));
+  // Control: the fill alone recolours no figure.
+  const fill = await run('probe8-R4-05-before.pdf', 'probe8-R4-05-fill-only.pdf');
+  assert.deepEqual(list(fill.changes), ['Graphic or image changed'], show(fill));
+});
+
+test('R4-06: edits under a watermark that was replaced by another are listed', { skip }, async () => {
+  // Chromium letter: grey DRAFT at -40° replaced by a green APPROVED at
+  // -25°. Each version's watermark made the other's word "partial", so
+  // every word under both was skipped. “March” turned red.
+  const r = await run('probe8-R4-06-draft.pdf', 'probe8-R4-06-approved-edits.pdf');
+  assert.ok(list(r.changes).includes('Changed “DRAFT” → “APPROVED”'), show(r));
+  assert.ok(recoloured(r).includes('March'), show(r));
+  // Control: the replacement alone.
+  const c = await run('probe8-R4-06-draft.pdf', 'probe8-R4-06-approved.pdf');
+  assert.deepEqual(list(c.changes), ['Changed “DRAFT” → “APPROVED”'], show(c));
+  // reportlab agreement: DRAFT grey 40° → APPROVED green 25°; “fifteen”
+  // red, “ninety” and “six” struck under both. Before: 3 of the 6 edits.
+  const v = await run('probe8-R4-06-v-draft.pdf', 'probe8-R4-06-v-approved-edits.pdf');
+  assert.ok(recoloured(v).includes('fifteen'), show(v));
+  for (const w of ['three', 'forty', 'eight', 'ninety', 'six']) assert.ok(list(v.changes).includes(`Struck through: “${w}”`), `${w}: ${show(v)}`);
+});
+
+test('R4-11: strikes and colours under and beside an added stamp are listed after a re-flow', { skip }, async () => {
+  // Chromium invoice: a rotated 55 % red PAID stamp with a 3 pt frame over
+  // the amount column; 2,150.00, 2,580.00 and 420.00 struck (420.00 under
+  // the frame), 640.00 and 1,330.00 blue. The side without the stamp was
+  // "partial" for the stamp's own pixels, so the words were skipped.
+  const want = ['Struck through: “2,150.00”', 'Struck through: “2,580.00”', 'Struck through: “420.00”'];
+  for (const file of ['probe8-R4-11-n0.pdf', 'probe8-R4-11-n33.pdf', 'probe8-R4-11-nostamp-n0.pdf']) {
+    const r = await run('probe8-R4-11-before.pdf', file);
+    for (const w of want) assert.ok(list(r.changes).includes(w), `${file} ${w}: ${show(r)}`);
+    const words = recoloured(r);
+    for (const w of ['640.00', '1,330.00']) assert.ok(words.includes(w), `${file} ${w}: ${show(r)}`);
+  }
+  // reportlab invoice, the table 14 pt lower under the same stamp: 1,330.00
+  // under the stamp's letters turned blue.
+  const v = await run('probe8-R4-11-v-before.pdf', 'probe8-R4-11-v-r140-stamp-edits.pdf');
+  assert.ok(recoloured(v).includes('1,330.00'), show(v));
+});
