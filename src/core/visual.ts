@@ -1373,8 +1373,14 @@ function boxDarkness(side: Prepared, rect: Rect, on?: { rect: Rect; scale: numbe
   return { d, cols, rows, top: oy0 / so - on.rect.y + rect.y, x0, ys };
 }
 
-/** A line through or under a token (see addedLine): which, and its pixel rows in the version that has it. */
-type FoundLine = { line: 'strike' | 'underline'; rows: [number, number] };
+/**
+ * A line through or under a token (see addedLine): which, and its pixel
+ * rows in the version that has it. `core`: of those rows, the ones that
+ * gained most of the line's darkness (the rows found take in a row on
+ * either side of it, which can be a rule both versions have right under an
+ * underline: a cell's bottom border).
+ */
+type FoundLine = { line: 'strike' | 'underline'; rows: [number, number]; core: [number, number] };
 
 /**
  * `drift`: also try the boxes shifted sideways (see addedLine). `rows`: the
@@ -1722,7 +1728,13 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
     // and where nothing else is listed there, it is the only item that
     // shows the mark.
     if (opts.level && !level(A, B, C, n, k, e)) return null;
-    return { line: rel >= 0.72 ? 'underline' : 'strike', rows: [Math.round(B.ys[k]), Math.round(B.ys[e])] };
+    let c0 = k;
+    let c1 = e;
+    let most = 0;
+    for (let j = k; j <= e; j++) most = Math.max(most, pb[j] - pa[j]);
+    while (c0 < c1 && pb[c0] - pa[c0] < 0.4 * most) c0++;
+    while (c1 > c0 && pb[c1] - pa[c1] < 0.4 * most) c1--;
+    return { line: rel >= 0.72 ? 'underline' : 'strike', rows: [Math.round(B.ys[k]), Math.round(B.ys[e])], core: [Math.round(B.ys[c0]), Math.round(B.ys[c1])] };
   }
   return part ? 'part' : null;
 }
@@ -2017,6 +2029,9 @@ function appearanceChanges(
     const s = X.r.scale;
     const d = 12;
     const [y0, y1] = found.rows;
+    // The line's own rows: a rule both versions have, a row below an
+    // underline (a cell's bottom border), is no line going on past the text.
+    const [l0, l1] = found.core;
     // A pixel row along the line of text: of one colour (85 % of it within
     // the tolerance of its median), 'fill' or 'paper'; else (glyphs) null.
     const row = (y: number): 'fill' | 'paper' | null => {
@@ -2039,7 +2054,7 @@ function appearanceChanges(
       const c = [0, 0, 0];
       let w = 0;
       for (let x = Math.max(0, Math.round(x0 * s)); x < Math.min(X.r.width, Math.round(x1 * s)); x++)
-        for (let y = Math.max(0, y0); y <= Math.min(X.r.height - 1, y1); y++) {
+        for (let y = Math.max(0, l0); y <= Math.min(X.r.height - 1, l1); y++) {
           const i = y * X.r.width + x;
           const v = 255 - X.lum[i];
           if (v < 40) continue;
@@ -2058,7 +2073,7 @@ function appearanceChanges(
       let m = 0;
       for (let x = Math.max(0, Math.round(x0 * s)); x < Math.min(X.r.width, Math.round(x1 * s)); x++) {
         let sum = 0;
-        for (let y = Math.max(0, y0 - 1); y <= Math.min(X.r.height - 1, y1 + 1); y++) sum += (255 - X.lum[y * X.r.width + x]) / 255;
+        for (let y = Math.max(0, l0 - 1); y <= Math.min(X.r.height - 1, l1 + 1); y++) sum += (255 - X.lum[y * X.r.width + x]) / 255;
         m++;
         if (sum >= 0.6) n++;
       }

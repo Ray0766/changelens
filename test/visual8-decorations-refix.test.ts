@@ -104,3 +104,15 @@ test('V2-decorations-V3: figures turned pure red are a colour change, not a stri
   const zh = await run('before.pdf', 'after.pdf', cases + 'holdout3-c-zh-purchase-contract-reflow/');
   assert.deepEqual(list(zh.changes.filter((c) => c.format?.decoration)), []);
 });
+
+test('V2-decorations-V5: an underline right above a cell border both versions have is no rule going on past the text', { skip }, async () => {
+  // LibreOffice Calc: horizontal rules in the old version, all borders in
+  // the new, three amounts left-aligned and underlined with their item
+  // names. Before: "380.00" was missing (its underline's rows took in the
+  // cell's bottom border, which runs on past the text).
+  const r = await run('probe8-V2V5-before.pdf', 'probe8-V2V5-under.pdf');
+  assert.deepEqual(list(r.changes.filter((c) => c.format?.decoration)), underlined('Cable tray, 3 m', '462.00', 'Testing and labelling', '380.00', 'Waste removal', '75.00'));
+  // Control: the borders alone add no line.
+  const c = await run('probe8-V2V5-before.pdf', 'probe8-V2V5-borders.pdf');
+  assert.deepEqual(list(c.changes.filter((x) => x.format?.decoration)), []);
+});
