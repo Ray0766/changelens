@@ -97,11 +97,13 @@ test('V11: a graphic edited on a page turned by /Rotate is listed beside the pag
   const r = await run('probe6-turn-before.pdf', 'probe6-turn-after.pdf');
   assert.deepEqual(list(visual(r)), ['Page size changed: 595 × 842 pt → 842 × 595 pt', 'Graphic or image changed', 'Graphic or image added']);
   const g = graphics(r);
-  assert.ok(hits(g[0], 'new', 2, 550, 200) && hits(g[0], 'old', 2, 200, 280), JSON.stringify(g[0]));
+  // Old (200, 280) on the callout is new (842 − 280, 200) on the page turned by 90°.
+  assert.ok(hits(g[0], 'new', 2, 562, 200) && hits(g[0], 'old', 2, 200, 280), JSON.stringify(g[0]));
   assert.ok(hits(g[1], 'new', 2, 530, 490), JSON.stringify(g[1].new.rects));
-  // A figure partly whited out on the turned page.
+  // The blue figure whited out on the turned page: removed, as on the
+  // same page not turned.
   const w = await run('probe6-turn-before.pdf', 'probe6-turn-whiteout.pdf');
-  assert.deepEqual(list(visual(w)), ['Page size changed: 595 × 842 pt → 842 × 595 pt', 'Graphic or image changed']);
+  assert.deepEqual(list(visual(w)), ['Page size changed: 595 × 842 pt → 842 × 595 pt', 'Graphic or image removed']);
   // Control: the turn alone; the turned figure goes with the page change.
   const c = await run('probe6-turn-before.pdf', 'probe6-turn-ctrl.pdf');
   assert.deepEqual(list(c.changes), ['Page size changed: 595 × 842 pt → 842 × 595 pt']);

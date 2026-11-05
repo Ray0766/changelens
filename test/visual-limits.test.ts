@@ -116,7 +116,7 @@ test('a page too large to compare and a page that fails to render are listed; th
   assert.ok(!asked.includes('new1'), asked.join());
   assert.deepEqual(r.coverage.new.visualSkipped, [1]);
   assert.ok(r.changes.some((c) => c.numeric?.from === '100'));
-  assert.ok(notices('en', r).some((n) => n.level === 'warn' && n.text === 'New version p. 2: graphics and images were not compared (the page is too large to render, or could not be rendered).'));
+  assert.ok(notices('en', r).some((n) => n.level === 'warn' && n.text === 'New version p. 2: graphics and images were not compared (the page is too large to render, could not be rendered, or was turned and could not be turned back).'));
 
   const r2 = compareDocs(model(doc2('100')), model(doc2('120')));
   await addVisualChanges(

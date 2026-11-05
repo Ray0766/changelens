@@ -1,13 +1,16 @@
 import type { Change, CompareResult, DocModel, Rect, Side } from './types.ts';
 import { sortAndNumber } from './compare.ts';
-import { union as unionRect } from './geometry.ts';
+import { expand, intersects, union as unionRect } from './geometry.ts';
 import {
   alignPages,
   compareRasters,
   dedupeGraphics,
   foundOnPair,
+  furnitureMark,
+  ruleAt,
   pageGraphics,
   pageSignature,
+  partlyCompared,
   planVisual,
   reappears,
   repeatedRows,
@@ -15,14 +18,20 @@ import {
   rowDiffers,
   rowFolds,
   listRow,
+  pageTurn,
   sameGraphic,
+  turnedUnmapped,
   tooLargeToCompare,
-  turnedWith,
   type Raster,
+  type RepeatedRow,
+  type RowCopy,
   type VisualPair,
 } from './visual.ts';
 
 export type RenderFn = (page: number) => Promise<Raster>;
+
+/** The header and footer differences found as text, per result (see addVisualChanges). */
+const furnitureText = new WeakMap<CompareResult, number>();
 
 /**
  * Add visual (graphic / colour) changes to a text comparison. Pages are
@@ -39,6 +48,10 @@ export async function addVisualChanges(
 ): Promise<Change[]> {
   const docs = { old: result.oldDoc, new: result.newDoc };
   const render = { old: renderOld, new: renderNew };
+  // Header and footer differences found as text, before this stage added
+  // the ones it finds in their look (an earlier run on this result).
+  const textFurniture = furnitureText.get(result) ?? result.ignored.furniture;
+  furnitureText.set(result, textFurniture);
   // Regions shown with repeated header rows by an earlier run on this result.
   rowFolds(result).splice(0);
   const skipped = { old: new Set<number>(), new: new Set<number>() };
@@ -98,23 +111,38 @@ export async function addVisualChanges(
   const cacheOld = new Map<number, Promise<Raster>>();
   const cacheNew = new Map<number, Promise<Raster>>();
   const found: Change[] = [];
-  const sizes = new Map<string, { pair: VisualPair; count: number; pairs: VisualPair[] }>();
+  // Page size and orientation changes by kind (see below); `turned`: the
+  // turn of every page of the kind (0 for none), -1 when they differ.
+  const sizes = new Map<string, { pair: VisualPair; count: number; turned: number }>();
   for (let k = 0; k < pairs.length; k++) {
     const pair = pairs[k];
     const { old: op, new: np } = pair;
     const a = docs.old.pages[op];
     const b = docs.new.pages[np];
-    if (pair.whole && (Math.abs(a.width - b.width) > 1 || Math.abs(a.height - b.height) > 1)) {
-      const key = `${Math.round(a.width)}x${Math.round(a.height)}:${Math.round(b.width)}x${Math.round(b.height)}`;
+    // A page turned to another orientation (/Rotate) is a page change too,
+    // also when its size stays (turned upside down).
+    const turn = pageTurn(result, op, np);
+    const resized = Math.abs(a.width - b.width) > 1 || Math.abs(a.height - b.height) > 1;
+    if (pair.whole && (resized || turn)) {
+      // One item per change of size; a page turned upside down (same size)
+      // is one of its own. Pages turned a quarter either way read alike
+      // ("Page size changed: W × H → H × W") and are one item.
+      const key = `${Math.round(a.width)}x${Math.round(a.height)}:${Math.round(b.width)}x${Math.round(b.height)}:${resized ? '' : (turn?.deg ?? 0)}`;
       const cur = sizes.get(key);
       if (cur) {
         cur.count++;
-        cur.pairs.push(pair);
-      } else sizes.set(key, { pair, count: 1, pairs: [pair] });
+        if (cur.turned !== (turn?.deg ?? 0)) cur.turned = -1;
+      } else sizes.set(key, { pair, count: 1, turned: turn?.deg ?? 0 });
     }
-    if (large('old', op) || large('new', np)) {
-      if (large('old', op)) skipped.old.add(op);
-      if (large('new', np)) skipped.new.add(np);
+    // Words that run another way on the new page, without a turn that maps
+    // one page onto the other (see turnedUnmapped): the graphics cannot be
+    // laid over each other, and the pages are named as not compared. Text
+    // added in another direction (a vertical label, a diagonal watermark)
+    // is compared as usual.
+    const unturned = !turn && turnedUnmapped(result, op, np);
+    if (large('old', op) || large('new', np) || unturned) {
+      if (large('old', op) || unturned) skipped.old.add(op);
+      if (large('new', np) || unturned) skipped.new.add(np);
     } else {
       if (!cacheOld.has(op)) cacheOld.set(op, renderOld(op));
       if (!cacheNew.has(np)) cacheNew.set(np, renderNew(np));
@@ -151,29 +179,87 @@ export async function addVisualChanges(
     }
     return r;
   };
+  // The row is compared with its copies together with what was found
+  // differing around it (its fill and the rules along it), so that a rule
+  // under one copy recoloured or taken off is seen as well.
+  const listed: { row: RepeatedRow; copy: RowCopy | null; rect: Rect | null; change: Change }[] = [];
   for (const row of repeatedRows(result)) {
     if (large(row.side, row.page)) continue;
-    let rect: Rect | null = null;
-    let same = false;
+    const around = rowFolds(result).filter((f) => f.change === row.change && f.side === row.side && f.page === row.page && intersects(f.rect, row.band));
+    const region = unionRect([row.rect, ...around.map((f) => f.rect)]);
+    // For each look (see rowDiffers), whether every copy that tells differs,
+    // and where the first one does. A copy alike in every look ends it.
+    const looks = { marks: { all: true, at: null as Rect | null, by: null as RowCopy | null, n: 0 }, fill: { all: true, at: null as Rect | null, by: null as RowCopy | null, n: 0 }, rules: { all: true, at: null as Rect | null, by: null as RowCopy | null, n: 0 } };
     let compared = false;
-    for (const copy of rowCopies(result, row)) {
+    const copies = rowCopies(result, row);
+    for (const copy of copies) {
       if (large(copy.side, copy.page)) continue;
       try {
         const [r, rc] = await Promise.all([page(row.side, row.page), page(copy.side, copy.page)]);
-        const d = rowDiffers(row, r, copy, rc);
+        const d = rowDiffers(result, row, r, copy, rc, region);
         compared = true;
-        if (!d) {
-          same = true;
-          break;
+        for (const k of ['marks', 'fill', 'rules'] as const) {
+          const v = d[k];
+          if (v === undefined) continue;
+          const l = looks[k];
+          l.n++;
+          if (!v) l.all = false;
+          else if (!l.at) [l.at, l.by] = [v, copy];
         }
-        rect ??= d;
+        // Fill and rules are told by copies at the same place only.
+        if (!looks.marks.all && ((!looks.fill.all && !looks.rules.all) || !copies.some((c) => Math.abs(c.dy) <= 2))) break;
       } catch {
         // Not rendered: the next copy is tried.
       }
     }
-    if (same) continue;
+    const differs = (['marks', 'fill', 'rules'] as const).map((k) => looks[k]).find((l) => l.n > 0 && l.all);
+    if (compared && !differs) continue;
+    const rect = differs?.at ?? null;
+    const first = differs?.by ?? null;
     const c = listRow(result, row, compared ? rect : null);
-    if (c) found.push(c);
+    if (c) listed.push({ row, copy: first, rect, change: c });
+  }
+  // A copy that differs from the other version's copy at the same place
+  // of the page, which differs back at the same spot, is one edit seen from
+  // both sides (a tick put on the new copy, which the old copy lacks): one
+  // change with both places.
+  const shownRows = new Set<Change>();
+  const into = new Set<Change>();
+  for (const x of listed) {
+    const k = x.copy;
+    if (into.has(x.change) || !k || !x.rect || k.side === x.row.side || Math.abs(k.dy) > 2) continue;
+    const y = listed.find(
+      (y) => y !== x && !into.has(y.change) && y.row.side === k.side && y.row.page === k.page && !!y.rect && intersects(expand(x.rect!, 4), { ...y.rect, x: y.rect.x - k.dx, y: y.rect.y - k.dy }),
+    );
+    if (!y) continue;
+    const s = y.row.side;
+    x.change[s].rects.push(...y.change[s].rects);
+    x.change[s].pages = [...new Set(x.change[s].rects.map((q) => q.page))].sort((a, b) => a - b);
+    into.add(y.change);
+  }
+  // A copy that differs from the other version's copy at the same place of
+  // the page, where that copy has a rule of its own (a rule under the row
+  // recoloured), but not back (the other copy looks like the rest of its
+  // own): the graphic changed; it was not added or removed. Its other place
+  // is the same spot of that copy. A rule drawn against what the other copy
+  // has there (a red rule under a blue header band) stays added.
+  for (const x of listed) {
+    const k = x.copy;
+    const o = x.row.side === 'old' ? 'new' : 'old';
+    if (into.has(x.change) || !k || !x.rect || k.side !== o || Math.abs(k.dy) > 2 || x.change[o].rects.length) continue;
+    const there = { ...x.rect, x: x.rect.x + k.dx, y: x.rect.y + k.dy };
+    try {
+      if (!ruleAt(docs[o], k.page, await page(o, k.page), there)) continue;
+    } catch {
+      continue;
+    }
+    x.change[o].rects.push({ page: k.page, rect: there });
+    x.change[o].pages = [k.page];
+  }
+  for (const x of listed) {
+    if (into.has(x.change)) continue;
+    found.push(x.change);
+    shownRows.add(x.change);
   }
   pages.old.clear();
   pages.new.clear();
@@ -183,8 +269,11 @@ export async function addVisualChanges(
   // paired with the same page, it moved; it was not added or removed.
   const pushed = new Set<Change>();
   const again = { old: new Map<number, Promise<Raster>>(), new: new Map<number, Promise<Raster>>() };
+  // A repeated header row that looks unlike every copy of it (see
+  // rowDiffers) was compared with those copies already: it is not taken
+  // for a figure that moved.
   for (const c of found) {
-    if (c.minor || c.kind !== 'graphic' || c.format || c.pageChange || !c.old.rects.length === !c.new.rects.length) continue;
+    if (c.minor || c.kind !== 'graphic' || c.format || c.pageChange || shownRows.has(c) || !c.old.rects.length === !c.new.rects.length) continue;
     const at = foundOnPair(c);
     if (!at) continue;
     const side = c.old.rects.length ? 'old' : 'new';
@@ -207,7 +296,7 @@ export async function addVisualChanges(
   // Removed from one page and added to a neighbouring one with the same
   // look (a figure that a new page size put on the next page): it moved.
   const oneSided = (c: Change, side: 'old' | 'new') =>
-    !pushed.has(c) && !c.minor && c.kind === 'graphic' && !c.format && !c.pageChange && c[side].rects.length > 0 && !c[side === 'old' ? 'new' : 'old'].rects.length;
+    !pushed.has(c) && !shownRows.has(c) && !c.minor && c.kind === 'graphic' && !c.format && !c.pageChange && c[side].rects.length > 0 && !c[side === 'old' ? 'new' : 'old'].rects.length;
   const removed = found.filter((c) => oneSided(c, 'old'));
   const added = found.filter((c) => oneSided(c, 'new'));
   for (const r of removed) {
@@ -234,45 +323,20 @@ export async function addVisualChanges(
   again.old.clear();
   again.new.clear();
   if (pushed.size) found.splice(0, found.length, ...found.filter((c) => !pushed.has(c)));
-  // A change of page size or orientation, once per kind of change.
-  for (const { pair, count, pairs: same } of sizes.values()) {
+  // A change of page size or orientation, once per kind of change. On a
+  // page turned by /Rotate, the graphics are compared turned back (see
+  // compareRasters), so what is found there is a change of its own.
+  for (const { pair, count, turned } of sizes.values()) {
     const c = wholePage('resized', result, pair.new, undefined, [pair.old, pair.new], false);
+    if (turned === 90 || turned === 180 || turned === 270) c.turned = turned;
     if (count > 1) c.places = count;
     pageChanges.push(c);
-    // A page turned to another orientation (/Rotate): its text runs another
-    // way now, and every graphic on it turned with it, so the pixels of the
-    // pair differ wherever there is ink. That is the turn the page change
-    // reports; a region found on the pair that is only the same graphic
-    // turned with the page (see turnedWith) is shown as part of it, and so
-    // are slight shifts. A graphic that does not look the same turned (a
-    // figure edited, a stamp added on the turned page) stays a change of its
-    // own. Where the turn cannot be told from the words of the two pages,
-    // every region goes with the page change. A page whose size changed but
-    // whose text still runs the same way (a new paper size, a page re-laid
-    // out in landscape) is compared as usual.
-    for (const p of same) {
-      if ((docs.old.pages[p.old].textAngle ?? 0) === (docs.new.pages[p.new].textAngle ?? 0)) continue;
-      const onPair = found.filter((f) => f.kind === 'graphic' && !f.format && !f.pageChange && foundOnPair(f)?.[0] === p.old && foundOnPair(f)?.[1] === p.new);
-      if (!onPair.length) continue;
-      let rasters: [Raster, Raster] | null = null;
-      try {
-        if (!large('old', p.old) && !large('new', p.new)) rasters = await Promise.all([render.old(p.old), render.new(p.new)]);
-      } catch {
-        rasters = null;
-      }
-      const sameTurned = (f: Change) =>
-        !rasters ||
-        (['old', 'new'] as const).every((side) => f[side].rects.every((r) => turnedWith(result, p.old, p.new, rasters![0], rasters![1], side, r.rect) !== false));
-      const turned = onPair.filter((f) => f.minor || sameTurned(f));
-      for (const f of turned) {
-        for (const side of ['old', 'new'] as const) {
-          c[side].rects.push(...f[side].rects);
-          c[side].pages = [...new Set([...c[side].pages, ...f[side].rects.map((r) => r.page)])].sort((x, y) => x - y);
-        }
-      }
-      if (turned.length) found.splice(0, found.length, ...found.filter((f) => !turned.includes(f)));
-    }
   }
+  // A line or a colour put on header or footer words: a difference in
+  // them, which is ignored with the others and counted (shown on request).
+  const marks = found.filter(furnitureMark);
+  if (marks.length) found.splice(0, found.length, ...found.filter((c) => !furnitureMark(c)));
+  result.ignored.furniture = textFurniture + marks.length;
   await graphicsOfUnpairedPages(result, pairs, render, large);
   const visual = [...dedupeGraphics(found.filter((c) => !c.minor)), ...pageChanges];
   const shifts = found.filter((c) => c.minor);
@@ -282,6 +346,9 @@ export async function addVisualChanges(
   for (const side of ['old', 'new'] as const) {
     if (skipped[side].size && result.coverage?.[side]) result.coverage[side].visualSkipped = [...skipped[side]].sort((x, y) => x - y);
   }
+  // Words next to an overlay compared only in part (see partlyCompared).
+  const partly = partlyCompared(result);
+  if (partly.length && result.coverage) result.coverage.new.partlyCompared = partly.map((u) => ({ page: u.page, count: u.words.length, words: u.words.slice(0, 3) }));
   result.changes.push(...visual);
   sortAndNumber(result.changes);
   return visual;
