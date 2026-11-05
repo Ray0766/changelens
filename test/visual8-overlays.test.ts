@@ -282,6 +282,30 @@ test('V3-V5: a strike on a figure in a row that was given a fill is listed, afte
   assert.deepEqual(list(c.changes).filter((d) => d !== 'Graphic or image changed'), [], show(c));
 });
 
+test('V3-V4: a highlight added inside a panel whose tint was added or changed is listed', { skip }, async () => {
+  // Chromium policy page: a “Key terms” panel gets a tint (#eef3fb), or its
+  // tint changes (#f3f3f3 → #fdf1e0), and “within 14 days” inside it is
+  // highlighted (#fff176). Before: the highlight was taken for a second
+  // colour of the tint, whose colour the background may have, and only
+  // the panel's graphic was listed.
+  for (const [a, b] of [
+    ['probe8-V3V4-before.pdf', 'probe8-V3V4-tint-hl.pdf'],
+    ['probe8-V3V4-recol-before.pdf', 'probe8-V3V4-recol-hl.pdf'],
+  ]) {
+    const r = await run(a, b);
+    assert.deepEqual(recoloured(r), ['within 14 days'], `${b}: ${show(r)}`);
+    assert.equal(graphics(r).length, 1, `${b}: ${show(r)}`);
+  }
+  // Controls: the tint only.
+  for (const [a, b] of [
+    ['probe8-V3V4-before.pdf', 'probe8-V3V4-tint.pdf'],
+    ['probe8-V3V4-recol-before.pdf', 'probe8-V3V4-recol.pdf'],
+  ]) {
+    const c = await run(a, b);
+    assert.deepEqual(recoloured(c), [], `${b}: ${show(c)}`);
+  }
+});
+
 test('Words under or next to an overlay that could be compared only in part are counted in a notice', { skip }, async () => {
   const partly = (r: CompareResult) => partlyCompared(r).flatMap((u) => u.words);
   const notice = (r: CompareResult) => notices('en', r).find((n) => n.text.includes('compared only in part'));

@@ -2220,13 +2220,18 @@ function appearanceChanges(
       weight = wa.n >= 6 && wb.n >= 6 && Math.abs(wa.total - wb.total) / Math.max(wa.total, wb.total, 1) > 0.3;
     }
     let colour = ia.n >= 6 && ib.n >= 6 && beyondOverlays([ib.chroma[0] - ia.chroma[0], ib.chroma[1] - ia.chroma[1], ib.chroma[2] - ia.chroma[2]], oa, ia.touched, ob, ib.touched) > 30;
-    // An overlay that lies around the word only (a highlight) is the word's
-    // background, which may be all that shows of it (a highlight on a
-    // running header, whose graphics are not listed, or within the text
-    // mask): compared as without an overlay.
-    if (!colour && [...oa, ...ob].some((c) => c.local)) {
+    // The word's background, compared as without an overlay, is the
+    // overlay's where it is the colour of one that reaches out to the edges
+    // of the word's surroundings on that side (a fill, a tint, a stamp,
+    // listed as a graphic of its own), or the paper. One that lies around
+    // the word only is not (a highlight, put on a running header, whose
+    // graphics are not listed, or inside a panel whose tint changed too).
+    if (!colour) {
       const [fa, fb] = [ink(A, ka), ink(B, kb)];
-      colour = Math.max(Math.abs(fa.bg[0] - fb.bg[0]), Math.abs(fa.bg[1] - fb.bg[1]), Math.abs(fa.bg[2] - fb.bg[2])) > 40;
+      const near = (u: number[], v: number[]) => Math.max(Math.abs(u[0] - v[0]), Math.abs(u[1] - v[1]), Math.abs(u[2] - v[2])) <= 40;
+      const owned = (bg: number[], other: number[], own: Cover[]) =>
+        bg.every((v) => v >= 240) || near(bg, other) || own.some((c) => c.wide.some((k) => near(k, bg)));
+      colour = !owned(fa.bg, fb.bg, oa) || !owned(fb.bg, fa.bg, ob);
     }
     if (colour || weight) hits.push({ a, b, colour, ink: ib, p });
     // Most of its glyphs lie in the overlay's states (its weight was not
@@ -2444,8 +2449,8 @@ interface Cover {
   behind: boolean;
   /** The glyphs' cores under the overlay (if any) are as in the other version: it lies behind them (a fill, a tint), not over them. */
   kept: boolean;
-  /** The overlay's ink lies around the word only (a highlight), not out to the edges of its surroundings (a fill, a tint, a stamp); never for a watermark's letters (`beyond` false). */
-  local: boolean;
+  /** Its colours whose ink reaches out to the edges of the word's surroundings (a fill, a tint, a stamp), not those around the word only or inside another of its colours (a highlight, also in a tinted panel); all of them for a watermark's letters (`beyond` false). */
+  wide: number[][];
   /** Much of what differs next to the word is neither this overlay's ink nor the other side's (`by`, the same word's cover there). */
   unexplained: (by: Cover) => boolean;
 }
@@ -2805,18 +2810,28 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
       boxed++;
       if (state[(py - y0) * w + px - x0] === INK) inked++;
     }
-  // The ink stays clear of the edges of the word's surroundings.
+  // Which of its colours reach the edges of the word's surroundings (a
+  // fill, a tint, a stamp), and do not lie inside another of them, which
+  // goes on above and below them (a highlight in a tinted panel).
   let rim = 0;
-  let rimInk = 0;
+  const rimInk = inks.map(() => 0);
+  const top = inks.map(() => h);
+  const bottom = inks.map(() => -1);
   for (let k = 0; k < n; k++) {
+    if (state[k] !== INK) continue;
     const i = k % w;
     const j = (k / w) | 0;
-    if (i !== 0 && j !== 0 && i !== w - 1 && j !== h - 1) continue;
-    rim++;
-    if (state[k] === INK) rimInk++;
+    const p = ((y0 + j) * W + x0 + i) * 4;
+    const c = inks.findIndex((c) => Math.abs(dx[p] - c.colour[0]) <= c.tol && Math.abs(dx[p + 1] - c.colour[1]) <= c.tol && Math.abs(dx[p + 2] - c.colour[2]) <= c.tol);
+    if (c < 0) continue;
+    top[c] = Math.min(top[c], j);
+    bottom[c] = Math.max(bottom[c], j);
+    if (i === 0 || j === 0 || i === w - 1 || j === h - 1) rimInk[c]++;
   }
+  for (let k = 0; k < n; k++) if (k % w === 0 || k < w || k % w === w - 1 || k >= n - w) rim++;
+  const inside = (c: number) => inks.some((_, o) => o !== c && top[o] < top[c] && bottom[o] > bottom[c]);
   return {
-    local: beyond && rimInk <= 0.02 * rim,
+    wide: inks.filter((_, c) => !beyond || (rimInk[c] > 0.02 * rim && !inside(c))).map((c) => c.colour),
     behind: boxed > 0 && inked >= 0.5 * boxed,
     kept: kept >= 0.8 * cores,
     at,
