@@ -2720,7 +2720,21 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
   // The overlay's ink accounts for what differs around the word: the
   // pixels next to it (outside its box, where the overlay lies) that differ
   // from the other side are nearly all that ink or under it. A tint laid
-  // over a whole table row is not told from the row this way.
+  // over a whole table row is not told from the row this way. A pixel that
+  // lies between the other side's pixels a row above and below it does
+  // not differ: a rule both versions have, drawn a fraction of a pixel
+  // higher in one after a re-flow.
+  const row = Y.r.width * 4;
+  const between = (p: number, q: number) => {
+    if (q < row || q + row >= dy.length) return false;
+    for (let c = 0; c < 3; c++) {
+      const u = dy[q - row + c];
+      const v = dy[q + c];
+      const z = dy[q + row + c];
+      if (dx[p + c] < Math.min(u, v, z) - THRESH || dx[p + c] > Math.max(u, v, z) + THRESH) return false;
+    }
+    return true;
+  };
   let differ = 0;
   let explained = 0;
   const rest: number[] = [];
@@ -2732,6 +2746,7 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
     const p = ((y0 + ((k / w) | 0)) * W + x0 + (k % w)) * 4;
     const q = other[k] * 4;
     if (q >= 0 && Math.max(Math.abs(dx[p] - dy[q]), Math.abs(dx[p + 1] - dy[q + 1]), Math.abs(dx[p + 2] - dy[q + 2])) <= THRESH) continue;
+    if (!state[k] && q >= 0 && between(p, q)) continue;
     differ++;
     if (state[k]) explained++;
     else rest.push(k);

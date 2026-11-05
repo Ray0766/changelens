@@ -155,6 +155,14 @@ test('R4-11: strikes and colours under and beside an added stamp are listed afte
   // under the stamp's letters turned blue.
   const v = await run('probe8-R4-11-v-before.pdf', 'probe8-R4-11-v-r140-stamp-edits.pdf');
   assert.ok(recoloured(v).includes('1,330.00'), show(v));
+  // 15.67 pt lower, where the stamp's frame crosses 1,330.00: the table
+  // rules next to it, drawn a fraction of a pixel lower after the re-flow,
+  // differed from the other version and were held against the stamp's
+  // ink, and the figure was skipped. Control: the stamp alone.
+  const w = await run('probe8-R4-11-v-before.pdf', 'probe8-R4-11-v-r1567-stamp-edits.pdf');
+  assert.deepEqual(recoloured(w), ['640.00', '1,330.00', '380.00'], show(w));
+  const c = await run('probe8-R4-11-v-before.pdf', 'probe8-R4-11-v-r1567-stamp.pdf');
+  assert.deepEqual(recoloured(c), [], show(c));
 });
 
 test('R4-13: a watermark that moved, turned or was recoloured recolours no word under it, and strikes there are listed', { skip }, async () => {
