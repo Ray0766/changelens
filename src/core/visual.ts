@@ -4515,12 +4515,16 @@ function compareAligned(
     if (!spots.length) return false;
     const here = fillOf(S, r, (k) => k !== GLYPH && k !== PAD);
     if (!here) return false;
-    const m = spots.find((m) => {
-      // Around the words, the fill is the most common colour; their
-      // anti-aliased edges reach into it.
-      const there = fillOf(O, expand(m, 3), (k) => k !== GLYPH, 0.5);
-      return !!there && there.every((v, k) => Math.abs(v - here[k]) <= THRESH);
-    });
+    const alike = (there: number[] | null) => !!there && there.every((v, k) => Math.abs(v - here[k]) <= THRESH);
+    const m = spots.find(
+      (m) =>
+        // Around the words, the fill is the most common colour; their
+        // anti-aliased edges reach into it. In a filled form field whose
+        // border runs close above and below the value, the border and the
+        // paper outside it can outnumber the fill there: then the padding
+        // right around the glyphs (where no rule runs) must show the fill.
+        alike(fillOf(O, expand(m, 3), (k) => k !== GLYPH, 0.5)) || alike(fillOf(O, expand(m, 3), (k) => k === PAD, 0.5)),
+    );
     if (!m) return false;
     // Words of this page's own in the region (a badge's "URGENT" deleted
     // there): the fill must be what lies behind them too.
