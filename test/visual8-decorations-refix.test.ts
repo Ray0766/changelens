@@ -53,3 +53,16 @@ test('V2-decorations-V1: an underline next to a stroke new at one end only is no
   // A box drawn around words (both sides and a top edge) stays a graphic:
   // see R4-17 in visual8-decorations.test.ts.
 });
+
+test('V2-decorations-V2: a strike drawn with a slight slope (a line tool) is listed where no graphic or overlay explains the slant', { skip }, async () => {
+  const struck = (...words: string[]) => words.map((w) => `Struck through: “${w}”`);
+  // A 0.7 pt line rising 2.5 pt over "writing". Before: "No differences
+  // found." (the levelness test meant for a stamp's border rejected it).
+  const r = await run('probe8-V2V2-before.pdf', 'probe8-V2V2-slope.pdf');
+  assert.deepEqual(list(r.changes), struck('writing'));
+  // Eight marks rising 0–2.5 pt: before, twenty-four and writing were missing.
+  const m = await run('probe8-V2V2-before.pdf', 'probe8-V2V2-marks.pdf');
+  assert.deepEqual(list(m.changes), [...struck('thirty', 'nominated', 'statutory', 'twenty-four', 'writing'), ...underlined('laws'), ...struck('ninety'), ...underlined('seven')]);
+  // Where a stamp drawn across the text is listed as a graphic, its slanted
+  // border is still no line: see R7-V01 in visual8-decorations.test.ts.
+});

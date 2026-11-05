@@ -1388,8 +1388,11 @@ type FoundLine = { line: 'strike' | 'underline'; rows: [number, number] };
  * for a word next to a line found at the same height (see
  * appearanceChanges). `exact`: a word at the same place relative to the
  * pixel grid in both rasters was drawn there in both (see samePixels).
+ * `level`: a graphic changed next to the word, or an overlay lies on it
+ * (each listed or counted on its own), so a line must also be level (see
+ * level).
  */
-type LineOptions = { drift?: boolean; rows?: [number, number]; weak?: boolean; cjk?: boolean; exact?: boolean };
+type LineOptions = { drift?: boolean; rows?: [number, number]; weak?: boolean; cjk?: boolean; exact?: boolean; level?: boolean };
 
 /**
  * A line through or under the token in `b` that `a` does not have: rows
@@ -1699,8 +1702,12 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
     const rel = (B.top + (k + e + 1) / 2 / b.r.scale - rb.y) / rb.h;
     if (rel < 0.3) return null;
     // Over all of the box, an overlay's ink too: a stamp's slanted border is
-    // no line where it is left out either.
-    if (!level(A, B, C, n, k, e)) return null;
+    // no line where it is left out either. Only where such a graphic or
+    // overlay is there to explain the slant (see LineOptions.level): a
+    // strike drawn with a line tool can rise by a point or two over a word,
+    // and where nothing else is listed there, it is the only item that
+    // shows the mark.
+    if (opts.level && !level(A, B, C, n, k, e)) return null;
     return { line: rel >= 0.72 ? 'underline' : 'strike', rows: [Math.round(B.ys[k]), Math.round(B.ys[e])] };
   }
   return part ? 'part' : null;
@@ -1873,7 +1880,10 @@ function extent(A: Box, B: Box, C: number, n: number, k: number, e: number, vali
  * synthetic bold), background (highlighted) or a line through or under it.
  * `exact`: a word at the same place relative to the pixel grid in both
  * rasters was drawn there in both (not so on a new page turned back, see
- * unturnRaster: it was drawn on the turned page's grid).
+ * unturnRaster: it was drawn on the turned page's grid). `graphicAt`: a
+ * region where the graphics comparison found differences takes in the word
+ * (a stamp drawn across the text, whose border crosses it within the text's
+ * mask).
  */
 function appearanceChanges(
   result: CompareResult,
@@ -1886,6 +1896,7 @@ function appearanceChanges(
   under: (a: Token, b: Token) => boolean = () => false,
   cover: (a: Token, b: Token) => [Cover | null, Cover | null] | 'skip' = () => [null, null],
   exact = true,
+  graphicAt: (a: Token, b: Token) => boolean = () => false,
 ): Change[] {
   const TA = result.oldDoc.tokens;
   const TB = result.newDoc.tokens;
@@ -2134,7 +2145,11 @@ function appearanceChanges(
       }
       return v;
     };
-    const opts = { drift: b.kind !== 'cjk', cjk: b.kind === 'cjk', rows: own(a, b), exact };
+    // A graphic that changed next to (or behind) the word or around it, or
+    // an overlay on it: its strokes may cross the word at a slant (see
+    // level).
+    const g = near(a, b);
+    const opts = { drift: b.kind !== 'cjk', cjk: b.kind === 'cjk', rows: own(a, b), exact, level: !!(ca || cb || g) || graphicAt(a, b) };
     const lines = (ga: Cover | null, gb: Cover | null) => {
       const added = framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, ga, gb, opts), B, pageLines.new, b, seen), B, A, b, a);
       const removed = added ? null : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, gb, ga, opts), A, pageLines.old, a, seen), A, B, a, b);
@@ -2147,7 +2162,6 @@ function appearanceChanges(
     // again where none was found: a stamp drawn across the word changes the
     // rows that must stay as they were, and a slanted border of its own is
     // no line.
-    const g = near(a, b);
     const again = !line && g && g !== 'skip' && (g[0] || g[1]) && !(ca && g[0]) && !(cb && g[1]);
     if (again) line = lines(ca ?? g[0], cb ?? g[1]);
     const [wa, wb] = again ? [ca ?? g[0], cb ?? g[1]] : [ca, cb];
@@ -3130,7 +3144,10 @@ function compareAligned(
       const cb = ob ? overlayInk(B, b.rects[0], A, a.rects[0], coverNew) : null;
       return ca?.partial || cb?.partial ? 'skip' : [ca, cb];
     };
-    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, !options.turned));
+    // The regions where the graphics comparison found differences, about a
+    // word (see appearanceChanges).
+    const graphicAt = (a: Token, b: Token) => oldRects.some((r) => intersects(r, a.rects[0])) || newRects.some((r) => intersects(r, b.rects[0]));
+    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, !options.turned, graphicAt));
     // Running headers and footers left out of the text comparison: a line
     // through, under or a colour put on their words (a header's
     // "Confidential" struck through) is a difference in them, counted with
@@ -3138,7 +3155,7 @@ function compareAligned(
     if (result.options.ignoreFurniture && result.oldToNew[oldPage] === newPage) {
       const pairs = furniturePairs(result, oldPage, newPage);
       if (pairs.length)
-        for (const c of appearanceChanges({ ...result, matches: Int32Array.from(pairs) }, oldPage, newPage, A, B, () => false, near, () => false, cover, !options.turned)) {
+        for (const c of appearanceChanges({ ...result, matches: Int32Array.from(pairs) }, oldPage, newPage, A, B, () => false, near, () => false, cover, !options.turned, graphicAt)) {
           furnitureMarked.add(c);
           furniture.push(c);
         }
