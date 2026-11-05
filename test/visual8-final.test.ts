@@ -131,3 +131,43 @@ test('F7: values of a form flattened with its widgets kept, drawn twice, are not
   }
 });
 
+const lines = (r: CompareResult) => list(r.changes).filter((d) => /^(Struck through|Strikethrough removed|Underlined|Underline removed)/.test(d));
+
+test('F4: lines looked for again next to a graphic that changed are not found in a shared band, a re-sampled bar or too few columns', { skip }, async () => {
+  // SYNTHETIC (review 7 structure probes): a Chromium price list whose
+  // navy header band widened by 6 pt when a row was added (white
+  // "Description" on it re-sampled); a Calc sheet with a row added above
+  // a zebra-striped table (a "4" moved off its stripe); a Chromium
+  // maintenance table split across pages, its p. 4 alone (a row rule under
+  // "bearings" in the old version only, the new version's rule elsewhere).
+  // The second line test, with the changed graphic's ink left out, listed
+  // "Struck through: “Description”", "Struck through: “4”" and "Underline
+  // removed: “bearings”".
+  for (const [a, b] of [
+    ['probe8-F4-zebra-before.pdf', 'probe8-F4-zebra-ins-row.pdf'],
+    ['probe8-F4-calc-before.pdf', 'probe8-F4-calc-ins.pdf'],
+    ['probe8-F4-split-before.pdf', 'probe8-F4-split-after.pdf'],
+  ]) {
+    const r = await run(a, b);
+    assert.deepEqual(lines(r), [], `${b}: ${list(r.changes).join(' | ')}`);
+  }
+  // Controls (reportlab overlays): "Description" struck through in black,
+  // the "4" struck through, "bearings" underlined in the old version.
+  const z = await run('probe8-F4-zebra-before.pdf', 'probe8-F4-zebra-ins-row-strike.pdf');
+  assert.deepEqual(lines(z), ['Struck through: “Description”'], list(z.changes).join(' | '));
+  const c = await run('probe8-F4-calc-before.pdf', 'probe8-F4-calc-ins-strike4.pdf');
+  assert.deepEqual(lines(c), ['Struck through: “4”'], list(c.changes).join(' | '));
+  const s = await run('probe8-F4-split-before-ul.pdf', 'probe8-F4-split-after.pdf');
+  assert.deepEqual(lines(s), ['Underline removed: “bearings”'], list(s.changes).join(' | '));
+});
+
+test('F4: an opaque watermark letter over a header word accounts for the background it hides', { skip }, async () => {
+  // SYNTHETIC (review 8 N4 counter-probe, pypdf): an opaque light grey
+  // DRAFT added across the navy header of a Chromium stock sheet; one
+  // letter covers "Bin". Before: "Text colour or weight changed" for
+  // "Bin" next to "Added “DRAFT”": the old navy background had no overlay
+  // of its own to account for it.
+  const r = await run('probe8-R5-V02-before.pdf', 'probe8-F4-wmo.pdf');
+  assert.ok(!r.changes.some((c) => c.format?.appearanceChanged), list(r.changes).join(' | '));
+  assert.ok(list(r.changes).includes('Added “DRAFT”'), list(r.changes).join(' | '));
+});

@@ -1825,7 +1825,8 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
   };
   const line = (k: number) => {
     const added = win(pb, k, 1) - win(pa, k, 1);
-    if (share(B, k, 1) < 0.85) return false;
+    // (Not where too few columns can be compared: NaN.)
+    if (!(share(B, k, 1) >= 0.85)) return false;
     if (added < (opts.weak ? 0.25 : 0.45)) return !opts.weak && still && added >= 0.2 && filled(k);
     const g = gained(k);
     // A short word whose glyph fills the line's rows (an "a" between struck
@@ -1909,7 +1910,13 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       const tell = opts.cjk ? ext : extent(A, B, C, n, k, e, valid, true);
       if (tell !== null && tell < 0.5) return null;
       if (ext !== null && ext >= 0.75) narrow = false;
-      if (tell === null && opts.cjk) {
+      // So must a figure or a short word whose stroke fills the line's rows
+      // (the bar of a "4") where an overlay is passed: measured against a
+      // fill behind it in one version (a stripe a re-flow moved away), the
+      // rest of its box matches as closely as on paper, and its bar drawn
+      // over two rows in one version and one in the other passes for a
+      // line.
+      if (tell === null && (opts.cjk || valid)) {
         let gain = 0;
         let m = 0;
         for (let c = 0; c < C; c++) {
@@ -2770,7 +2777,18 @@ function appearanceChanges(
     // again where none was found: a stamp drawn across the word changes the
     // rows that must stay as they were, and a slanted border of its own is
     // no line.
-    const again = !turned && !line && g && g !== 'skip' && (g[0] || g[1]) && !(ca && g[0]) && !(cb && g[1]);
+    // Not where that graphic's colours are the background both versions
+    // show around the word (a header band that changed only at its ends,
+    // the word's white glyphs on it re-sampled after a re-flow): it did not
+    // change at the word.
+    const sharedBg = (c: Cover | null) => {
+      if (!c) return true;
+      const [pa, pb] = pitch(a, b);
+      const [ba, bb] = [ink(A, pa).bg, ink(B, pb).bg];
+      const at = (u: number[], v: number[]) => Math.max(Math.abs(u[0] - v[0]), Math.abs(u[1] - v[1]), Math.abs(u[2] - v[2])) <= 16;
+      return c.colours.every((k) => at(k, ba) && at(k, bb));
+    };
+    const again = !turned && !line && g && g !== 'skip' && (g[0] || g[1]) && !(ca && g[0]) && !(cb && g[1]) && !(sharedBg(g[0]) && sharedBg(g[1]));
     // Behind the word (a fill, a tint), the overlay leaves the glyphs where
     // they were: the word's box is not tried shifted (see addedLine) again.
     if (again) line = lines(ca ?? g[0], cb ?? g[1], g[0]?.behind || g[1]?.behind ? { ...opts, drift: false } : opts);
@@ -2881,13 +2899,19 @@ function appearanceChanges(
       const [fa, fb] = [ink(A, ka), ink(B, kb)];
       const gap = (u: number[], v: number[]) => Math.max(Math.abs(u[0] - v[0]), Math.abs(u[1] - v[1]), Math.abs(u[2] - v[2]));
       const px = (u: number[]) => Uint8Array.from(u, (v) => Math.round(v));
-      const owned = (bg: number[], other: number[], own: Cover[]) => {
-        if (bg.every((v) => v >= 240) || gap(bg, other) <= 40) return true;
+      const ownedBy = (bg: number[], other: number[], own: Cover[]) => {
         const wide = own.flatMap((c) => c.wide);
         const rest = own.flatMap((c) => c.colours).filter((x) => !wide.some((k) => gap(k.colour, x) === 0));
         return wide.some((k) => laidOver(px(bg), 0, px(other), 0, k.colour, Math.max(k.tol, 8)) && rest.every((x) => gap(x, bg) >= gap(k.colour, bg)));
       };
-      colour = !owned(fa.bg, fb.bg, oa) || !owned(fb.bg, fa.bg, ob);
+      const owned = (bg: number[], other: number[], own: Cover[]) => bg.every((v) => v >= 240) || gap(bg, other) <= 40 || ownedBy(bg, other, own);
+      // An opaque overlay over the glyphs on one side, laid over what the
+      // other side has there, accounts for both backgrounds (a watermark's
+      // letter drawn over a header band both versions shade): that side's
+      // is the overlay's, the other's what it hides. (Not one behind the
+      // glyphs, a tint: it hides no other background.)
+      const front = (own: Cover[]) => own.filter((c) => !c.clear);
+      colour = !(ownedBy(fb.bg, fa.bg, front(ob)) || ownedBy(fa.bg, fb.bg, front(oa)) || (owned(fa.bg, fb.bg, oa) && owned(fb.bg, fa.bg, ob)));
     }
     const bold = heavy && !colour;
     if (colour || weight || bold) hits.push({ a, b, colour, ink: ib, p, bold });
