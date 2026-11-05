@@ -447,6 +447,9 @@ function apply(m: number[], x: number, y: number): [number, number] {
 /** A widget turned by /MK /R draws its appearance in the box turned by that angle (as PDF.js does). */
 const TURNS = new Set([0, 90, 180, 270]);
 
+/** The height of the widget box of a one-line field's run, in viewport space (see placeFieldRuns). */
+const widgetBand = new WeakMap<TextRun, { y: number; h: number }>();
+
 /**
  * Lay out a field's text lines in its widget box, as runs in viewport space.
  * The layout is made in the frame of the widget's appearance: the box as
@@ -552,6 +555,9 @@ function layoutField(a: WidgetData, lines: string[], r: number[], vt: number[], 
     // Without an appearance, centred on the font's glyph box, as PDF.js does.
     const baseline = tpy ?? (boxH - (ascent - descent) * fs) / 2 - descent * fs;
     at(str, x, baseline, w, true);
+    const [, y0] = apply(vt, r[0], r[1]);
+    const [, y1] = apply(vt, r[2], r[3]);
+    widgetBand.set(runs[0], { y: Math.min(y0, y1), h: Math.abs(y1 - y0) });
     return runs;
   }
   const n = visual.length;
@@ -679,9 +685,13 @@ export function placeFieldRuns(content: TextRun[], fields: TextRun[][]): TextRun
     // end): the same-line run that starts closest to the left of the value.
     let under = -1;
     let bestLeft = -Infinity;
+    // A one-line value in a box taller than its line (centred in it, as the
+    // viewer draws it): a label set level with the box is on its line too.
+    const band = f.angle === 0 && group.length === 1 ? widgetBand.get(group[0]) : undefined;
+    const level = (c: TextRun) =>
+      Math.abs(c.baseline - f.baseline) < 0.5 * Math.max(size, c.fontSize) || (!!band && c.y + c.h / 2 >= band.y && c.y + c.h / 2 <= band.y + band.h);
     up.forEach((c, k) => {
-      if (!along(c)) return;
-      if (Math.abs(c.baseline - f.baseline) >= 0.5 * Math.max(size, c.fontSize)) return;
+      if (!along(c) || !level(c)) return;
       const right = c.x + c.w;
       if (right <= f.x + 0.5 * size && right > bestRight) {
         bestRight = right;

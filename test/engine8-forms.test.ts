@@ -254,3 +254,26 @@ test('R3-06 control: a field set in a fixed size that changes is listed', () => 
   };
   assert.deepEqual(listed(compareDocs(doc(10), doc(12))), ['“1,250.00” size 10 → 12 pt']);
 });
+
+test('T3-forms-N4: a one-line value in a box taller than its line stays on the line of the label level with the box', async () => {
+  // Shipping label request: "Contents" in a 30 pt box, 10 → 14 pt (fixed
+  // size), the viewer centring the value in the box. At 10 pt its baseline
+  // is 5.5 pt below the label's; it still follows the label.
+  const r = await run('N4-before', 'N4-after');
+  assert.deepEqual(listed(r), ['Added “Industrial Estate, Maryhill Road” (form field)', '“Glassware, boxed” size 10 → 14 pt']);
+  // The same from runs: a box from y 172 to 202, the label's baseline at
+  // 185, the value's at 190.5. The value follows "Contents" on its line,
+  // not the row above it.
+  const VT = [1, 0, 0, -1, 0, 841.89];
+  const run1 = (str: string, baseline: number): TextRun => ({ str, x: 56, y: baseline - 9.1, w: 50, h: 11.2, baseline, fontSize: 10, font: 'Helvetica', family: 'sans-serif', eol: true, angle: 0 });
+  const above = run1('Reference', 149);
+  const label = run1('Contents', 185);
+  const w: WidgetData = { subtype: 'Widget', fieldType: 'Tx', rect: [235, 841.89 - 202, 495, 841.89 - 172], fieldValue: 'Glassware, boxed', defaultAppearanceData: { fontSize: 10, fontName: 'Helv' } };
+  const placed = placeFieldRuns([above, label], fieldRuns([w], VT, [above, label]).runs);
+  assert.deepEqual(placed.map((x) => [x.str, x.eol]), [['Reference', true], ['Contents', false], ['Glassware, boxed', true]]);
+  // Control: a label above the box (not level with it) keeps its own line;
+  // the value comes after it, as the nearest line above.
+  const high = run1('Contents', 160);
+  const alone = placeFieldRuns([above, high], fieldRuns([w], VT, [above, high]).runs);
+  assert.deepEqual(alone.map((x) => [x.str, x.eol]), [['Reference', true], ['Contents', true], ['Glassware, boxed', true]]);
+});
