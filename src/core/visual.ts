@@ -1548,11 +1548,20 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       [cb, B],
     ] as const) {
       if (!cov) continue;
+      // Behind the glyphs (a fill, a tint), the overlay's anti-aliased edge
+      // is that of the glyphs, and of a line drawn over it: compared, with
+      // its darkness taken against the fill's lightness `lf` (a pixel of
+      // the fill is as light as paper).
+      const fill = cov.behind && cov.clear;
+      const [r0, g0, b0] = cov.colours[0];
+      const lf = (0.299 * r0 + 0.587 * g0 + 0.114 * b0) / 255;
       for (let k = 0; k < n; k++) {
         const y = Math.round(X.ys[k]);
         for (let c = 0; c < C; c++) {
           const st = cov.at(X.x0 + c, y);
-          if (st === INK && cov.clear) X.d[k * X.cols + c] = 0;
+          const q = k * X.cols + c;
+          if (st === INK && cov.clear) X.d[q] = 0;
+          else if (fill && st !== 0) X.d[q] = Math.max(0, 1 - (1 - X.d[q]) / lf);
           else if (st !== 0 && !(st === UNDER && cov.clear)) valid[k * C + c] = 0;
         }
       }

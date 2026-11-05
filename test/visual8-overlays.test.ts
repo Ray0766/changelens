@@ -257,3 +257,18 @@ test('V3-V3: a word made bold or grey in a row that was given a fill is listed',
   assert.deepEqual(recoloured(gf), [], show(gf));
 });
 
+test('V3-V5: a strike on a figure in a row that was given a fill is listed, after a re-flow too', { skip }, async () => {
+  // Chromium order: two rows filled (#fff2cc, #dbe9f7); 1,290.00 struck,
+  // 640.00 underlined, 95.00 red. Before: the strike was not listed (its
+  // 1 px line lay all on the fill's anti-aliased edge, which the line test
+  // left out).
+  for (const file of ['probe8-V3V5-fill-strike-n0.pdf', 'probe8-V3V5-fill-strike-n50.pdf']) {
+    const r = await run('probe8-V3V5-before.pdf', file);
+    const items = list(r.changes);
+    for (const w of ['Struck through: “1,290.00”', 'Underlined: “640.00”']) assert.ok(items.includes(w), `${file} ${w}: ${show(r)}`);
+    assert.ok(recoloured(r).includes('95.00'), `${file}: ${show(r)}`);
+  }
+  // Control: the fills only.
+  const c = await run('probe8-V3V5-before.pdf', 'probe8-V3V5-fill-n0.pdf');
+  assert.deepEqual(list(c.changes).filter((d) => d !== 'Graphic or image changed'), [], show(c));
+});
