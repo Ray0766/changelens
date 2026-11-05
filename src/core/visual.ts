@@ -2942,12 +2942,14 @@ function turnOf(result: CompareResult, oldPage: number, newPage: number): Turn |
  * in the new version. The turn maps the old page onto the new one, by a
  * quarter, a half or three quarters clockwise. It is the difference of the
  * directions the words matched on the pair run in (see turnedBy), with the
- * page size turned with it (a quarter turn swaps width and height, a half
- * turn keeps them), which holds even for a chart page with a one-word
- * caption. Where three or more
+ * page size turned with it (a quarter turn swaps width and height), which
+ * holds even for a chart page with a one-word caption. Where three or more
  * words are matched on the pair and that turn does not put them within 3 pt
- * of where they are, the turn fitted to them is taken (see turnOf). Null when
- * the text runs the same way, or neither gives a turn.
+ * of where they are, the turn fitted to them is taken (see turnOf). A half
+ * turn keeps the page size, so that says nothing: the turn must also put
+ * most of the matched words where they are (an axis label flipped to read
+ * the other way, beside a caption that did not turn, is no page turned).
+ * Null when the text runs the same way, or neither gives a turn.
  */
 export interface Turn {
   /** Degrees clockwise. */
@@ -2976,8 +2978,32 @@ export function pageTurn(result: CompareResult, oldPage: number, newPage: number
     inv: (x, y) => [p * (x - tx) + r * (y - ty), q * (x - tx) + s * (y - ty)],
   };
   const fit = turnOf(result, oldPage, newPage);
+  if (deg === 180) {
+    if (sized && mostAt(result, oldPage, newPage, exact)) return exact;
+    return fit?.deg === deg ? fit : null;
+  }
   if (sized && (!fit || fit.deg === deg)) return exact;
   return fit;
+}
+
+/** More than half of the words matched on the pair lie within 3 pt of where the turn puts them. */
+function mostAt(result: CompareResult, oldPage: number, newPage: number, turn: Turn): boolean {
+  const A = result.oldDoc.tokens;
+  const B = result.newDoc.tokens;
+  const m = result.matches;
+  let n = 0;
+  let near = 0;
+  for (let p = 0; p < m.length; p += 2) {
+    const a = A[m[p]];
+    const b = B[m[p + 1]];
+    if (a.page !== oldPage || b.page !== newPage) continue;
+    const u = a.rects[0];
+    const v = b.rects[0];
+    const [x, y] = turn.fwd(u.x + u.w / 2, u.y + u.h / 2);
+    n++;
+    if (Math.hypot(x - v.x - v.w / 2, y - v.y - v.h / 2) <= 3) near++;
+  }
+  return n > 0 && near > n / 2;
 }
 
 /**
@@ -2986,8 +3012,13 @@ export function pageTurn(result: CompareResult, oldPage: number, newPage: number
  * (by characters). A label set vertically in the margin, or a diagonal
  * watermark, added to a chart page whose only words are "Figure 2", changes
  * the direction most of the page's characters run in, but not that of the
- * words both versions have. Without matched words on the pair, the
- * directions of the two pages' text (DocModel textAngle).
+ * words both versions have. A page turns all its text: unless its width and
+ * height swapped with a quarter turn, nearly all the matched characters
+ * (nine in ten) must have turned so, else the pair did not turn (an axis
+ * label set upright in one version and along the axis in the other, longer
+ * than the caption beside it, is a label that turned). Without matched
+ * words on the pair, the directions of the two pages' text (DocModel
+ * textAngle).
  */
 function turnedBy(result: CompareResult, oldPage: number, newPage: number): number {
   const of = (deg: number) => ((deg % 360) + 360) % 360;
@@ -3007,8 +3038,15 @@ function turnedBy(result: CompareResult, oldPage: number, newPage: number): numb
   }
   if (!count.size) return of((pages.b.textAngle ?? 0) - (pages.a.textAngle ?? 0));
   let best = 0;
-  for (const [d, n] of count) if (n > (count.get(best) ?? 0)) best = d;
-  return best;
+  let all = 0;
+  for (const [d, n] of count) {
+    all += n;
+    if (n > (count.get(best) ?? 0)) best = d;
+  }
+  const near = (u: number, v: number) => Math.abs(u - v) <= 1.5;
+  const swapped = near(pages.a.width, pages.b.height) && near(pages.a.height, pages.b.width) && !near(pages.a.width, pages.a.height);
+  if ((best === 90 || best === 270) && swapped) return best;
+  return (count.get(best) ?? 0) >= 0.9 * all ? best : 0;
 }
 
 /** The direction of the run a word lies in: of the runs whose box holds its centre (and that `of` accepts), the smallest. */

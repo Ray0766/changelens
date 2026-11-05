@@ -58,6 +58,26 @@ test('V1-L1: a word underlined on a shaded header row is listed when another edi
   assert.ok(graphics(band).some((c) => hits(c, 'new', 3, 200, 88)), list(band.changes).join(' | '));
 });
 
+test('V1-L2: an axis label that changes direction does not turn its chart page', { skip }, async () => {
+  // Chromium chart page: "Figure 2" and a 28-character axis label set
+  // horizontally (h) or vertically one way or the other (v, v270); bar 5
+  // grows from 180 to 240. No /Rotate, same page size. Before: "Page turned
+  // by 270°" or "Page turned by 180°", and the bar edit not shown.
+  for (const [a, b] of [
+    ['probe8-V1-L2-h-before.pdf', 'probe8-V1-L2-v-bar.pdf'],
+    ['probe8-V1-L2-v-before.pdf', 'probe8-V1-L2-v270-bar.pdf'],
+  ]) {
+    const r = await run(a, b);
+    assert.deepEqual(list(r.changes), ['Graphic or image changed'], `${b}: ${list(r.changes).join(' | ')}`);
+    assert.ok(hits(graphics(r)[0], 'old', 2, 270, 120) && hits(graphics(r)[0], 'new', 2, 270, 120), JSON.stringify(graphics(r)[0]));
+  }
+  // Control: the page turned by /Rotate 90 with the bar edit is still a
+  // page change, and the bar is placed where the turn puts it.
+  const rot = await run('probe8-V1-L2-v-before.pdf', 'probe8-V1-L2-v-bar-rot90.pdf');
+  assert.deepEqual(list(rot.changes), ['Page size changed: 595 × 842 pt → 842 × 595 pt', 'Graphic or image changed']);
+  assert.ok(hits(graphics(rot)[0], 'old', 2, 270, 120) && hits(graphics(rot)[0], 'new', 2, 717, 270), JSON.stringify(graphics(rot)[0]));
+});
+
 test('V1-L3: an underline drawn on past its line where the other version has no rule is an underline', { skip }, async () => {
   // reportlab letter: the line underlined from its start to 16 pt past its
   // end; a name underlined to 60 pt past it. Before: only "Graphic or image
