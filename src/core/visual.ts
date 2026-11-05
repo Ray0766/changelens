@@ -2121,7 +2121,15 @@ function appearanceChanges(
     const ia = ink(A, ka, sa.hidden, sa.own);
     const ib = ink(B, kb, sb.hidden, sb.own);
     const weight = ta.n >= Math.max(6, 0.5 * ia.n) && tb.n >= Math.max(6, 0.5 * ib.n) && Math.abs(ta.total - tb.total) / Math.max(ta.total, tb.total, 1) > 0.3;
-    const colour = ia.n >= 6 && ib.n >= 6 && beyondOverlays([ib.chroma[0] - ia.chroma[0], ib.chroma[1] - ia.chroma[1], ib.chroma[2] - ia.chroma[2]], oa, ia.touched, ob, ib.touched) > 30;
+    let colour = ia.n >= 6 && ib.n >= 6 && beyondOverlays([ib.chroma[0] - ia.chroma[0], ib.chroma[1] - ia.chroma[1], ib.chroma[2] - ia.chroma[2]], oa, ia.touched, ob, ib.touched) > 30;
+    // An overlay that lies around the word only (a highlight) is the word's
+    // background, which may be all that shows of it (a highlight on a
+    // running header, whose graphics are not listed, or within the text
+    // mask): compared as without an overlay.
+    if (!colour && [...oa, ...ob].some((c) => c.local)) {
+      const [fa, fb] = [ink(A, ka), ink(B, kb)];
+      colour = Math.max(Math.abs(fa.bg[0] - fb.bg[0]), Math.abs(fa.bg[1] - fb.bg[1]), Math.abs(fa.bg[2] - fb.bg[2])) > 40;
+    }
     if (colour || weight) hits.push({ a, b, colour, ink: ib, p });
   }
   // A line found through or under a word goes on at the same height across
@@ -2333,6 +2341,8 @@ interface Cover {
   colours: number[][];
   /** Half or more of the word's box is the overlay's ink: a fill or a tint around the glyphs. */
   behind: boolean;
+  /** The overlay's ink lies around the word only (a highlight), not out to the edges of its surroundings (a fill, a tint, a stamp); never for a watermark's letters (`beyond` false). */
+  local: boolean;
   /** Much of what differs next to the word is neither this overlay's ink nor the other side's (`by`, the same word's cover there). */
   unexplained: (by: Cover) => boolean;
 }
@@ -2500,13 +2510,20 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
   // colour with paper) are its ring.
   // Not through the other side's glyphs: a figure that turned red next to
   // a red icon it touches is not the icon.
+  const paperAt = (q: number) => q < 0 || (dy[q] >= 240 && dy[q + 1] >= 240 && dy[q + 2] >= 240);
+  const edgeAt = (p: number) => Math.min(dx[p], dx[p + 1], dx[p + 2]) < 240 && inks.some((c) => onPaper(dx, p, c.colour, c.tol));
   const stack: number[] = [];
   if (beyond && outside) {
-    // From the ink next to a pixel outside the shapes.
+    // From the ink, or its anti-aliased edge over paper (a thin line's),
+    // next to a pixel outside the shapes.
     const off = new Uint8Array(n);
     for (let k = 0; k < n; k++) off[k] = inShape[k] ? 0 : 1;
     const edge = grow(off, w, h, 1, 1);
-    for (let k = 0; k < n; k++) if (state[k] === INK && edge[k]) stack.push(k);
+    for (let k = 0; k < n; k++) {
+      if (!edge[k] || !inShape[k]) continue;
+      if (state[k] === INK) stack.push(k);
+      else if (!state[k] && paperAt(other[k] * 4) && edgeAt(((y0 + ((k / w) | 0)) * W + x0 + (k % w)) * 4)) stack.push(k);
+    }
   }
   while (stack.length) {
     const k = stack.pop()!;
@@ -2520,11 +2537,21 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
         const q = other[m] * 4;
         if (q >= 0 && (dy[q] < 240 || dy[q + 1] < 240 || dy[q + 2] < 240) && !(under && Math.max(Math.abs(dy[q] - under[0]), Math.abs(dy[q + 1] - under[1]), Math.abs(dy[q + 2] - under[2])) <= THRESH)) continue;
         if (ownAt(p) >= 0) state[m] = INK;
-        else if (Math.min(dx[p], dx[p + 1], dx[p + 2]) < 240 && inks.some((c) => onPaper(dx, p, c.colour, c.tol))) state[m] = RING;
+        else if (edgeAt(p)) state[m] = RING;
         else continue;
         stack.push(m);
       }
   }
+  // A fill recoloured in place shows in the counters of the glyphs on it
+  // too, where no path along it leads: its colour where the other side
+  // shows its own fill is its ink anywhere next to the word.
+  if (beyond && under)
+    for (let k = 0; k < n; k++) {
+      if (state[k] || other[k] < 0) continue;
+      const p = ((y0 + ((k / w) | 0)) * W + x0 + (k % w)) * 4;
+      const q = other[k] * 4;
+      if (ownAt(p) >= 0 && Math.max(Math.abs(dy[q] - under[0]), Math.abs(dy[q + 1] - under[1]), Math.abs(dy[q + 2] - under[2])) <= THRESH) state[k] = INK;
+    }
   const ring = grow(state, w, h, 1, 1);
   const closed = grow(grow(state, w, h, 2, 1), w, h, 2, 0);
   let grown: Uint8Array | null = null;
@@ -2544,7 +2571,7 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
       const p = ((y0 + ((k / w) | 0)) * W + x0 + (k % w)) * 4;
       const q = other[k] * 4;
       const differs = Math.max(Math.abs(dx[p] - dy[q]), Math.abs(dx[p + 1] - dy[q + 1]), Math.abs(dx[p + 2] - dy[q + 2]));
-      if (inks.some((c) => differs > c.tol && laidOver(dx, p, dy, q, c.colour, c.tol))) {
+      if (inks.some((c) => differs > c.tol && (laidOver(dx, p, dy, q, c.colour, c.tol) || (!!under && swapped(dx, p, dy, q, c.colour, under, c.tol))))) {
         if (dy[q] >= 240 && dy[q + 1] >= 240 && dy[q + 2] >= 240) state[k] = RING;
         else {
           state[k] = UNDER;
@@ -2592,7 +2619,18 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
       boxed++;
       if (state[(py - y0) * w + px - x0] === INK) inked++;
     }
+  // The ink stays clear of the edges of the word's surroundings.
+  let rim = 0;
+  let rimInk = 0;
+  for (let k = 0; k < n; k++) {
+    const i = k % w;
+    const j = (k / w) | 0;
+    if (i !== 0 && j !== 0 && i !== w - 1 && j !== h - 1) continue;
+    rim++;
+    if (state[k] === INK) rimInk++;
+  }
   return {
+    local: beyond && rimInk <= 0.02 * rim,
     behind: boxed > 0 && inked >= 0.5 * boxed,
     at,
     atOther: (qx, qy) => at(Math.round(((qx + 0.5) / sy - y.x + x.x) * sx - 0.5), Math.round(((qy + 0.5) / sy - y.y + x.y) * sx - 0.5)),
@@ -2623,6 +2661,24 @@ function knownColours(d: Uint8ClampedArray | Uint8Array, samples: number[], know
     if (n >= 8) out.push({ colour, tol });
   }
   return out;
+}
+
+/**
+ * Pixel `p` of `a` is pixel `q` of `b` with the fill `c` of `a` showing at
+ * some share where `b` shows its own fill `under` (a fill recoloured in
+ * place, around the anti-aliased edge of a glyph on it), within `tol`.
+ */
+function swapped(a: Uint8ClampedArray | Uint8Array, p: number, b: Uint8ClampedArray | Uint8Array, q: number, c: number[], under: number[], tol: number): boolean {
+  let s = 0;
+  let ss = 0;
+  for (let k = 0; k < 3; k++) {
+    s += (a[p + k] - b[q + k]) * (c[k] - under[k]);
+    ss += (c[k] - under[k]) * (c[k] - under[k]);
+  }
+  const t = ss > 0 ? Math.max(0, Math.min(1, s / ss)) : 0;
+  let off = 0;
+  for (let k = 0; k < 3; k++) off = Math.max(off, Math.abs(a[p + k] - b[q + k] - t * (c[k] - under[k])));
+  return off <= tol;
 }
 
 /** Each channel's median over pixels of `d` (byte offsets, those below 0 left out), or null for none. */
