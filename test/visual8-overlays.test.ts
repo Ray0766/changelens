@@ -23,11 +23,12 @@ import { describeChange } from '../src/core/describe.ts';
 import type { Change, CompareResult } from '../src/core/types.ts';
 
 const fixtures = new URL('./fixtures/', import.meta.url).pathname;
+const cases = new URL('../eval/cases/', import.meta.url).pathname;
 const skip = !(await canRender()) && 'no canvas';
 
-async function run(before: string, after: string): Promise<CompareResult> {
-  const pa = await openPdf(fixtures + before);
-  const pb = await openPdf(fixtures + after);
+async function run(before: string, after: string, dir = fixtures): Promise<CompareResult> {
+  const pa = await openPdf(dir + before);
+  const pb = await openPdf(dir + after);
   const r = compareDocs(buildDocModel(await extractText(pa, 'old')), buildDocModel(await extractText(pb, 'new')));
   await addVisualChanges(r, (p) => renderPage(pa, p, 1.5), (p) => renderPage(pb, p, 1.5));
   return r;
@@ -67,6 +68,17 @@ test('R7-06, R4-12: a seal or a transparent stamp laid over words recolours none
   const stamp = await run('probe8-R4-12-before.pdf', 'probe8-R4-12-stamp.pdf');
   assert.deepEqual(recoloured(stamp), [], show(stamp));
   for (const word of ['PAID', 'RECEIVED', 'CHECKED']) assert.ok(list(stamp.changes).includes(`Added “${word}”`), show(stamp));
+});
+
+test('a band behind white text that changed colour recolours none of its words', { skip }, async () => {
+  // holdout4-g-draft-watermark (round 4): the letterhead band went from teal
+  // to navy; its white firm name and tagline are unchanged. With each
+  // side's band explaining the other's, the words were measured on the
+  // band's pixels between their glyphs (light text on a dark fill), which
+  // read as "Text colour or weight changed" on “information management”.
+  const r = await run('holdout4-g-draft-watermark/before.pdf', 'holdout4-g-draft-watermark/after.pdf', cases);
+  assert.deepEqual(recoloured(r), [], show(r));
+  assert.ok(graphics(r).includes('Graphic or image changed'), show(r));
 });
 
 test('R4-04: a figure that turns red next to an added red arrow icon is listed', { skip }, async () => {

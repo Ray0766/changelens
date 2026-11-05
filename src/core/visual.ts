@@ -2390,10 +2390,11 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
   const other = new Int32Array(n);
   const inShape = new Uint8Array(n);
   // The overlay's ink on the other side's paper (byte offsets in X), or,
-  // without such ink, on a light fill there (a cell's fill that changed
-  // colour in place).
+  // without such ink, on what the other side shows there (a cell's fill or
+  // a header band that changed colour in place).
   const samples: number[] = [];
   const onFill: number[] = [];
+  const sampleAt = new Map<number, number>();
   const one = near.length === 1 ? near[0] : null;
   for (let j = 0; j < h; j++) {
     const py = y0 + j;
@@ -2411,11 +2412,24 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
       const r0 = q < 0 ? 255 : dy[q];
       const r1 = q < 0 ? 255 : dy[q + 1];
       const r2 = q < 0 ? 255 : dy[q + 2];
-      if (r0 >= 160 && r1 >= 160 && r2 >= 160 && Math.max(Math.abs(dx[p] - r0), Math.abs(dx[p + 1] - r1), Math.abs(dx[p + 2] - r2)) > 8) (r0 >= 240 && r1 >= 240 && r2 >= 240 ? samples : onFill).push(p);
+      if (Math.max(Math.abs(dx[p] - r0), Math.abs(dx[p + 1] - r1), Math.abs(dx[p + 2] - r2)) > 8) {
+        (r0 >= 240 && r1 >= 240 && r2 >= 240 ? samples : onFill).push(p);
+        sampleAt.set(p, k);
+      }
     }
   }
   const inks = known ? knownColours(dx, samples.length >= 8 ? samples : onFill, known) : overlayColours(dx, samples.length >= 8 ? samples : onFill);
   if (!inks.length) return null;
+  // What the other side shows under that ink where it is not paper (the
+  // other fill), as the median of each channel there; null over paper.
+  // There, the ink must be a fill: of one colour, for the most part (not
+  // what the other side's stamp or icon lies over).
+  let under: number[] | null = null;
+  if (samples.length < 8) {
+    const [c] = inks;
+    if (onFill.filter((p) => Math.max(Math.abs(dx[p] - c.colour[0]), Math.abs(dx[p + 1] - c.colour[1]), Math.abs(dx[p + 2] - c.colour[2])) <= c.tol).length < 0.6 * onFill.length) return null;
+    under = median3(dy, onFill.map((p) => other[sampleAt.get(p)!] * 4));
+  }
   // The tolerance of the overlay colour a pixel has (byte offset p in X), or -1.
   const ownAt = (p: number) => {
     for (const c of inks) if (Math.abs(dx[p] - c.colour[0]) <= c.tol && Math.abs(dx[p + 1] - c.colour[1]) <= c.tol && Math.abs(dx[p + 2] - c.colour[2]) <= c.tol) return c.tol;
@@ -2430,10 +2444,11 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
     const q = other[k] * 4;
     if (q < 0 || Math.max(Math.abs(dx[p] - dy[q]), Math.abs(dx[p + 1] - dy[q + 1]), Math.abs(dx[p + 2] - dy[q + 2])) > t) state[k] = INK;
   }
-  // The overlay's ink goes on where it lies on paper of the other side,
-  // beyond the shape: a seal's strokes across the word's line of text,
-  // where the text mask left no differences to find it by; their
-  // anti-aliased edges (a blend of an ink colour with paper) are its ring.
+  // The overlay's ink goes on where it lies on paper of the other side (or
+  // on its fill, see above), beyond the shape: a seal's strokes across the
+  // word's line of text, a band behind it, where the text mask left no
+  // differences to find it by; their anti-aliased edges (a blend of an ink
+  // colour with paper) are its ring.
   // Not through the other side's glyphs: a figure that turned red next to
   // a red icon it touches is not the icon.
   const stack: number[] = [];
@@ -2448,7 +2463,7 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
         if (state[m] || inShape[m]) continue;
         const p = ((y0 + v) * W + x0 + u) * 4;
         const q = other[m] * 4;
-        if (q >= 0 && (dy[q] < 240 || dy[q + 1] < 240 || dy[q + 2] < 240)) continue;
+        if (q >= 0 && (dy[q] < 240 || dy[q + 1] < 240 || dy[q + 2] < 240) && !(under && Math.max(Math.abs(dy[q] - under[0]), Math.abs(dy[q + 1] - under[1]), Math.abs(dy[q + 2] - under[2])) <= THRESH)) continue;
         if (ownAt(p) >= 0) state[m] = INK;
         else if (Math.min(dx[p], dx[p + 1], dx[p + 2]) < 240 && inks.some((c) => onPaper(dx, p, c.colour, c.tol))) state[m] = RING;
         else continue;
@@ -2541,6 +2556,23 @@ function knownColours(d: Uint8ClampedArray | Uint8Array, samples: number[], know
     if (n >= 8) out.push({ colour, tol });
   }
   return out;
+}
+
+/** Each channel's median over pixels of `d` (byte offsets, those below 0 left out), or null for none. */
+function median3(d: Uint8ClampedArray | Uint8Array, at: number[]): number[] | null {
+  const hists = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
+  let n = 0;
+  for (const q of at) {
+    if (q < 0) continue;
+    for (let c = 0; c < 3; c++) hists[c][d[q + c]]++;
+    n++;
+  }
+  if (!n) return null;
+  return hists.map((hist) => {
+    let v = 0;
+    for (let seen = hist[0]; seen <= n >> 1; seen += hist[++v]);
+    return v;
+  });
 }
 
 /** Pixel `p` of `d` (a byte offset) is colour `c` laid over paper at some share, within `tol`: an anti-aliased edge of ink of that colour. */
