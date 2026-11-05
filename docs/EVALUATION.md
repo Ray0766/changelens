@@ -150,7 +150,7 @@ With the strict rules, rescored from the same run's items, ChangeLens is 88 / 87
 #### Round 4 after fix rounds 5 and 6 (no longer held out)
 
 **Fix round 5** (commits `00517e0` to `82aa23a`) took the causes in this order:
-1. **Form fields.** AcroForm text and choice field values are drawn by widget annotations, which PDF.js `getTextContent()` does not return. They are now read with `page.getAnnotations()` and compared as text, marked "(form field)". Check boxes, radio buttons and signatures stay visual. Password fields, rotated widgets and values that cannot be read as text are counted in a warning notice and compared only as images.
+1. **Form fields.** AcroForm text and choice field values are drawn by widget annotations, which PDF.js `getTextContent()` does not return. They are now read with `page.getAnnotations()` and compared as text, marked "(form field)". Check boxes, radio buttons and signatures stay visual. Password fields, rotated widgets and values that cannot be read as text are counted in a warning notice and compared only as images (since fix round 8, widgets turned by a quarter turn are compared as text).
 2. **Header bands.** The fill and rules of a table row belong to that row's change, or to a header row repeated at a page top only because a page break moved. They are no longer separate graphic items.
 3. **Renumbering.** Multi-level clause numbers, a column of row numbers, and tracked-change displays of labels (`4.3[4.4]`) are recognised. A shift explained by an added, removed or moved numbered item is hidden but counted.
 4. **Appearance checks.** Strike, underline, colour and weight compare a glyph with itself in the other version, resampled at the sub-pixel position it moved to. CJK strokes no longer read as lines.
