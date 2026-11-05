@@ -1495,17 +1495,17 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
   // is drawn in the text colour) counts as dark as one under black text.
   // `a`'s glyphs are measured as drawn: re-sampling blurs their darkest
   // pixels. Black text, whose stems cover whole pixels, is measured as it is.
-  // Where the glyphs themselves changed colour (black text turned red, a
-  // recolour that the colour test lists), each version is measured in units
-  // of its own glyphs' ink, told outside rows that are dark nearly all
-  // across (a line, darker or lighter than the glyphs): in units of the
-  // lighter one, the anti-aliased edges of the darker glyphs come out
-  // darker than the same edges in the lighter colour, most along a bar
-  // across the word (of a "4"), which then reads as a line.
-  const ua = glyphUnit(a, ra);
-  const ub = glyphUnit(b, rb);
-  const unit = Math.min(inkUnit(a, ra), inkUnit(b, rb));
-  const recoloured = Math.abs(ua - ub) > 0.15;
+  // Where the ink changed hue (black text turned red, a recolour that the
+  // colour test lists), each version is measured in units of its own ink:
+  // in units of the lighter one, the anti-aliased edges of the darker
+  // glyphs come out darker than the same edges in the lighter colour, most
+  // along a bar across the word (of a "4"), which then reads as a line. (A
+  // strike in the text's new colour is as dark as those glyphs then.)
+  const ua = inkUnit(a, ra);
+  const ub = inkUnit(b, rb);
+  const unit = Math.min(ua, ub);
+  const [ha, hb] = [inkHue(a, ra), inkHue(b, rb)];
+  const recoloured = Math.hypot(ha[0] - hb[0], ha[1] - hb[1], ha[2] - hb[2]) > 30;
   for (const [X, u] of [
     [A, recoloured ? ua : unit],
     [B, recoloured ? ub : unit],
@@ -1790,31 +1790,25 @@ function inkUnit(side: Prepared, rect: Rect): number {
 }
 
 /**
- * The darkness of a token's glyph ink, told apart from a line through or
- * under the glyphs: the darkest pixel of its box in rows that are not dark
- * across nearly all of it (of the whole box where every row is; 1 when it
- * is nearly paper).
+ * The hue of a token's ink: each channel's difference from the luminance,
+ * weighted by darkness, over the pixels of its box that are inked (grey and
+ * black are 0, 0, 0; anti-aliasing does not change it).
  */
-function glyphUnit(side: Prepared, rect: Rect): number {
+function inkHue(side: Prepared, rect: Rect): [number, number, number] {
   const { r, lum } = side;
   const s = r.scale;
-  const x0 = Math.max(0, Math.round(rect.x * s));
-  const x1 = Math.min(r.width, Math.round((rect.x + rect.w) * s));
-  let all = 255;
-  let open = 255;
-  for (let y = Math.max(0, Math.floor(rect.y * s)); y < Math.min(r.height, Math.ceil((rect.y + rect.h) * s)); y++) {
-    let min = 255;
-    let dark = 0;
-    for (let x = x0; x < x1; x++) {
-      const v = lum[y * r.width + x];
-      min = Math.min(min, v);
-      if (v <= 191) dark++;
+  const c: [number, number, number] = [0, 0, 0];
+  let w = 0;
+  for (let y = Math.max(0, Math.floor(rect.y * s)); y < Math.min(r.height, Math.ceil((rect.y + rect.h) * s)); y++)
+    for (let x = Math.max(0, Math.round(rect.x * s)); x < Math.min(r.width, Math.round((rect.x + rect.w) * s)); x++) {
+      const i = y * r.width + x;
+      const v = 255 - lum[i];
+      if (v < 64) continue;
+      const p = rgb(r, i);
+      for (let k = 0; k < 3; k++) c[k] += (p[k] - lum[i]) * v;
+      w += v;
     }
-    all = Math.min(all, min);
-    if (dark < 0.85 * (x1 - x0)) open = Math.min(open, min);
-  }
-  const max = (255 - (open < 255 ? open : all)) / 255;
-  return max > 0.12 ? max : 1;
+  return w ? [c[0] / w, c[1] / w, c[2] / w] : c;
 }
 
 /**

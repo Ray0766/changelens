@@ -17,11 +17,12 @@ import { describeChange } from '../src/core/describe.ts';
 import type { Change, CompareResult } from '../src/core/types.ts';
 
 const fixtures = new URL('./fixtures/', import.meta.url).pathname;
+const cases = new URL('../eval/cases/', import.meta.url).pathname;
 const skip = !(await canRender()) && 'no canvas';
 
-async function run(before: string, after: string): Promise<CompareResult> {
-  const pa = await openPdf(fixtures + before);
-  const pb = await openPdf(fixtures + after);
+async function run(before: string, after: string, dir = fixtures): Promise<CompareResult> {
+  const pa = await openPdf(dir + before);
+  const pb = await openPdf(dir + after);
   const r = compareDocs(buildDocModel(await extractText(pa, 'old')), buildDocModel(await extractText(pb, 'new')));
   await addVisualChanges(r, (p) => renderPage(pa, p, 1.5), (p) => renderPage(pb, p, 1.5));
   return r;
@@ -95,4 +96,11 @@ test('V2-decorations-V3: figures turned pure red are a colour change, not a stri
     'Struck through: “25”',
     'Struck through: “8”',
   ]);
+  // Black CJK text after a re-flow by a fraction of a pixel keeps one unit
+  // for both versions: a first version of this change, which told a
+  // recolour by the darkest pixel outside rows dark all across, gave
+  // "Underlined: “二”" and "Strikethrough removed: “一”" here (their
+  // strokes are such rows).
+  const zh = await run('before.pdf', 'after.pdf', cases + 'holdout3-c-zh-purchase-contract-reflow/');
+  assert.deepEqual(list(zh.changes.filter((c) => c.format?.decoration)), []);
 });
