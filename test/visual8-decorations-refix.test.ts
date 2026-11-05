@@ -1,10 +1,13 @@
 // Visual stage, fix round 8, second pass on strikes and underlines: rules
 // added in the first pass hid or mislabelled real edits that the verifier's
 // counter-probes showed (a cell rule or a bracket next to an underlined
-// word taken for a frame). Each test asserts what the reviewer must see,
-// next to its control. Fixtures test/fixtures/probe8-V2V*-* are copies of
-// the verifier's SYNTHETIC counter-probes (reportlab; Chromium via
-// Playwright).
+// word taken for a frame, a sloped strike, a figure turned red, faux bold,
+// a Calc cell border, a turned label). Each test asserts what the reviewer
+// must see, next to its control. Fixtures test/fixtures/probe8-V2V*-* are
+// copies of the verifier's SYNTHETIC counter-probes (reportlab; Chromium
+// via Playwright; LibreOffice Calc from openpyxl), except
+// probe8-V2V3-cp-* and probe8-V2N1-*, SYNTHETIC counter-probes made with
+// reportlab in this pass.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openPdf } from '../src/node/pdf.ts';
@@ -162,4 +165,16 @@ test('V2-decorations-V4: Latin text made bold by stroking its outlines gives wei
     'Struck through: “twenty-four” | twenty-four',
     w("Either party may terminate on ninety days' written notice"),
   ]);
+});
+
+test('V2-decorations-N1: a single figure struck along its advance, with the glyph at the same pixels, is listed', { skip }, async () => {
+  // "Room 9 is booked …": "9" (Helvetica 10) struck with a 0.6 pt line from
+  // its origin to its advance. Before: "No differences found." (the box's
+  // last column holds the line's anti-aliased end, 0.4 dark, and every
+  // column the glyph leaves light had to turn dark).
+  const r = await run('probe8-V2N1-before.pdf', 'probe8-V2N1-nine.pdf');
+  assert.deepEqual(list(r.changes), ['Struck through: “9”']);
+  // Control: the other figures and a word struck the same way.
+  const c = await run('probe8-V2N1-before.pdf', 'probe8-V2N1-figs.pdf');
+  assert.deepEqual(list(c.changes), ['Struck through: “4”', 'Struck through: “9”', 'Struck through: “24”', 'Struck through: “for”']);
 });

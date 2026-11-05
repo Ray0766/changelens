@@ -1600,7 +1600,10 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
   // Only where the glyphs give the very same pixels in both versions (see
   // samePixels): a stroke of a glyph that one rendering spreads over two
   // rows and the other puts in one (the bar of a "4" after a re-flow by a
-  // fraction of a pixel) turns its columns dark in that row as well.
+  // fraction of a pixel) turns its columns dark in that row as well. The
+  // box's first and last columns hold the line's ends: a line drawn along
+  // the advance covers them in part (0.4 of the last column of a struck
+  // "9"), so there a gain of a quarter of a line does.
   const still = !shifted && !!opts.exact && samePixels(ra, a.r.scale, rb, b.r.scale);
   const filled = (k: number) => {
     let light = 0;
@@ -1611,7 +1614,7 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       if (va >= 0.6) continue;
       light++;
       const vb = B.d[k * B.cols + c];
-      if (vb >= 0.6 && vb - va >= 0.3) now++;
+      if (c === 0 || c === C - 1 ? vb - va >= 0.25 : vb >= 0.6 && vb - va >= 0.3) now++;
     }
     return light >= 3 && now >= (light >= 5 ? light - 1 : light);
   };
