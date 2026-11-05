@@ -1743,6 +1743,64 @@ function inkUnit(side: Prepared, rect: Rect): number {
 }
 
 /**
+ * Whether the glyphs in `rb` (on `B`) are those in `ra` (on `A`) drawn
+ * heavier: their outlines grown on every side, as a synthetic bold draws
+ * them (filled and stroked, text render mode 2, which Word writes for a
+ * font without a bold face), or darker as a whole. Told only where the word
+ * lies at the same place relative to the pixel grid in both versions (moved
+ * by whole pixels, if at all) and has the same size: the same glyphs then
+ * give the very same pixels, so that a thin stroke added shows even on a
+ * single word, whereas a re-flow by a fraction of a pixel changes the ink
+ * of one CJK glyph by up to a fifth. The darkness gained must lie on the
+ * glyphs or next to them (a pixel away), along most of their edges (not a
+ * mark beside one glyph, nor the next glyph reaching into the box), and
+ * come to a tenth of their ink; next to none may be lost.
+ */
+function heavier(A: Prepared, ra: Rect, B: Prepared, rb: Rect): boolean {
+  const s = A.r.scale;
+  if (B.r.scale !== s) return false;
+  const fx = (rb.x - ra.x) * s;
+  const fy = (rb.y - ra.y) * s;
+  const dx = Math.round(fx);
+  const dy = Math.round(fy);
+  if (Math.abs(fx - dx) > 0.02 || Math.abs(fy - dy) > 0.02 || Math.abs(ra.w - rb.w) * s > 0.02 || Math.abs(ra.h - rb.h) * s > 0.02) return false;
+  const x0 = Math.max(0, -dx, Math.floor(ra.x * s));
+  const x1 = Math.min(A.r.width, B.r.width - dx, Math.ceil((ra.x + ra.w) * s));
+  const y0 = Math.max(0, -dy, Math.floor(ra.y * s));
+  const y1 = Math.min(A.r.height, B.r.height - dy, Math.ceil((ra.y + ra.h) * s));
+  if (x1 - x0 < 3 || y1 - y0 < 3) return false;
+  const dark = (P: Prepared, x: number, y: number) => (255 - P.lum[y * P.r.width + x]) / 255;
+  // Ink of `A` within a pixel of (x, y).
+  const inked = (x: number, y: number) => {
+    for (let v = Math.max(0, y - 1); v <= Math.min(A.r.height - 1, y + 1); v++)
+      for (let u = Math.max(0, x - 1); u <= Math.min(A.r.width - 1, x + 1); u++) if (dark(A, u, v) > 0.1) return true;
+    return false;
+  };
+  let ink = 0;
+  let gain = 0;
+  let loss = 0;
+  let onGlyphs = 0;
+  // Pixels on the edges of the glyphs in `A` (partly covered), and those of
+  // them that got darker.
+  let edges = 0;
+  let grown = 0;
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const a = dark(A, x, y);
+      const d = dark(B, x + dx, y + dy) - a;
+      ink += a;
+      const edge = a > 0.1 && a < 0.9;
+      if (edge) edges++;
+      if (d < -0.02) loss -= d;
+      if (d <= 0.02) continue;
+      gain += d;
+      if (edge) grown++;
+      if (inked(x, y)) onGlyphs += d;
+    }
+  return edges >= 6 && grown >= 0.7 * edges && gain >= 0.1 * ink && loss <= 0.1 * gain && onGlyphs >= 0.9 * gain;
+}
+
+/**
  * Of the columns where the glyphs in `A` have no ink within two rows of a
  * line's rows k..e, the share that `B` covers in those rows (dark as a
  * line: 0.6 over the rows and one on either side); null when fewer than two
@@ -1974,7 +2032,7 @@ function appearanceChanges(
     }
     return found;
   };
-  type Hit = { a: Token; b: Token; colour: boolean; line?: { line: 'strike' | 'underline'; added: boolean; rows: [number, number] }; ink?: Ink; p: number };
+  type Hit = { a: Token; b: Token; colour: boolean; line?: { line: 'strike' | 'underline'; added: boolean; rows: [number, number] }; ink?: Ink; p: number; bold?: boolean };
   // The words compared, by token index (new side): how to look for a
   // fainter line on each (see below).
   const tried = new Map<number, { a: Token; b: Token; p: number; weak: (added: boolean) => FoundLine | null }>();
@@ -2057,8 +2115,12 @@ function appearanceChanges(
     const colour =
       Math.hypot(ia.chroma[0] - ib.chroma[0], ia.chroma[1] - ib.chroma[1], ia.chroma[2] - ib.chroma[2]) > 30 ||
       Math.max(Math.abs(ia.bg[0] - ib.bg[0]), Math.abs(ia.bg[1] - ib.bg[1]), Math.abs(ia.bg[2] - ib.bg[2])) > 40;
-    const weight = Math.abs(ia.total - ib.total) / Math.max(ia.total, ib.total, 1) > 0.3;
-    if (colour || weight) hits.push({ a, b, colour, ink: ib, p });
+    const change = Math.abs(ia.total - ib.total) / Math.max(ia.total, ib.total, 1);
+    const weight = change > 0.3;
+    // The same glyphs drawn heavier (or lighter) at the very same pixels,
+    // with nothing else drawn near them: shown even on a single word.
+    const bold = !colour && !covers && change > 0.1 && (ib.total > ia.total ? heavier(A, ka, B, kb) : heavier(B, kb, A, ka));
+    if (colour || weight || bold) hits.push({ a, b, colour, ink: ib, p, bold });
   }
   // A line found through or under a word goes on at the same height across
   // the next words of the line where it is fainter there (a tracked
@@ -2110,9 +2172,10 @@ function appearanceChanges(
   let group: Hit[] = [];
   const flush = () => {
     // A weight change must be consistent over at least two neighbouring
-    // tokens; a colour change or a line through or under text is
+    // tokens, unless the same glyphs were drawn heavier at the same pixels
+    // (see heavier); a colour change or a line through or under text is
     // convincing on its own.
-    if (group.length && (group.length >= 2 || group[0].colour || group[0].line)) {
+    if (group.length && (group.length >= 2 || group[0].colour || group[0].line || group[0].bold)) {
       const newRects = group.map((h) => h.b.rects[0]);
       out.push({
         id: '',

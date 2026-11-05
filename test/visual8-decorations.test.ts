@@ -11,7 +11,10 @@
 // round 7 (Chromium via Playwright, LibreOffice from python-docx, reportlab;
 // pypdf for /Rotate). probe8-R7-V01-cp-* is a SYNTHETIC counter-probe made
 // with reportlab: the same invoice and stamp with a real underline and a
-// strike under the stamp.
+// strike under the stamp. probe8-R4-18-* are copies of the SYNTHETIC
+// round-7 faux bold probe and verifier PDFs (reportlab, text render mode 2);
+// probe8-R4-18-cp-* is a SYNTHETIC counter-probe made with reportlab (faux
+// bold next to real edits, and a re-flow alone).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openPdf } from '../src/node/pdf.ts';
@@ -163,6 +166,37 @@ test('R4-22: the second stroke of a double underline is part of the underline, n
   // amount, so the two versions' boxes lie 1.4 pt apart): one item each.
   const w = await run('probe8-R4-22-writer-before.pdf', 'probe8-R4-22-writer-after.pdf');
   assert.deepEqual(list(w.changes), underlined('784.00', '4,704.00'));
+});
+
+test('R4-18: words made bold by stroking their outlines (text render mode 2) are listed, one word too', { skip }, async () => {
+  // The font is unchanged, so only the glyphs' look tells. Before: only
+  // 违约责任; 甲方, 20,000 and Annex B were missing (ink up by 22-30 %, and
+  // a single word needed a neighbour changed alike).
+  const weight = (r: CompareResult) => r.changes.filter((c) => describeChange('en', c) === 'Text colour or weight changed').map((c) => c.new.text);
+  const r = await run('probe8-R4-18-before.pdf', 'probe8-R4-18-after.pdf');
+  assert.deepEqual(list(r.changes), Array(4).fill('Text colour or weight changed'));
+  assert.deepEqual(weight(r), ['违约责任', '甲方', '20,000', 'Annex B']);
+  // Times-Roman and WenQuanYi, strokes of 0.3 and 0.45 pt. Before: Tenant,
+  // 4,500, Annex C and 30,000 were missing.
+  const v = await run('probe8-R4-18-v-before.pdf', 'probe8-R4-18-v-faux.pdf');
+  assert.deepEqual(weight(v), ['Tenant', '4,500', 'Annex C', 'must not', '乙方', '季度', '30,000']);
+  // Control: the same terms set in Times-Bold are told by their font, once.
+  const bold = await run('probe8-R4-18-v-before.pdf', 'probe8-R4-18-v-bold.pdf');
+  assert.deepEqual(list(bold.changes), ['“Tenant” now bold', '“4,500” now bold', '“Annex C” now bold', '“must not” now bold']);
+  // Counter-probe: an amount edited and made bold stays a number change, an
+  // edited word a text change; "email" turned from grey to black is listed.
+  const cp = await run('probe8-R4-18-cp-before.pdf', 'probe8-R4-18-cp-mixed.pdf');
+  assert.deepEqual(list(cp.changes), [
+    'Text colour or weight changed',
+    'Number changed: 4,500 → 5,400 (+20%)',
+    'Text colour or weight changed',
+    'Text colour or weight changed',
+    'Changed “季度” → “月”',
+  ]);
+  assert.deepEqual(weight(cp), ['Tenant', 'email', '乙方']);
+  // A re-flow by a fraction of a pixel alone gives no weight change.
+  const flow = await run('probe8-R4-18-cp-before.pdf', 'probe8-R4-18-cp-reflow.pdf');
+  assert.deepEqual(list(flow.changes), ['Added a paragraph']);
 });
 
 test('R6-05, R7-05: a page turned by /Rotate gives no strike or underline on its figures and short words', { skip }, async () => {
