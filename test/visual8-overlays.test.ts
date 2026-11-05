@@ -238,3 +238,22 @@ test('V3-V2: a figure turned the hue of a stamp whose frame crosses it is listed
   assert.deepEqual(recoloured(ctrl), [], show(ctrl));
 });
 
+test('V3-V3: a word made bold or grey in a row that was given a fill is listed', { skip }, async () => {
+  // reportlab schedule: two rows get a light fill (#fcf2cc); in row 2,
+  // “Tested” is made faux bold (fill and 0.6 pt stroke) and “18.9 kW”
+  // turned grey. Before: only the two fills were listed (weight was never
+  // judged under a fill, and the grey glyphs did not count as showing
+  // through it, so all their pixels were hidden).
+  const r = await run('probe8-V3V3-faux-before.pdf', 'probe8-V3V3-faux-fill-edits.pdf');
+  assert.deepEqual(recoloured(r), ['18.9 kW Tested'], show(r));
+  assert.equal(graphics(r).length, 2, show(r));
+  const f = await run('probe8-V3V3-faux-before.pdf', 'probe8-V3V3-faux-fill.pdf');
+  assert.deepEqual(recoloured(f), [], show(f));
+  // Chromium order: two rows cancelled with a grey fill (#eeeeee) and grey
+  // text (#8a8a8a). Control: the fill only.
+  const g = await run('probe8-V3V3-rows-before.pdf', 'probe8-V3V3-rows-grey.pdf');
+  assert.deepEqual(recoloured(g), ['Firewall licence (12 months) 1 640.00', 'Configuration, hours 14 95.00'], show(g));
+  const gf = await run('probe8-V3V3-rows-before.pdf', 'probe8-V3V3-rows-greyfill.pdf');
+  assert.deepEqual(recoloured(gf), [], show(gf));
+});
+

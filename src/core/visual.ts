@@ -1326,6 +1326,47 @@ function ink(
 }
 
 /**
+ * Darkness of a word's glyphs (as ink's `total` and `n`) where a fill or a
+ * tint lies behind them: each pixel's against what lies behind it, as a
+ * share of that lightness, `behind(x, y)` (the fill's luminance, or 0 for
+ * the paper, taken as the lightest pixel measured there). A glyph's
+ * anti-aliased edge over a fill is then as dark as over paper, and one
+ * made bolder or turned grey on it is not.
+ */
+function glyphWeight(side: Prepared, rect: Rect, skip: (x: number, y: number) => boolean, behind: (x: number, y: number) => number): { total: number; n: number } {
+  const { r, lum: l } = side;
+  const s = r.scale;
+  const cover = (v: number, lo: number, hi: number) => Math.max(0, Math.min(v + 1, hi) - Math.max(v, lo));
+  const X0 = rect.x * s;
+  const X1 = (rect.x + rect.w) * s;
+  const Y0 = rect.y * s;
+  const Y1 = (rect.y + rect.h) * s;
+  const x0 = Math.max(0, Math.floor(X0));
+  const y0 = Math.max(0, Math.floor(Y0));
+  const x1 = Math.min(r.width, Math.ceil(X1));
+  const y1 = Math.min(r.height, Math.ceil(Y1));
+  // The paper: the lightest pixel measured next to the glyphs, not behind a fill.
+  const e = expand(rect, rect.h * 0.15);
+  let paper = 0;
+  for (let y = Math.max(0, Math.floor(e.y * s)); y < Math.min(r.height, Math.ceil((e.y + e.h) * s)); y++)
+    for (let x = Math.max(0, Math.floor(e.x * s)); x < Math.min(r.width, Math.ceil((e.x + e.w) * s)); x++)
+      if (!skip(x, y) && !behind(x, y)) paper = Math.max(paper, l[y * r.width + x]);
+  if (!paper) paper = 255;
+  let total = 0;
+  let n = 0;
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const w = cover(x, X0, X1) * cover(y, Y0, Y1);
+      if (w <= 0 || skip(x, y)) continue;
+      const base = behind(x, y) || paper;
+      const v = (Math.max(0, base - l[y * r.width + x]) / base) * 255;
+      total += w * v;
+      if (v > 40) n += w;
+    }
+  return { total: total / (s * s), n };
+}
+
+/**
  * What overlays (see overlayInk) cover around a word's box `r` on side `X`:
  * `own` on that side, `other` on the other side (by where the other side's
  * pixel lies). Tests by pixel: any of their states (`any`); their ink, or
@@ -2120,7 +2161,24 @@ function appearanceChanges(
     const tb = ink(B, kb, sb.any);
     const ia = ink(A, ka, sa.hidden, sa.own);
     const ib = ink(B, kb, sb.hidden, sb.own);
-    const weight = ta.n >= Math.max(6, 0.5 * ia.n) && tb.n >= Math.max(6, 0.5 * ib.n) && Math.abs(ta.total - tb.total) / Math.max(ta.total, tb.total, 1) > 0.3;
+    const outside = ta.n >= Math.max(6, 0.5 * ia.n) && tb.n >= Math.max(6, 0.5 * ib.n);
+    let weight = outside && Math.abs(ta.total - tb.total) / Math.max(ta.total, tb.total, 1) > 0.3;
+    // Where every overlay lies behind the glyphs (a fill, a tint), they all
+    // show: the weight is measured on all of them, each pixel's darkness
+    // against the fill or the paper behind it (a word made bold, or turned
+    // grey, in a row that was given a fill).
+    if (!outside && [...oa, ...ob].every((c) => c.behind && c.clear)) {
+      const behind = (own: Cover[]) => {
+        const lums = own.map((c) => 0.299 * c.colours[0][0] + 0.587 * c.colours[0][1] + 0.114 * c.colours[0][2]);
+        return (x: number, y: number) => {
+          for (let k = 0; k < own.length; k++) if (own[k].at(x, y)) return lums[k];
+          return 0;
+        };
+      };
+      const wa = glyphWeight(A, ka, sa.hidden, behind(oa));
+      const wb = glyphWeight(B, kb, sb.hidden, behind(ob));
+      weight = wa.n >= 6 && wb.n >= 6 && Math.abs(wa.total - wb.total) / Math.max(wa.total, wb.total, 1) > 0.3;
+    }
     let colour = ia.n >= 6 && ib.n >= 6 && beyondOverlays([ib.chroma[0] - ia.chroma[0], ib.chroma[1] - ia.chroma[1], ib.chroma[2] - ia.chroma[2]], oa, ia.touched, ob, ib.touched) > 30;
     // An overlay that lies around the word only (a highlight) is the word's
     // background, which may be all that shows of it (a highlight on a
@@ -2636,7 +2694,10 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
     }
   }
   // Glyphs show through: where the other side's word is dark under the
-  // overlay, this side is dark too (and not of the overlay's colour).
+  // overlay, this side is dark too, or clearly darker than the overlay
+  // (grey text on a light fill), and not of the overlay's colour.
+  const [r0, g0, b0] = inks[0].colour;
+  const lit = 0.299 * r0 + 0.587 * g0 + 0.114 * b0 - 64;
   let dark = 0;
   let through = 0;
   for (let k = 0; k < n; k++) {
@@ -2644,7 +2705,8 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
     const q = other[k];
     if (q < 0 || Y.lum[q] >= 128) continue;
     dark++;
-    if (state[k] !== INK && X.lum[(y0 + ((k / w) | 0)) * W + x0 + (k % w)] < 128) through++;
+    const v = X.lum[(y0 + ((k / w) | 0)) * W + x0 + (k % w)];
+    if (state[k] !== INK && (v < 128 || v <= lit)) through++;
   }
   // The overlay's ink accounts for what differs around the word: the
   // pixels next to it (outside its box, where the overlay lies) that differ
