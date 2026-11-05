@@ -159,6 +159,12 @@ test('F4: lines looked for again next to a graphic that changed are not found in
   assert.deepEqual(lines(c), ['Struck through: “4”'], list(c.changes).join(' | '));
   const s = await run('probe8-F4-split-before-ul.pdf', 'probe8-F4-split-after.pdf');
   assert.deepEqual(lines(s), ['Underline removed: “bearings”'], list(s.changes).join(' | '));
+  // And (Chromium, review 8 visual counter-probe) "Amount" in a shaded
+  // header band underlined 1.5 pt above a red rule added along the band:
+  // the rule's ink leaves too few columns to compare across three rows,
+  // but the underline's own row shows it.
+  const u = await run('probe8-F4-band-before.pdf', 'probe8-F4-band-rule-ul.pdf');
+  assert.deepEqual(lines(u), ['Underlined: “Amount”'], list(u.changes).join(' | '));
 });
 
 test('F4: an opaque watermark letter over a header word accounts for the background it hides', { skip }, async () => {
@@ -171,3 +177,4 @@ test('F4: an opaque watermark letter over a header word accounts for the backgro
   assert.ok(!r.changes.some((c) => c.format?.appearanceChanged), list(r.changes).join(' | '));
   assert.ok(list(r.changes).includes('Added “DRAFT”'), list(r.changes).join(' | '));
 });
+

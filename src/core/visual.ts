@@ -1825,8 +1825,10 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
   };
   const line = (k: number) => {
     const added = win(pb, k, 1) - win(pa, k, 1);
-    // (Not where too few columns can be compared: NaN.)
-    if (!(share(B, k, 1) >= 0.85)) return false;
+    // Where too few columns can be compared across the three rows (NaN),
+    // the line's own row must show it.
+    const across = share(B, k, 1);
+    if (!(across >= 0.85) && !(Number.isNaN(across) && share(B, k, 0) >= 0.85)) return false;
     if (added < (opts.weak ? 0.25 : 0.45)) return !opts.weak && still && added >= 0.2 && filled(k);
     const g = gained(k);
     // A short word whose glyph fills the line's rows (an "a" between struck
