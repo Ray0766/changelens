@@ -47,3 +47,44 @@ test('F0: a fill drawn in a form field where its words were deleted, or over par
     assert.ok(hits(g, 'old', 1, 300, 172) || hits(g, 'new', 1, 300, 172), `${file}: ${JSON.stringify([g.old.rects, g.new.rects])}`);
   }
 });
+
+const colourAt = (r: CompareResult, x: number, y: number) =>
+  r.changes.some((c) => c.format?.appearanceChanged && describeChange('en', c) === 'Text colour or weight changed' && hits(c, 'new', 1, x, y));
+
+test('F1: a highlight in a hue near a panel or row fill added with it is listed, not folded into the fill', { skip }, async () => {
+  // SYNTHETIC (Chromium, review 8 overlay counter-probes): a "Key terms"
+  // panel given a tint and "within 14 days" in it highlighted in a nearby
+  // shade (#deebf7 and #bdd7ee; #fff4c2 and #ffe9a0), and a table row given
+  // a fill with "Standard" in it highlighted (#ddebf7 and #bdd7ee). The
+  // highlight's colour lay within 40 levels of the fill's, so the word's
+  // background was taken for the fill's (listed as the graphic only).
+  // Both directions.
+  for (const [file, x, y] of [
+    ['probe8-F1-panel-blue-hl.pdf', 200, 180],
+    ['probe8-F1-panel-yellow-hl.pdf', 200, 180],
+    ['probe8-F1-row-blue-hl.pdf', 80, 303],
+    ['probe8-F1-row-far-hl.pdf', 80, 303],
+  ] as const) {
+    for (const [a, b] of [
+      ['probe8-F1-before.pdf', file],
+      [file, 'probe8-F1-before.pdf'],
+    ]) {
+      const r = await run(a, b);
+      assert.equal(graphics(r).length, 1, `${a} → ${b}: ${list(r.changes).join(' | ')}`);
+      assert.ok(colourAt(r, x, y), `${a} → ${b}: ${list(r.changes).join(' | ')}`);
+    }
+  }
+  // Controls: the fill alone is the graphic alone; the highlight alone is
+  // listed.
+  for (const file of ['probe8-F1-panel-blue-fill.pdf', 'probe8-F1-row-blue-fill.pdf']) {
+    const r = await run('probe8-F1-before.pdf', file);
+    assert.deepEqual(
+      r.changes.map((c) => c.kind),
+      ['graphic'],
+      list(r.changes).join(' | '),
+    );
+    assert.ok(!r.changes[0].format, list(r.changes).join(' | '));
+  }
+  const hl = await run('probe8-F1-before.pdf', 'probe8-F1-hl.pdf');
+  assert.ok(colourAt(hl, 200, 180), list(hl.changes).join(' | '));
+});

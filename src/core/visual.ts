@@ -2835,14 +2835,24 @@ function appearanceChanges(
     // The word's background, compared as without an overlay, is the
     // overlay's where it is the colour of one that reaches out to the edges
     // of the word's surroundings on that side (a fill, a tint, a stamp,
-    // listed as a graphic of its own), or the paper. One that lies around
-    // the word only is not (a highlight, put on a running header, whose
-    // graphics are not listed, or inside a panel whose tint changed too).
+    // listed as a graphic of its own), laid over what the other version has
+    // there (a translucent stamp over a shaded row), or the paper. One that
+    // lies around the word only is not (a highlight, put on a running
+    // header, whose graphics are not listed, or inside a panel whose tint
+    // changed too). Its colour must be the overlay's within the tolerance
+    // the overlay was found with, and no other colour of the side's
+    // overlays may lie nearer: a highlight in a hue close to the tint of a
+    // panel or a row added with it (#bdd7ee on #deebf7) is not that tint.
     if (!colour) {
       const [fa, fb] = [ink(A, ka), ink(B, kb)];
-      const near = (u: number[], v: number[]) => Math.max(Math.abs(u[0] - v[0]), Math.abs(u[1] - v[1]), Math.abs(u[2] - v[2])) <= 40;
-      const owned = (bg: number[], other: number[], own: Cover[]) =>
-        bg.every((v) => v >= 240) || near(bg, other) || own.some((c) => c.wide.some((k) => near(k, bg)));
+      const gap = (u: number[], v: number[]) => Math.max(Math.abs(u[0] - v[0]), Math.abs(u[1] - v[1]), Math.abs(u[2] - v[2]));
+      const px = (u: number[]) => Uint8Array.from(u, (v) => Math.round(v));
+      const owned = (bg: number[], other: number[], own: Cover[]) => {
+        if (bg.every((v) => v >= 240) || gap(bg, other) <= 40) return true;
+        const wide = own.flatMap((c) => c.wide);
+        const rest = own.flatMap((c) => c.colours).filter((x) => !wide.some((k) => gap(k.colour, x) === 0));
+        return wide.some((k) => laidOver(px(bg), 0, px(other), 0, k.colour, Math.max(k.tol, 8)) && rest.every((x) => gap(x, bg) >= gap(k.colour, bg)));
+      };
       colour = !owned(fa.bg, fb.bg, oa) || !owned(fb.bg, fa.bg, ob);
     }
     const bold = heavy && !colour;
@@ -3064,8 +3074,8 @@ interface Cover {
   behind: boolean;
   /** The glyphs' cores under the overlay (if any) are as in the other version: it lies behind them (a fill, a tint), not over them. */
   kept: boolean;
-  /** Its colours whose ink reaches out to the edges of the word's surroundings (a fill, a tint, a stamp), not those around the word only or inside another of its colours (a highlight, also in a tinted panel); all of them for a watermark's letters (`beyond` false). */
-  wide: number[][];
+  /** Its colours whose ink reaches out to the edges of the word's surroundings (a fill, a tint, a stamp), not those around the word only or inside another of its colours (a highlight, also in a tinted panel); all of them for a watermark's letters (`beyond` false). Each with how far a pixel of it may be from it (see overlayColours). */
+  wide: { colour: number[]; tol: number }[];
   /** Much of what differs next to the word is neither this overlay's ink nor the other side's (`by`, the same word's cover there). */
   unexplained: (by: Cover) => boolean;
 }
@@ -3446,7 +3456,7 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
   for (let k = 0; k < n; k++) if (k % w === 0 || k < w || k % w === w - 1 || k >= n - w) rim++;
   const inside = (c: number) => inks.some((_, o) => o !== c && top[o] < top[c] && bottom[o] > bottom[c]);
   return {
-    wide: inks.filter((_, c) => !beyond || (rimInk[c] > 0.02 * rim && !inside(c))).map((c) => c.colour),
+    wide: inks.filter((_, c) => !beyond || (rimInk[c] > 0.02 * rim && !inside(c))),
     behind: boxed > 0 && inked >= 0.5 * boxed,
     kept: kept >= 0.8 * cores,
     at,
