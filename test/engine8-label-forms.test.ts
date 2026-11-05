@@ -174,26 +174,37 @@ test('a sentence above a tight table that starts with the integer part is not it
 
 test('a long tight table of measures is read in linear time (T1-L3)', () => {
   // 6,000 rows "100.1 mm" … "766.6 mm" without row spacing, 60 to a page, and no clause above
-  // them: the search for a parent clause visited every row above each "N.1" row.
-  const doc = (name: string, ins: boolean): DocText => {
+  // them: the search for a parent clause visited every row above each "N.1" row. The control
+  // holds the same rows with the figure at the line end, where it is no label and nothing is
+  // looked up; the table must not take much longer than that (about 1.6 times now, 7 to 10
+  // times when each row's search ran to the top), however fast the machine.
+  const doc = (name: string, ins: boolean, atEnd: boolean): DocText => {
     const rows = Array.from({ length: 6000 }, (_, k) => [`${100 + Math.floor(k / 9)}.${(k % 9) + 1}`, `mm board, use ${k}`]);
     if (ins) rows.splice(1500, 0, ['266.7', 'mm board, re-sawn']);
     const run = (str: string, x: number, y: number, eol = false): TextRun => ({ str, x, y: y - 9, w: str.length * 5, h: 11, baseline: y, fontSize: 10, font: 'Body', family: 'sans-serif', eol, angle: 0 });
     const pages: DocText['pages'] = [];
     for (let p = 0; p * 60 < rows.length; p++) {
-      const runs = rows.slice(p * 60, p * 60 + 60).flatMap(([n, t], k) => [run(n, 56, 60 + 12 * k), run(t, 100, 60 + 12 * k, true)]);
+      const runs = rows.slice(p * 60, p * 60 + 60).flatMap(([n, t], k) => (atEnd ? [run(t, 56, 60 + 12 * k), run(n, 300, 60 + 12 * k, true)] : [run(n, 56, 60 + 12 * k), run(t, 100, 60 + 12 * k, true)]));
       pages.push({ index: p, width: 595, height: 842, runs });
     }
     return { name, pages };
   };
-  const a = buildDocModel(doc('a', false));
-  const b = buildDocModel(doc('b', true));
-  const t0 = performance.now();
-  const r = compareDocs(a, b);
-  const ms = performance.now() - t0;
-  assert.deepEqual(listed(r), ['Added “266.7 mm board, re-sawn”']);
-  // About 0.6 s on the 4-core test VM; 4 s when each row's search ran to the top.
-  assert.ok(ms < 2000, `took ${ms.toFixed(0)} ms`);
+  // The fastest of two runs each, so a pause on a loaded machine counts less.
+  const time = (atEnd: boolean, expected: string[]) => {
+    let best = Infinity;
+    for (let k = 0; k < 2; k++) {
+      const a = buildDocModel(doc('a', false, atEnd));
+      const b = buildDocModel(doc('b', true, atEnd));
+      const t0 = performance.now();
+      const r = compareDocs(a, b);
+      best = Math.min(best, performance.now() - t0);
+      assert.deepEqual(listed(r), expected);
+    }
+    return best;
+  };
+  const table = time(false, ['Added “266.7 mm board, re-sawn”']);
+  const control = time(true, ['Added “mm board, re-sawn 266.7”']);
+  assert.ok(table < 4 * control, `table ${table.toFixed(0)} ms, control ${control.toFixed(0)} ms`);
 });
 
 test('a contents page number after a leader gets no percentage; other line-end figures keep theirs (R1-15)', () => {
