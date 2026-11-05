@@ -76,6 +76,13 @@ export interface Coverage {
   uncertain?: { page: number; matched: number }[];
   /** Pages whose graphics were not compared: too large to render, or rendering failed. */
   visualSkipped?: number[];
+  /**
+   * (New version only) pages with words under or next to an overlay (a
+   * stamp, a watermark, a fill, a graphic that changed) whose colour,
+   * weight, strikethrough and underline could be compared only in part:
+   * how many, and the first few.
+   */
+  partlyCompared?: { page: number; count: number; words: string[] }[];
   /** Pages with form fields whose values could not be compared as text (count -1: the page's form fields could not be read). */
   fieldsUnread?: { page: number; count: number }[];
 }

@@ -1857,6 +1857,30 @@ function extent(A: Box, B: Box, C: number, n: number, k: number, e: number, vali
 }
 
 /**
+ * Words compared only in part next to an overlay (see appearanceChanges),
+ * by new page and token: a stamp, a watermark, a fill or a graphic that
+ * changed lies over or around them where it cannot be told from their
+ * glyphs, so their colour, weight, strikethrough and underline were judged
+ * on what it leaves, or not at all. Finding nothing there is no
+ * all-clear: they are counted in a notice (see partlyCompared).
+ */
+const partly = new WeakMap<CompareResult, Map<number, Map<number, string>>>();
+function notePartly(result: CompareResult, page: number, t: Token): void {
+  let pages = partly.get(result);
+  if (!pages) partly.set(result, (pages = new Map()));
+  let words = pages.get(page);
+  if (!words) pages.set(page, (words = new Map()));
+  words.set(t.i, t.text);
+}
+
+/** The words compared only in part next to an overlay, by new page (see notePartly). */
+export function partlyCompared(result: CompareResult): { page: number; words: string[] }[] {
+  return [...(partly.get(result) ?? new Map<number, Map<number, string>>())]
+    .sort(([p], [q]) => p - q)
+    .map(([page, words]) => ({ page, words: [...words].sort(([i], [j]) => i - j).map(([, w]) => w) }));
+}
+
+/**
  * Matched text whose appearance changed: colour or stroke weight (turned red,
  * synthetic bold), background (highlighted) or a line through or under it.
  */
@@ -2083,7 +2107,10 @@ function appearanceChanges(
     // An overlay drawn over or behind the word on one side: the word is
     // compared outside the overlay's ink.
     const over = cover(a, b);
-    if (over === 'skip') continue;
+    if (over === 'skip') {
+      notePartly(result, newPage, b);
+      continue;
+    }
     const [ca, cb] = over;
     const few = b.kind === 'cjk' || [...b.text].length <= 2;
     const seen = () => {
@@ -2139,7 +2166,10 @@ function appearanceChanges(
       hits.push({ a, b, colour: false, line, p });
       continue;
     }
-    if (g === 'skip') continue;
+    if (g === 'skip') {
+      notePartly(result, newPage, b);
+      continue;
+    }
     const oa = [ca, g?.[0], t?.[0]].filter((c): c is Cover => !!c);
     const ob = [cb, g?.[1], t?.[1]].filter((c): c is Cover => !!c);
     const covers = oa.length + ob.length > 0;
@@ -2176,7 +2206,8 @@ function appearanceChanges(
     // show: the weight is measured on all of them, each pixel's darkness
     // against the fill or the paper behind it (a word made bold, or turned
     // grey, in a row that was given a fill).
-    if (!outside && [...oa, ...ob].every((c) => c.behind && c.clear)) {
+    const behindAll = [...oa, ...ob].every((c) => c.clear && (c.behind || c.kept));
+    if (!outside && behindAll) {
       const behind = (own: Cover[]) => {
         const lums = own.map((c) => 0.299 * c.colours[0][0] + 0.587 * c.colours[0][1] + 0.114 * c.colours[0][2]);
         return (x: number, y: number) => {
@@ -2198,6 +2229,9 @@ function appearanceChanges(
       colour = Math.max(Math.abs(fa.bg[0] - fb.bg[0]), Math.abs(fa.bg[1] - fb.bg[1]), Math.abs(fa.bg[2] - fb.bg[2])) > 40;
     }
     if (colour || weight) hits.push({ a, b, colour, ink: ib, p });
+    // Most of its glyphs lie in the overlay's states (its weight was not
+    // judged), or too few are left to tell their colour: compared in part.
+    else if (!(outside || behindAll) || ia.n < 6 || ib.n < 6) notePartly(result, newPage, b);
   }
   // A line found through or under a word goes on at the same height across
   // the next words of the line where it is fainter there (a tracked
@@ -2408,6 +2442,8 @@ interface Cover {
   colours: number[][];
   /** Half or more of the word's box is the overlay's ink: a fill or a tint around the glyphs. */
   behind: boolean;
+  /** The glyphs' cores under the overlay (if any) are as in the other version: it lies behind them (a fill, a tint), not over them. */
+  kept: boolean;
   /** The overlay's ink lies around the word only (a highlight), not out to the edges of its surroundings (a fill, a tint, a stamp); never for a watermark's letters (`beyond` false). */
   local: boolean;
   /** Much of what differs next to the word is neither this overlay's ink nor the other side's (`by`, the same word's cover there). */
@@ -2709,13 +2745,22 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
   const lit = 0.299 * r0 + 0.587 * g0 + 0.114 * b0 - 64;
   let dark = 0;
   let through = 0;
+  // Of the other side's glyph cores under the overlay, those this side has
+  // as they are: the overlay lies behind the glyphs (a fill, a tint), not
+  // over them.
+  let cores = 0;
+  let kept = 0;
   for (let k = 0; k < n; k++) {
     if (!closed[k] && state[k] !== INK) continue;
     const q = other[k];
     if (q < 0 || Y.lum[q] >= 128) continue;
     dark++;
-    const v = X.lum[(y0 + ((k / w) | 0)) * W + x0 + (k % w)];
+    const i = (y0 + ((k / w) | 0)) * W + x0 + (k % w);
+    const v = X.lum[i];
     if (state[k] !== INK && (v < 128 || v <= lit)) through++;
+    if (Y.lum[q] >= 64) continue;
+    cores++;
+    if (Math.max(Math.abs(dx[i * 4] - dy[q * 4]), Math.abs(dx[i * 4 + 1] - dy[q * 4 + 1]), Math.abs(dx[i * 4 + 2] - dy[q * 4 + 2])) <= THRESH) kept++;
   }
   // The overlay's ink accounts for what differs around the word: the
   // pixels next to it (outside its box, where the overlay lies) that differ
@@ -2773,6 +2818,7 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
   return {
     local: beyond && rimInk <= 0.02 * rim,
     behind: boxed > 0 && inked >= 0.5 * boxed,
+    kept: kept >= 0.8 * cores,
     at,
     atOther: (qx, qy) => at(Math.round(((qx + 0.5) / sy - y.x + x.x) * sx - 0.5), Math.round(((qy + 0.5) / sy - y.y + x.y) * sx - 0.5)),
     clear: !dark || through >= 0.4 * dark,
@@ -3454,6 +3500,8 @@ export function compareRasters(
     for (const f of viewFolds)
       list.push({ ...f, change: copies.get(f.change)?.orig ?? f.change, rect: f.side === 'new' ? toReal(f.rect) : f.rect, place: f.place ? (placed.get(f.place) ?? null) : null });
   }
+  const viewPartly = partly.get(view);
+  if (viewPartly) for (const [pg, words] of viewPartly) for (const [i] of words) notePartly(result, pg, result.newDoc.tokens[i]);
   for (const c of out) {
     c.new.rects = c.new.rects.map(forward);
     const first = c.new.rects[0]?.rect ?? (c.old.rects[0] ? toReal(c.old.rects[0].rect) : null);
@@ -3534,8 +3582,19 @@ function compareAligned(
       if (!sameShape(a.rects[0], b.rects[0])) return 'skip';
       const seenA = { differs: 0 };
       const seenB = { differs: 0 };
-      const ga = na ? overlayInk(A, a.rects[0], B, b.rects[0], [diffShape(fwdDiff, ra, a.rects[0])], undefined, true, seenA) : null;
-      const gb = nb ? overlayInk(B, b.rects[0], A, a.rects[0], [diffShape(bwdDiff, rb, b.rects[0])], undefined, true, seenB) : null;
+      let ga = na ? overlayInk(A, a.rects[0], B, b.rects[0], [diffShape(fwdDiff, ra, a.rects[0])], undefined, true, seenA) : null;
+      let gb = nb ? overlayInk(B, b.rects[0], A, a.rects[0], [diffShape(bwdDiff, rb, b.rects[0])], undefined, true, seenB) : null;
+      // A difference found next to the word on one side only, and no ink of
+      // an overlay there (that side shows paper where the other side's fill
+      // reaches up to the word): looked for on the other side, at the same
+      // place relative to the word.
+      const moveShape = (f: Shape, from: Rect, to: Rect): Shape => {
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        return { box: { ...f.box, x: f.box.x + dx, y: f.box.y + dy }, inside: (x, y) => f.inside(x - dx, y - dy) };
+      };
+      if (na && !nb && !ga) gb = overlayInk(B, b.rects[0], A, a.rects[0], [moveShape(diffShape(fwdDiff, ra, a.rects[0]), a.rects[0], b.rects[0])], undefined, true, seenB);
+      if (nb && !na && !gb) ga = overlayInk(A, a.rects[0], B, b.rects[0], [moveShape(diffShape(bwdDiff, rb, b.rects[0]), b.rects[0], a.rects[0])], undefined, true, seenA);
       // Nothing differs around the word, outside its box, on either side:
       // the difference found next to it lies beyond what its measure sees
       // (an icon a few spaces before a figure), or in its box (the word
@@ -3633,6 +3692,23 @@ function compareAligned(
       return partly(ca, cb) || partly(cb, ca) ? 'skip' : [ca, cb];
     };
     appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, slant));
+    // Words under the letters of a watermark that both versions have at the
+    // same place relative to them (a twin, see slant), dark enough to hide
+    // part of a glyph: its ink mixes with their glyphs in both, so a strike
+    // drawn under it is fainter and a colour is diluted. Where nothing was
+    // found on them, they were compared in part (see notePartly).
+    const twinNew = slantNew.filter((f) => f.twin && 255 - Math.min(...f.colour) >= 40);
+    if (twinNew.length) {
+      const shown = appearance.flatMap((c) => c.new.rects.filter((q) => q.page === newPage).map((q) => q.rect));
+      for (let p = 0; p < result.matches.length; p += 2) {
+        const a = result.oldDoc.tokens[result.matches[p]];
+        const b = result.newDoc.tokens[result.matches[p + 1]];
+        if (a.page !== oldPage || b.page !== newPage || a.kind === 'punct' || a.rects.length !== 1 || b.rects.length !== 1 || inFormat(b)) continue;
+        const lb = twinNew.filter((f) => !moved(f.run, f.twin, b, a));
+        if (!lb.length || covered(b.rects[0], over(b.rects[0], lb)) < OVERLAY_SHARE || shown.some((r) => intersects(r, b.rects[0]))) continue;
+        notePartly(result, newPage, b);
+      }
+    }
     // Running headers and footers left out of the text comparison: a line
     // through, under or a colour put on their words (a header's
     // "Confidential" struck through) is a difference in them, counted with

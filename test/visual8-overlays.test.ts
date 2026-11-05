@@ -19,7 +19,8 @@ import { extractText } from '../src/pdf/extract.ts';
 import { buildDocModel } from '../src/core/tokenize.ts';
 import { compareDocs } from '../src/core/compare.ts';
 import { addVisualChanges } from '../src/core/pipeline.ts';
-import { describeChange } from '../src/core/describe.ts';
+import { describeChange, notices } from '../src/core/describe.ts';
+import { partlyCompared } from '../src/core/visual.ts';
 import type { Change, CompareResult } from '../src/core/types.ts';
 
 const fixtures = new URL('./fixtures/', import.meta.url).pathname;
@@ -279,4 +280,29 @@ test('V3-V5: a strike on a figure in a row that was given a fill is listed, afte
   // Control: the fills only.
   const c = await run('probe8-V3V5-before.pdf', 'probe8-V3V5-fill-n0.pdf');
   assert.deepEqual(list(c.changes).filter((d) => d !== 'Graphic or image changed'), [], show(c));
+});
+
+test('Words under or next to an overlay that could be compared only in part are counted in a notice', { skip }, async () => {
+  const partly = (r: CompareResult) => partlyCompared(r).flatMap((u) => u.words);
+  const notice = (r: CompareResult) => notices('en', r).find((n) => n.text.includes('compared only in part'));
+  // The Chromium agreement under a 35 % grey DRAFT that both versions have
+  // in front of the text: “ninety”, struck under its letters, is not found
+  // (the strike is fainter under the watermark). Before: nothing told the
+  // reviewer; now the words under its letters are counted.
+  const r = await run('probe8-R4-13-draft.pdf', 'probe8-R4-13-draft-edits.pdf');
+  if (!list(r.changes).includes('Struck through: “ninety”')) assert.ok(partly(r).includes('ninety'), show(r));
+  assert.ok(notice(r)?.text.startsWith('New version p. 1: '), JSON.stringify(notices('en', r)));
+  assert.equal(r.coverage?.new.partlyCompared?.[0].count, partly(r).length);
+  // A stamp written over figures: the one under its letters is counted.
+  const s = await run('probe8-V3V1-stamp-before.pdf', 'probe8-V3V1-stamp-blue-ctrl.pdf');
+  assert.ok(partly(s).includes('1,330.00'), JSON.stringify(partly(s)));
+  // Controls: the same edits without a stamp, and a fill behind a row
+  // (the glyphs show whole): no such notice.
+  for (const [a, b] of [
+    ['probe8-R4-11-before.pdf', 'probe8-R4-11-nostamp-n0.pdf'],
+    ['probe8-V3V3-rows-before.pdf', 'probe8-V3V3-rows-greyfill.pdf'],
+  ]) {
+    const c = await run(a, b);
+    assert.equal(notice(c), undefined, `${b}: ${JSON.stringify(partly(c))}`);
+  }
 });
