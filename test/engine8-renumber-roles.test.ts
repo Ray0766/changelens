@@ -103,6 +103,8 @@ test('bold headings at the steps’ size in the steps’ column are not siblings
   assert.deepEqual(numbers(cb7), []);
   assert.ok(cb7.changes[0].new.text.startsWith('2. Pay the deposit on signing'), cb7.changes[0].new.text);
   assert.deepEqual(minor(cb7), ['List renumbered: 2 → 3', 'List renumbered: 3 → 4']);
+  // The label made bold is listed as formatting, though its new number is a consequence (T1-L5).
+  assert.deepEqual(listed(cb7).slice(1), ['“3” now bold']);
 });
 
 test('headings that look like the steps under them are not siblings of the steps (T1-L1)', async () => {

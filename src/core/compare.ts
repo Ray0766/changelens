@@ -2094,6 +2094,32 @@ function opsOfPairs(pairs: Int32Array): DiffOp[] {
   return ops;
 }
 
+/**
+ * The labels of renumbering consequences that replace one token by one
+ * ("2" → "3"), as pairs of indices into A and B, for their formatting.
+ */
+function renumberedLabels(renumbered: Change[], A: Token[], B: Token[]): number[] {
+  const index = (T: Token[], i: number) => {
+    let lo = 0;
+    let hi = T.length - 1;
+    while (lo <= hi) {
+      const m = (lo + hi) >> 1;
+      if (T[m].i === i) return m;
+      if (T[m].i < i) lo = m + 1;
+      else hi = m - 1;
+    }
+    return -1;
+  };
+  const pairs: number[] = [];
+  for (const c of renumbered) {
+    if (c.kind !== 'replace' || c.old.start === undefined || c.new.start === undefined || c.old.end !== c.old.start + 1 || c.new.end !== c.new.start + 1) continue;
+    const a = index(A, c.old.start);
+    const b = index(B, c.new.start);
+    if (a >= 0 && b >= 0) pairs.push(a, b);
+  }
+  return pairs;
+}
+
 /** One equal op per pair of in-place tokens (see inPlaceTokens). */
 function opsOfInPlace(pairs: number[]): DiffOp[] {
   const ops: DiffOp[] = [];
@@ -2382,6 +2408,8 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
       ...detectFormatting(ctx, moved.innerOps, refitted),
       ...detectFormatting(ctx, opsOfInPlace(stray.pairs), refitted),
       ...detectFormatting(ctxR, opsOfInPlace(runningValues.pairs), refitted),
+      // A label renumbered as a consequence is not matched text, but its face can change too ("2." → bold "3.").
+      ...detectFormatting(ctx, opsOfInPlace(renumberedLabels(renumbered, A, B)), refitted),
     ];
     changes.push(...aggregateFormatting(formats, ctx, pairs), ...turned.turns);
     changes.push(...detectPositions(ctx, pairs));
