@@ -51,6 +51,12 @@ export interface TextRun {
   autoSize?: true;
   /** (Form fields) The box of the widget that shows the value (page space, like x, y, w, h). */
   widget?: Rect;
+  /**
+   * (Page content) A form field's widget shows the same value over this
+   * text (a form flattened with its widgets kept): its glyphs are drawn
+   * twice, and their anti-aliased edges come out darker.
+   */
+  overdrawn?: true;
 }
 
 export interface PageText {

@@ -460,8 +460,13 @@ export function fieldRuns(annotations: WidgetData[], vt: number[], content: Text
     if (a.fieldType === 'Tx' && a.comb && (a.maxLen ?? 0) > 0 && lines.length === 1) lines = [combValue(lines[0], a.fieldValue)];
     if (!lines.some((l) => l.trim())) continue;
     // The value is already part of the page content (a form filled and
-    // flattened while its widgets were kept): compare it once.
-    if (shownByContent(lines, r, vt, content)) continue;
+    // flattened while its widgets were kept): compare it once. The widget
+    // draws it over that text again.
+    const shown = shownByContent(lines, r, vt, content);
+    if (shown) {
+      for (const run of shown) run.overdrawn = true;
+      continue;
+    }
     const group = layoutField(a, lines, r, vt, drawn.get(a.defaultAppearanceData?.fontName ?? '') ?? '');
     const [x0, y0] = apply(vt, r[0], r[1]);
     const [x1, y1] = apply(vt, r[2], r[3]);
@@ -504,8 +509,8 @@ function combStart(a: WidgetData, str: string, cell: number, tpx: number | undef
   return Math.max(0, Math.min(first, max - n));
 }
 
-/** Content text inside the widget's box already reads like the field value. */
-function shownByContent(lines: string[], r: number[], vt: number[], content: TextRun[]): boolean {
+/** Content text inside the widget's box that already reads like the field value (its runs), or null. */
+function shownByContent(lines: string[], r: number[], vt: number[], content: TextRun[]): TextRun[] | null {
   const [x0, y0] = apply(vt, r[0], r[1]);
   const [x1, y1] = apply(vt, r[2], r[3]);
   const box = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
@@ -515,7 +520,7 @@ function shownByContent(lines: string[], r: number[], vt: number[], content: Tex
     return cx >= box.x && cx <= box.x + box.w && cy >= box.y && cy <= box.y + box.h;
   });
   const squash = (s: string) => s.replace(/\s+/g, '');
-  return inside.length > 0 && squash(inside.map((c) => c.str).join('')) === squash(lines.join(''));
+  return inside.length > 0 && squash(inside.map((c) => c.str).join('')) === squash(lines.join('')) ? inside : null;
 }
 
 function apply(m: number[], x: number, y: number): [number, number] {

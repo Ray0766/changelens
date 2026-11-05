@@ -112,3 +112,22 @@ test('F2: words under a dark watermark that show the same pixels in both version
   const strike = await run('probe8-F2-wm.pdf', 'probe8-F2-wm-strike.pdf');
   assert.ok(list(strike.changes).includes('Struck through: “ninety”') || partly(strike).includes('ninety'), list(strike.changes).join(' | '));
 });
+
+test('F7: values of a form flattened with its widgets kept, drawn twice, are not listed as drawn heavier', { skip }, async () => {
+  // SYNTHETIC (review 7 form probes, f10d): a filled form, then the same
+  // form flattened (the values written into the page) with its widgets
+  // kept, and one value edited. The widgets draw each value again over the
+  // page's copy, so its anti-aliased edges are darker. Since the values in
+  // the two versions are matched (one read from the fields, one from the
+  // page), five unchanged values read "Text colour or weight changed".
+  const r = await run('probe8-F7-before.pdf', 'probe8-F7-kept.pdf');
+  assert.deepEqual(list(r.changes), ['Changed “Room 3.14 (Harbour)” → “Room 4.02 (Quay)”']);
+  // Controls (pypdf): the page's copy of "J. Haverkamp" made faux bold
+  // (render mode 2, 0.6 pt), or the widget's copy drawn red: listed.
+  for (const file of ['probe8-F7-kept-bold.pdf', 'probe8-F7-kept-red-widget.pdf']) {
+    const c = await run('probe8-F7-before.pdf', file);
+    assert.ok(c.changes.some((x) => x.format?.appearanceChanged && hits(x, 'new', 1, 260, 132)), `${file}: ${list(c.changes).join(' | ')}`);
+    assert.equal(c.changes.length, 2, `${file}: ${list(c.changes).join(' | ')}`);
+  }
+});
+

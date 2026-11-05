@@ -2703,6 +2703,11 @@ function appearanceChanges(
     return found;
   };
   type Hit = { a: Token; b: Token; colour: boolean; line?: { line: 'strike' | 'underline'; added: boolean; rows: [number, number] }; ink?: Ink; p: number; bold?: boolean };
+  // A word that a form field's widget draws over again in one version only
+  // (a form flattened with its widgets kept, see TextRun.overdrawn): drawn
+  // twice, its glyphs' edges are darker, as if drawn a little heavier.
+  const overdrawn = (doc: DocModel, page: number, t: Token) => (doc.runs[page] ?? []).some((r) => r.overdrawn && coveredShare(t.rects[0], [r]) >= 0.5);
+  const twice = (a: Token, b: Token) => overdrawn(result.oldDoc, oldPage, a) !== overdrawn(result.newDoc, newPage, b);
   // The words compared, by token index (new side): how to look for a
   // fainter line on each (see below).
   const tried = new Map<number, { a: Token; b: Token; p: number; weak: (added: boolean) => FoundLine | null }>();
@@ -2805,8 +2810,9 @@ function appearanceChanges(
       const weight = change > 0.3;
       // The same glyphs drawn heavier (or lighter) at the very same pixels,
       // with nothing else drawn near them: shown even on a single word. Not
-      // on a page turned back, whose glyphs were drawn on another pixel grid.
-      const bold = exact && !colour && change > 0.1 && (ib.total > ia.total ? heavier(A, ka, B, kb) : heavier(B, kb, A, ka));
+      // on a page turned back, whose glyphs were drawn on another pixel grid,
+      // nor where a widget draws the word again in one version only.
+      const bold = exact && !colour && change > 0.1 && !twice(a, b) && (ib.total > ia.total ? heavier(A, ka, B, kb) : heavier(B, kb, A, ka));
       if (colour || weight || bold) hits.push({ a, b, colour, ink: ib, p, bold });
       continue;
     }
@@ -2853,7 +2859,7 @@ function appearanceChanges(
       // half the word's box or more): text drawn over the word (a stamp, a
       // watermark's letters, whose glyph cores are kept) lies over part of
       // its glyphs, and where it moved, the glyphs there look heavier.
-      heavy = exact && !ca && !cb && !t?.[0] && !t?.[1] && [...oa, ...ob].every((c) => c.behind) && wa.n >= 6 && wb.n >= 6 && change > 0.1 && (wb.total > wa.total ? heavier(A, ka, B, kb, ba, bb) : heavier(B, kb, A, ka, bb, ba));
+      heavy = exact && !ca && !cb && !t?.[0] && !t?.[1] && [...oa, ...ob].every((c) => c.behind) && wa.n >= 6 && wb.n >= 6 && change > 0.1 && !twice(a, b) && (wb.total > wa.total ? heavier(A, ka, B, kb, ba, bb) : heavier(B, kb, A, ka, bb, ba));
     }
     const shift = [ib.chroma[0] - ia.chroma[0], ib.chroma[1] - ia.chroma[1], ib.chroma[2] - ia.chroma[2]];
     let colour = ia.n >= 6 && ib.n >= 6 && beyondOverlays(shift, oa, ia.touched, ob, ib.touched) > 30;
