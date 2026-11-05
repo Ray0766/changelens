@@ -186,3 +186,15 @@ test('a tracked deletion struck through in the reviewer colour is one strike, no
   assert.deepEqual(list(marks), ['Struck through: “Paper records may be scanned an…”']);
   assert.equal(marks[0].new.text, 'Paper records may be scanned and the paper copy destroyed after a quality check of a sample of the scanned batch');
 });
+
+test('a page number is not compared with the number of the next page for strikes (round 3 slide deck, round 4 tender pack)', { skip }, async () => {
+  // Running footers are matched by their key, which a page number shares
+  // with every other: "7" was compared with "8" and counted as struck.
+  for (const [id, n] of [
+    ['holdout3-d-impress-steering-deck', 1],
+    ['holdout4-g-tender-pack-merge', 9],
+  ] as const) {
+    const r = await compare(`${cases}${id}/before.pdf`, `${cases}${id}/after.pdf`);
+    assert.equal(r.ignored.furniture, n, id);
+  }
+});

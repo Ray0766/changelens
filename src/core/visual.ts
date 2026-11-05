@@ -3359,7 +3359,9 @@ function furniturePairs(result: CompareResult, oldPage: number, newPage: number)
     const b = lb.find((l) => !used.has(l.id) && Math.abs(l.rect.x - a.rect.x) <= 6 && Math.abs(l.rect.y - a.rect.y) <= 6 && key(B, l) === k);
     if (!b) continue;
     used.add(b.id);
-    for (let i = 0; i < a.end - a.start; i++) out.push(a.start + i, b.start + i);
+    // Words of the same text only: a page number (keyed alike on every
+    // page) is another glyph on the next page, not a "7" struck into an "8".
+    for (let i = 0; i < a.end - a.start; i++) if (A.tokens[a.start + i].text === B.tokens[b.start + i].text) out.push(a.start + i, b.start + i);
   }
   return out;
 }
