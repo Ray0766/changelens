@@ -277,3 +277,14 @@ test('T3-forms-N4: a one-line value in a box taller than its line stays on the l
   const alone = placeFieldRuns([above, high], fieldRuns([w], VT, [above, high]).runs);
   assert.deepEqual(alone.map((x) => [x.str, x.eol]), [['Reference', true], ['Contents', true], ['Glassware, boxed', true]]);
 });
+
+test('T3-forms-N5: an auto-sized value that reads the same and is fitted to a smaller box changed size', async () => {
+  // Shipping label request: the "Consignee" box is 10 pt high instead of 18;
+  // the value (auto size) is drawn at 5.9 pt instead of 11.9 pt.
+  const r = await run('N5-before', 'N5-after');
+  assert.deepEqual(listed(r), ['“Brightwater Labs” size 11.9 → 5.9 pt']);
+  // Control: a value made longer is fitted smaller; that size follows from the
+  // listed edit (see R3-06), so no size change is listed for its other words.
+  const auto = await run('R3-06-auto-before', 'R3-06-auto-after');
+  assert.deepEqual(auto.changes.filter((c) => c.kind === 'format'), []);
+});

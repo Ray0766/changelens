@@ -1797,7 +1797,7 @@ function parseStyle(font: string): Style {
   return { family, bold, italic };
 }
 
-function formatDiff(a: Token, b: Token): FormatDetail | null {
+function formatDiff(a: Token, b: Token, refitted: boolean): FormatDetail | null {
   const sa = styleOf(a.font);
   const sb = styleOf(b.font);
   const d: FormatDetail = {};
@@ -1806,10 +1806,9 @@ function formatDiff(a: Token, b: Token): FormatDetail | null {
   const faces = !(a.field && !a.font) && !(b.field && !b.font);
   if (faces && sa.bold !== sb.bold) sa.bold ? (d.boldRemoved = true) : (d.boldAdded = true);
   if (faces && sa.italic !== sb.italic) sa.italic ? (d.italicRemoved = true) : (d.italicAdded = true);
-  // The size of a field value set in an automatic size follows from the
-  // value and the box (the viewer fits it): not a formatting edit.
-  const fitted = a.autoSize && b.autoSize;
-  if (!fitted && Math.abs(a.size - b.size) > Math.max(0.3, 0.08 * Math.max(a.size, b.size))) {
+  // The size of a field value set in an automatic size that the viewer
+  // fitted to an edited value: not a formatting edit.
+  if (!refitted && Math.abs(a.size - b.size) > Math.max(0.3, 0.08 * Math.max(a.size, b.size))) {
     d.sizeFrom = Math.round(a.size * 10) / 10;
     d.sizeTo = Math.round(b.size * 10) / 10;
   }
@@ -1818,6 +1817,41 @@ function formatDiff(a: Token, b: Token): FormatDetail | null {
     d.fontTo = b.font;
   }
   return Object.keys(d).length ? d : null;
+}
+
+/**
+ * Words of form field values set in an automatic size (see TextRun.autoSize)
+ * whose size follows from an edit of their value: the viewer fits the whole
+ * value to its box, so when the text of the value changed, its other words
+ * are drawn at another size too, and that edit is listed. A value that reads
+ * the same (every word matched, in order, to the value it faces) and still
+ * changed size was fitted to another box or font: its size is compared.
+ */
+function refittedValues(oldDoc: DocModel, newDoc: DocModel, newOfOld: Int32Array): (a: Token, b: Token) => boolean {
+  /** The words of the auto-sized value around token i. */
+  const value = (doc: DocModel, i: number) => {
+    const T = doc.tokens;
+    let s = i;
+    while (s > 0 && T[s - 1].field && T[s - 1].autoSize) s--;
+    let e = i + 1;
+    while (e < T.length && T[e].field && T[e].autoSize) e++;
+    const words: number[] = [];
+    for (let k = s; k < e; k++) if (T[k].kind !== 'punct') words.push(k);
+    return words;
+  };
+  const known = new Map<string, boolean>();
+  return (a, b) => {
+    if (!a.autoSize || !b.autoSize) return false;
+    const wa = value(oldDoc, a.i);
+    const wb = value(newDoc, b.i);
+    const id = `${wa[0]}:${wb[0]}`;
+    let edited = known.get(id);
+    if (edited === undefined) {
+      edited = wa.length !== wb.length || wa.some((k, j) => newOfOld[k] !== wb[j]);
+      known.set(id, edited);
+    }
+    return edited;
+  };
 }
 
 /**
@@ -1848,8 +1882,11 @@ function opsOfInPlace(pairs: number[]): DiffOp[] {
   return ops;
 }
 
-/** Formatting changes of matched words. */
-function detectFormatting(ctx: Ctx, ops: DiffOp[]): Change[] {
+/**
+ * Formatting changes of matched words. `refitted`: the pair's size follows
+ * from an edit of its form field value (see refittedValues).
+ */
+function detectFormatting(ctx: Ctx, ops: DiffOp[], refitted: (a: Token, b: Token) => boolean): Change[] {
   const out: Change[] = [];
   let group: { a: number[]; b: number[]; sig: string; detail: FormatDetail } | null = null;
   const flush = () => {
@@ -1887,7 +1924,7 @@ function detectFormatting(ctx: Ctx, ops: DiffOp[]): Change[] {
       const ib = op.b0 + k;
       const a = ctx.A[ia];
       const b = ctx.B[ib];
-      const d = formatDiff(a, b);
+      const d = formatDiff(a, b, refitted(a, b));
       if (!d) {
         // Punctuation inside a re-formatted phrase does not break the group.
         if (group && a.kind === 'punct') continue;
@@ -2112,11 +2149,12 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   if (options.detectFormatting) {
     // The final pairing: relabel may have paired a label and the words after it anew.
     // Words matched in place (inPlaceTokens) are matched text like any other.
+    const refitted = refittedValues(oldDoc, newDoc, newOfOld);
     const formats = [
-      ...detectFormatting(ctx, relabelled.pairs === pairs0 ? ops : opsOfPairs(relabelled.pairs)),
-      ...detectFormatting(ctx, moved.innerOps),
-      ...detectFormatting(ctx, opsOfInPlace(stray.pairs)),
-      ...detectFormatting(ctxR, opsOfInPlace(runningValues.pairs)),
+      ...detectFormatting(ctx, relabelled.pairs === pairs0 ? ops : opsOfPairs(relabelled.pairs), refitted),
+      ...detectFormatting(ctx, moved.innerOps, refitted),
+      ...detectFormatting(ctx, opsOfInPlace(stray.pairs), refitted),
+      ...detectFormatting(ctxR, opsOfInPlace(runningValues.pairs), refitted),
     ];
     changes.push(...aggregateFormatting(formats, ctx, pairs));
     changes.push(...detectPositions(ctx, pairs));
