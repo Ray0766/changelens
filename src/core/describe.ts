@@ -251,6 +251,15 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
     const skipped = r.coverage?.[s]?.visualSkipped ?? [];
     if (skipped.length) out.push({ level: 'warn', text: t(lang, 'noticeVisualSkipped', { side: side(s), pages: pageRuns(lang, skipped) }) });
   }
+  const partly = r.coverage?.new.partlyCompared ?? [];
+  if (partly.length) {
+    const quote = (w: string) => (lang === 'zh' ? `「${w}」` : `“${w}”`);
+    const words = partly.flatMap((u) => u.words).slice(0, 3);
+    out.push({
+      level: 'warn',
+      text: t(lang, 'noticePartlyCompared', { side: side('new'), pages: pageRuns(lang, partly.map((u) => u.page)), n: partly.reduce((n, u) => n + u.count, 0), words: words.map(quote).join(lang === 'zh' ? '、' : ', ') }),
+    });
+  }
   for (const u of r.coverage?.new.uncertain ?? []) out.push({ level: 'warn', text: t(lang, 'noticeUncertain', { pages: pageRuns(lang, [u.page]), pct: Math.round(u.matched * 100) + '%' }), action: 'pair' });
   if (r.stats?.unalignedTokens) out.push({ level: 'warn', text: t(lang, 'noticeUnaligned') });
   for (const l of manual) out.push({ level: 'info', text: t(lang, 'noticePaired', { pair: pairLabel(lang, l.oldPage, l.newPage) }) });
