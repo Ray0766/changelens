@@ -1659,8 +1659,12 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
   // overlay lies over part of the token.
   const C = Math.min(A.cols, B.cols);
   let valid: Uint8Array | null = null;
+  // Rows where an overlay that lies over the glyphs (not behind them: a
+  // stamp, a seal, a watermark's letters) has ink within the box.
+  let over: Uint8Array | null = null;
   if (ca || cb) {
     valid = new Uint8Array(C * n).fill(1);
+    over = new Uint8Array(n);
     for (const [cov, X] of [
       [ca, A],
       [cb, B],
@@ -1678,6 +1682,7 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
         for (let c = 0; c < C; c++) {
           const st = cov.at(X.x0 + c, y);
           const q = k * X.cols + c;
+          if (st === INK && !cov.behind) over[k] = 1;
           if (st === INK && cov.clear) X.d[q] = 0;
           else if (fill && st !== 0) X.d[q] = Math.max(0, 1 - (1 - X.d[q]) / lf);
           else if (st !== 0 && !(st === UNDER && cov.clear)) valid[k * C + c] = 0;
@@ -1926,8 +1931,12 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
     // over a word, and where nothing else is listed there, it is the only
     // item that shows the mark. A graphic changed next to the word explains
     // the slant only where the line is one of its strokes (see crosses): a
-    // tick added after the word, or a mark above it, does not.
-    if ((opts.level || opts.crossing) && !level(A, B, C, n, k, e) && (opts.level || crosses(a, b, A, B, C, k, e, opts.crossing!))) return null;
+    // tick added after the word, or a mark above it, does not. An overlay
+    // whose ink lies over the glyphs at the line's rows (a seal's ring, a
+    // stamp found as a graphic that changed) is one on the word as well.
+    let lies = !!opts.level;
+    for (let j = Math.max(0, k - 3); j <= Math.min(n - 1, e + 3) && over && !lies; j++) lies = over[j] === 1;
+    if ((lies || opts.crossing) && !level(A, B, C, n, k, e) && (lies || crosses(a, b, A, B, C, k, e, opts.crossing!))) return null;
     let c0 = k;
     let c1 = e;
     let most = 0;
