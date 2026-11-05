@@ -50,3 +50,20 @@ test('V-leftovers-V1: a sloped strike is listed when a separate mark is added ne
   const stamp = await run('probe8-R7-V01-before.pdf', 'probe8-R7-V01-after.pdf');
   assert.deepEqual(lines(stamp), []);
 });
+
+test('V-leftovers-V3: an underline drawn on past its line above a rule both versions keep is an underline', { skip }, async () => {
+  const underlined = (r: CompareResult) => list(r.changes).filter((d) => d.startsWith('Underlined'));
+  // reportlab letter: a grey separator rule 6 pt under "Tenant: Adaeze
+  // Okafor" in both versions; the new one underlines the line and draws the
+  // underline 60 pt past its end. Before: only "Graphic or image changed"
+  // for the tail, with a piece of the kept rule as its old place.
+  const sep = await run('probe8-VL-V3-sep6-before.pdf', 'probe8-VL-V3-sep6-name-ul60.pdf');
+  assert.deepEqual(underlined(sep), ['Underlined: “Tenant: Adaeze Okafor”']);
+  // Controls: a table rule and a band's lower edge that moved against the
+  // re-flowed text (by 11.7 pt in Writer, by 0.7 pt under a navy header in
+  // Chromium) are no underlines (see R5-12, R5-V02 in visual8-appearance).
+  const writer = await run('probe8-R5-12-before.pdf', 'probe8-R5-12-reflow.pdf');
+  assert.deepEqual(underlined(writer), []);
+  const navy = await run('probe8-R5-V02-before.pdf', 'probe8-R5-V02-two-notes.pdf');
+  assert.deepEqual(list(navy.changes), ['Added 2 paragraphs']);
+});

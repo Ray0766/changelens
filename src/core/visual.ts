@@ -2283,18 +2283,18 @@ function appearanceChanges(
       for (let y = Math.max(0, l0 - 1); y <= Math.min(X.r.height - 1, l1 + 1); y++) sum += (255 - X.lum[y * X.r.width + x]) / 255;
       return sum >= 0.6;
     };
+    // The line followed from the word along its rows to where it ends.
+    const wa = Math.floor(r.x * s);
+    const wb = Math.ceil((r.x + r.w) * s) - 1;
+    let xa = wa;
+    let xb = wb;
+    while (xa > 0 && across(xa - 1)) xa--;
+    while (xb < X.r.width - 1 && across(xb + 1)) xb++;
     const up = row(y0 - 2);
     const down = row(y1 + 2);
     if (up && down && up !== down) {
-      // The line followed from the word along its rows to where it ends,
-      // and its stretches past the word outside the text's mask (where the
+      // Its stretches past the word outside the text's mask (where the
       // graphics comparison looks).
-      const wa = Math.floor(r.x * s);
-      const wb = Math.ceil((r.x + r.w) * s) - 1;
-      let xa = wa;
-      let xb = wb;
-      while (xa > 0 && across(xa - 1)) xa--;
-      while (xb < X.r.width - 1 && across(xb + 1)) xb++;
       const outside = (x: number) => {
         if (x >= wa && x <= wb) return false;
         for (let y = Math.max(0, l0); y <= Math.min(X.r.height - 1, l1); y++) {
@@ -2351,19 +2351,42 @@ function appearanceChanges(
     // A rule or a fill's edge in the other version along the same columns
     // (placed by the word), within one and a half of its lines' height of
     // where the line would be: a row of one colour, not paper, with paper
-    // or another colour two pixel rows above or below it.
+    // or another colour two pixel rows above or below it. Not one that this
+    // version has as well, at the same place (within a pixel) as the word
+    // puts it, along those columns or, where the line is drawn over it,
+    // right past the line's end: the edge of a band both versions shade
+    // under the word, a separator rule both keep below it. The text did not
+    // move against that, and the line found is drawn along it. (Unless that
+    // edge is the line found itself: at its rows and of its colour under the
+    // word, the lower edge of a dark header band a pixel off after a
+    // re-flow.)
     const ruled = (x0: number, x1: number) => {
       const c0 = Math.round((x0 - r.x + q.x) * so);
       const c1 = Math.round((x1 - r.x + q.x) * so);
       if (c1 - c0 < 3) return false;
       const reach = Math.round(1.5 * q.h * so);
       const at = (y: number) => Math.round((y / s - r.y + q.y) * so);
+      const back = (y: number) => Math.round(((y + 0.5) / so - q.y + r.y) * s - 0.5);
+      const cols: [number, number] = [Math.round(x0 * s), Math.round(x1 * s)];
+      const past: [number, number] = x0 >= r.x ? [xb + 2, xb + 2 + Math.round(6 * s)] : [xa - 1 - Math.round(6 * s), xa - 1];
+      // The line's colour under the word.
+      const ink = rowColour(X, Math.round((l0 + l1) / 2), wa, wb + 1);
+      const kept = (c: number[], k: number[], dy: number, y: number) => {
+        for (const [p0, p1] of [cols, past])
+          for (let v = back(y) - 1; v <= back(y) + 1; v++) {
+            const here = rowColour(X, v, p0, p1);
+            const next = rowColour(X, v + dy, p0, p1);
+            if (!here || !next || apart(here, c) || apart(next, k)) continue;
+            if (v < l0 - 1 || v > l1 + 1 || (ink && apart(ink, c))) return true;
+          }
+        return false;
+      };
       for (let y = at(y0) - reach; y <= at(y1) + reach; y++) {
         const c = rowColour(O, y, c0, c1);
         if (!c || isPaper(c)) continue;
-        for (const e of [y - 2, y + 2]) {
-          const k = rowColour(O, e, c0, c1);
-          if (k && apart(c, k)) return true;
+        for (const dy of [-2, 2]) {
+          const k = rowColour(O, y + dy, c0, c1);
+          if (k && apart(c, k) && !kept(c, k, dy, y)) return true;
         }
       }
       return false;
