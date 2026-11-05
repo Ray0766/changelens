@@ -66,3 +66,33 @@ test('V2-decorations-V2: a strike drawn with a slight slope (a line tool) is lis
   // Where a stamp drawn across the text is listed as a graphic, its slanted
   // border is still no line: see R7-V01 in visual8-decorations.test.ts.
 });
+
+test('V2-decorations-V3: figures turned pure red are a colour change, not a strikethrough removed; red strikes on them are listed', { skip }, async () => {
+  const colour = 'Text colour or weight changed';
+  // Labels in Helvetica 10 turned #ff0000. Before: "Strikethrough removed:
+  // “44”" for the two at whole-pixel x (the black version's anti-aliased
+  // edges, in units of the red ink, came out darker along the 4s' bars).
+  const r = await run('probe8-V2V3-before.pdf', 'probe8-V2V3-red.pdf');
+  assert.deepEqual(list(r.changes), Array(7).fill(colour));
+  // Liberation Sans 9 (Chromium), 15 figures turned red: before, one was
+  // "Strikethrough removed: “4”".
+  const c = await run('probe8-V2V3-ls9-before.pdf', 'probe8-V2V3-ls9-red.pdf');
+  assert.deepEqual(list(c.changes), Array(15).fill(colour));
+  // Control (SYNTHETIC counter-probe): figures turned red and struck or
+  // underlined in red, grey "25" struck in black and "8" turned red and
+  // struck are listed as lines; "44" and "17" turned red only are colour
+  // changes. "fee" (black, struck in red at the height of the e's bars) is
+  // a colour item, as before this change: a known limit.
+  const m = await run('probe8-V2V3-cp-before.pdf', 'probe8-V2V3-cp-marks.pdf');
+  assert.deepEqual(list(m.changes), [
+    'Struck through: “44”',
+    colour,
+    'Underlined: “74”',
+    'Struck through: “4”',
+    colour,
+    colour,
+    colour,
+    'Struck through: “25”',
+    'Struck through: “8”',
+  ]);
+});
