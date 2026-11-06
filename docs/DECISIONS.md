@@ -158,3 +158,23 @@ Each reference was viewed as a real screenshot or as source text.
 **Scorer rules decided after the run.**
 - **Decision**: four rules credit correct reports that the registered rules missed (EVALUATION, Scoring). They are on by default and off with `--registered-rules`. Every round-4 table says which rules it uses.
 - **Rejected**: editing the round-4 truth files. They are the independent authors' record.
+
+## D12 · Fix round 8: count what could be compared only in part (2026-11-06)
+
+- **Decision**: where a stamp, seal, watermark or fill lies over or under a word, compare the word's colour, weight, strikethrough and underline outside the overlay's ink. Where the overlay and a change cannot be told apart and the pixels there differ, count the word in a warning instead of listing or hiding it. The warning reads "compared only in part" and gives the page and example words. The words are also in the JSON coverage (`partlyCompared`), and `--fail-on-change` then exits with 3, not 0.
+- **Why**: review round 7 and the verifiers of fix round 8 found opposite failures on the same kind of page:
+  - strikes under an unchanged watermark missed silently (R4-09);
+  - dozens of false colour items on unchanged words under a translucent watermark.
+
+  D11 says a rule may hide an item only with positive evidence. Under an overlay there is often no evidence either way, so the honest result is a count.
+- **Alternatives**:
+  - Rejected: listing every word whose pixels differ under an overlay. That brings back the noise of round 4.
+  - Rejected: skipping such words, as before fix round 8. The result then read "No differences found." when it was not fully compared.
+- **How it was checked**:
+  - Probe pairs with real strikes, colour and weight changes under watermarks, image stamps and fills, each with its control (fixtures `test/fixtures/probe8-F2-*`, `probe8-T-V2-*`, `probe8-V-V2-*`, all SYNTHETIC).
+  - The same documents compared with themselves give "No differences found." and exit 0: words whose pixels are identical in both versions are not counted.
+  - Verified twice on the merged engine by independent verifiers (EVALUATION, Review round 7 and fix round 8).
+- **Limits** (also in the README):
+  - The count can include words that are fine, for example in a striped table re-flowed by an inserted row.
+  - A grey or black image stamp over black text is not told apart from the glyphs, so a change under it can be missed without a count.
+  - The visual stage takes about 1.7 times as long on pages with a large slanted watermark.

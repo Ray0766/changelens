@@ -98,6 +98,8 @@ Items to read: ChangeLens 117, text line diff 132 hunks, pixel diff 222 regions.
 
 **These numbers are not evidence of generalisation.** Every case in this table was used to tune or fix the engine. The evidence that is not tuned is the first run of each held-out round, below.
 
+Fix round 8 (below) left every figure in this table unchanged; the run on the merged branch is in [Review round 7 and fix round 8](#review-round-7-and-fix-round-8-probes-not-held-out).
+
 Where the baselines lose:
 - **Text line diff**:
   - It finds no graphics, colours or bold.
@@ -105,6 +107,57 @@ Where the baselines lose:
   - Several edits in one line become one hunk: separate is 72 against 89 found.
   - Page numbers and re-wrapped lines create extra hunks: 11 in each demo, 3 for an inserted page.
 - **Pixel page diff**: it finds that *something* changed on a page, but after an insertion every later page differs. That gives 31 extra regions in the Chinese price list and 12–16 in the demos, and in the demos many changes land on the wrong page (9 of 13 located in demo-en).
+
+### Review round 7 and fix round 8 (probes, not held out)
+
+**Review round 7** probed the engine at `a722e40` (after fix round 6). It used seven lenses: renumbering, page edges and numbers, form fields, appearance (strike, underline, colour), page structure, robustness, and the diff itself.
+- Seven review agents built about 1,970 SYNTHETIC probe PDFs. Each put a real edit next to a pattern that a rule hides, folds or relabels, with a control that lacks the edit.
+- Independent verifiers re-ran every finding: 86 were confirmed and 9 partly confirmed, and the verifiers found 11 more.
+- Of these 106 findings, 27 were high severity: 13 real edits missing, 8 folded into another change, and 6 hidden as a consequence of another rule. 58 were medium and 21 low; most of those were noise (48) or wrong labels (19).
+- 26 findings were regressions new in fix rounds 5 and 6; 80 were already in the engine before them (`82aa23a`).
+
+**Fix round 8** (commits `e58d50b` to `251a4f3`, merged as `2af63c3`) worked in three streams:
+- text: renumbering, page edges and numbers, form fields;
+- visual structure and decorations;
+- overlays and colour.
+
+Each fix got a regression test from the probe PDFs that fails before it (`test/engine8-*`, `test/visual8-*`, fixtures `test/fixtures/probe8-*`, all SYNTHETIC). An independent verifier then re-ran the findings and built new counter-probes against every changed rule. Problems those verifiers found went back to the fixers, up to four fix passes in one area (form fields). The merged engine was verified once more as a whole: once for the text side and twice for the visual side, with about 400 further counter-probes and a full diff of about 1,400 probe pairs against `b3de0f4`.
+
+Latest verifier status of the 106 findings:
+
+| Severity | Fixed | Partly fixed | Deferred, verifier agreed | Open |
+|---|---|---|---|---|
+| High (27) | 23 | 2 | 2 | 0 |
+| Medium (58) | 42 | 7 | 9 | 0 |
+| Low (21) | 16 | 0 | 5 | 0 |
+
+The four high findings not fully fixed:
+- **R4-10, partly.** Word boxes in Carlito text printed by Chromium drift 2–3 pt off the glyphs. A page of 20 struck figures gave "No differences found."; the same pages now list 15 or 16 of 16. Single-glyph strikes can still be missed, with no notice (README: Strikethrough, underline and small marks).
+- **R5-07, partly.** A strike or highlight on running-header text is counted with the ignored header and footer differences, not listed. A strike on a header line drawn along a rule is neither listed nor counted (README: Marks on headers and footers).
+- **R3-03, deferred.** A form page turned by `/Rotate 90`: the text side is fixed, and a real value edit is now listed. A false "Graphic or image added" for the widget frames remains.
+- **R4-09, deferred.** A strike under an unchanged semi-opaque watermark in front of the text: one of six is still not listed, but it is counted in the "compared only in part" notice.
+
+Problems the verifiers of fix round 8 found beyond the 106, still open:
+- **Medium, also in `b3de0f4`:**
+  - A thin strike in a mid-tone colour over black text gives "No differences found.": grey at 0.8 and 1.5 pt, and mid-blue or green at 0.8 pt. This is now a README limit.
+  - A strike or recolour under an unchanged translucent image stamp, which gave nothing before, is now counted in the "compared only in part" notice but not listed.
+- **Low:**
+  - pale highlights next to bands or changed graphics;
+  - a vector seal drawn across lines;
+  - false items from a rotated stamp frame;
+  - the notice on a striped table re-flowed by a row;
+  - a 4 × 4 pt sliver inside an added stamp;
+  - a multiline field re-laid on one line.
+
+  All of these are in the README limits.
+- **Speed:** pages with a large slanted watermark take about 1.7 times as long as at `b3de0f4`; see [Performance](#performance).
+
+On the evaluation sets nothing moved. The last verifier ran them on 2026-11-06 at `251a4f3`, whose engine is the merged branch's:
+- 31 non-blind pairs: 117 / 117 / 0;
+- round 3: 73 / 73 / 1;
+- round 4: 118 / 118 / 4, and 108 / 108 / 10 with the registered rules (one fewer found than before, explained under round 4 below).
+
+The `--items` output of all 61 cases is identical before and after the last two fix passes. The fixes were made for the probes, so they say nothing new about other documents; a fifth blind round is the test of that.
 
 ### Held-out round 4: registered before the run, then run once
 

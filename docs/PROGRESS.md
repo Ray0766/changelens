@@ -2,6 +2,25 @@
 
 Short running notes for whoever continues (people or agents). Newest first.
 
+## 2026-11-05 and 06 (review round 7, fix round 8)
+
+- **Review round 7** probed `a722e40` with seven lenses and about 1,970 SYNTHETIC probe PDFs. After independent verification there were 106 findings, 27 of them high. Details are in EVALUATION, Review round 7 and fix round 8.
+- **Fix round 8** (`e58d50b`..`251a4f3`, merged as `2af63c3`) ran in a text stream and two visual streams. Each verifier's new problems went back to its fixer, and the merged engine was verified again as a whole.
+  - Status of the 106: high 23 fixed, 2 partly, 2 deferred; medium 42 / 7 / 9; low 16 / 0 / 5.
+  - New: the "compared only in part" warning and exit code 3 for words under overlays (DECISIONS D12); form field values on header and footer lines compared page by page; quarter-turned fields read as text; `partlyCompared` and `fieldsUnread` in the JSON coverage.
+- **Now** (the last verifier's run at `251a4f3`, 2026-11-06; the merged branch has the same engine):
+  - typecheck passes; `npm test` passes 459 of 459;
+  - 31 non-blind pairs: 117 / 117 / 0;
+  - round 3: 73 / 73 / 1;
+  - round 4: 118 / 118 / 4, and 108 / 108 / 10 with the registered rules.
+- **Open, as facts** (all in the README limits):
+  - a thin mid-tone strike (grey, mid-blue or green) over black text is not detected (also in `b3de0f4`);
+  - a strike or recolour under an unchanged translucent image stamp is counted, not listed;
+  - R4-10: single-glyph strikes in drifting Carlito word boxes;
+  - R5-07: a strike on a header line drawn along a rule;
+  - pages with a large slanted watermark take about 1.7 times as long as at `b3de0f4`.
+- **Next**: blind round 5. Its cases were written by independent authors and were kept out of the repository and away from the fixers. The engine is frozen at the commit that registers it, and the set is run once.
+
 ## 2026-11-04 (fix rounds 5 and 6, after blind round 4)
 
 - **Fix round 5** (`00517e0`..`82aa23a`), in the agreed order:
