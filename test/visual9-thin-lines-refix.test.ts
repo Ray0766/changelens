@@ -45,6 +45,7 @@ const probe = (a: string, b: string) => run(fixtures + `probe9-V2-refix-${a}.pdf
 const list = (cs: Change[]) => cs.map((c) => describeChange('en', c));
 const lines = (r: CompareResult) => list(r.changes.filter((c) => c.format?.decoration));
 const counted = (r: CompareResult) => (r.coverage?.new.partlyCompared ?? []).reduce((n, u) => n + u.count, 0);
+const recoloured = (r: CompareResult) => r.changes.filter((c) => c.format?.appearanceChanged && !c.format.decoration).map((c) => c.new.text);
 const DELETED = 'Deleted “HT-1030 Garden fork, four tines each 6 26.40”';
 const ROW = 'Anvil loppers 70 cm, ratchet';
 
@@ -82,6 +83,29 @@ test('V2-thin refix: a thin underline in a filled table cell is listed, not take
   }
 });
 
+test('V2-thin refix: a word recoloured under a line drawn over its phrase lists both the line and the colour', { skip }, async () => {
+  // "finished" turned red, and a grey 0.8 pt strike, a #00ff00 0.73 pt
+  // underline or a yellow 0.8 pt strike over "storage of finished parts".
+  // Before: the line only (the recolour was replaced by it).
+  const struck = 'Struck through: “storage of finished parts”';
+  for (const [after, line] of [
+    ['recol-grey', struck],
+    ['recol-green', 'Underlined: “storage of finished parts”'],
+    ['recol-yellow', struck],
+  ] as const) {
+    const r = await probe('recol-before', after);
+    assert.deepEqual(lines(r), [line], after);
+    assert.deepEqual(recoloured(r), ['finished'], after);
+  }
+  // Controls: the recolour alone is a colour change; the grey strike alone
+  // gives no colour change; a word given the line's own colour with it
+  // (struck in the same red) is one change, the strike.
+  assert.deepEqual(recoloured(await probe('recol-before', 'recol-text')), ['finished']);
+  assert.deepEqual(recoloured(await probe('recol-before', 'recol-plain')), []);
+  const same = await probe('recol-before', 'recol-same');
+  assert.deepEqual(list(same.changes), ['Struck through: “finished”']);
+});
+
 test('V2-thin refix: a stamp’s border turned by 18° across a figure is no underline', { skip }, async () => {
   // Review round 7's probe p15: a red stamp at 55 % opacity, turned -18°,
   // whose border crosses the foot of "253.86", over a statement that a
@@ -91,4 +115,23 @@ test('V2-thin refix: a stamp’s border turned by 18° across a figure is no und
     assert.deepEqual(lines(r), [], after);
     assert.ok(list(r.changes).includes('Added “PAID”'), after);
   }
+});
+
+test('V2-thin refix: a word that a strike was followed onto is listed, not also counted', { skip }, async () => {
+  // A grey 0.8 pt strike over "torque wrenches were missing" next to an
+  // edit; "were" lies a pixel lower than the others. Before: listed in the
+  // strike and counted as compared in part.
+  const r = await probe('recol-before', 'were');
+  assert.ok(lines(r).some((l) => l.includes('wrenches were missing')), lines(r).join(' | '));
+  assert.equal(counted(r), 0);
+});
+
+test('V2-thin refix: a watermark made lighter is no faint line under the words it crosses', { skip }, async () => {
+  // A grey "DRAFT" turned 45° over the text, 35 % → 15 % opacity, nothing
+  // else changed. Before: a word counted as having "a line too thin or too
+  // light", and --fail-on-change exited 3. The faint line is now looked for
+  // outside the watermark's letters as well.
+  const r = await probe('wm', 'wm-faint');
+  assert.deepEqual(list(r.changes), []);
+  assert.equal(counted(r), 0);
 });

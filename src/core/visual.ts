@@ -2697,8 +2697,9 @@ function rise(points: [number, number][]): number | null {
  * the luminance per unit of darkness, which anti-aliasing and transparency
  * over paper leave as they are (a red line drawn half-transparent is the
  * same red; black and grey are 0, 0, 0). `differs`: two strokes, each with
- * a few pixels' worth of darkness, are of other colours (by more than a
- * quarter of the scale in a channel: black against red, blue or green).
+ * a few pixels' worth of darkness (`min`), are of other colours (by more
+ * than a quarter of the scale in a channel: black against red, blue or
+ * green).
  */
 class StrokeHue {
   private off = [0, 0, 0];
@@ -2709,9 +2710,16 @@ class StrokeHue {
     for (let c = 0; c < 3; c++) this.off[c] += p[c] - l;
     this.dark += (255 - l) / 255;
   }
-  differs(o: StrokeHue): boolean {
-    if (this.dark < 2 || o.dark < 2) return false;
+  differs(o: StrokeHue, min = 2): boolean {
+    if (this.dark < min || o.dark < min) return false;
     return this.off.some((v, c) => Math.abs(v / this.dark - o.off[c] / o.dark) > 64);
+  }
+  /** Whether the pixel `i` of `r` is of another colour than the stroke (as differs; a stroke with no darkness is black). */
+  apart(r: Raster, i: number): boolean {
+    const p = rgb(r, i);
+    const l = 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2];
+    const d = (255 - l) / 255;
+    return d > 0 && [0, 1, 2].some((c) => Math.abs((p[c] - l) / d - (this.dark ? this.off[c] / this.dark : 0)) > 64);
   }
 }
 
@@ -3320,7 +3328,7 @@ function appearanceChanges(
   // Words with a line too thin or too light to be found on its own (see
   // LineOptions.faint), by token index (new side); `alone`: nothing else
   // found to change at the word could have drawn it.
-  const faints = new Map<number, { a: Token; b: Token; p: number; line: Line; alone: boolean }>();
+  const faints = new Map<number, { a: Token; b: Token; p: number; line: Line; alone: boolean; plain: boolean }>();
   // A word that a form field's widget draws over again in one version only
   // (a form flattened with its widgets kept, see TextRun.overdrawn): drawn
   // twice, its glyphs' edges are darker, as if drawn a little heavier.
@@ -3346,8 +3354,94 @@ function appearanceChanges(
     return Math.abs(u.h - v.h) > 0.1 * Math.max(u.h, v.h) || Math.abs(u.w - v.w) > 0.1 * Math.max(u.w, v.w);
   };
   // The words compared, by token index (new side): how to look for a
-  // fainter line on each (see below).
-  const tried = new Map<number, { a: Token; b: Token; p: number; weak: (added: boolean) => FoundLine | null }>();
+  // fainter line on each (see below); `plain`: no overlay or graphic that
+  // changed lies at the word (see recolouredToo).
+  const tried = new Map<number, { a: Token; b: Token; p: number; plain: boolean; weak: (added: boolean) => FoundLine | null }>();
+  // Words with a line through or under them whose glyphs were also
+  // recoloured (see recolouredToo): listed apart from the line.
+  const also: Hit[] = [];
+  // The colours of a line `l` through or under a word and of its glyphs,
+  // on the version that has the line (see StrokeHue): the line's from its
+  // pixels in its rows where the other version leaves paper there (as the
+  // word moved), the glyphs' from their ink outside the line's rows (two
+  // pixel rows on either side). `il` and `io`: the glyphs' ink outside
+  // those rows on the line's version and on the other (see ink). `moved`:
+  // the share of the glyphs' ink outside those rows, by darkness, in
+  // another colour than the other version's glyphs there.
+  const lineHues = (a: Token, b: Token, l: Line) => {
+    const [L, O] = l.added ? [B, A] : [A, B];
+    const [tl, to] = l.added ? [b, a] : [a, b];
+    const [sL, sO] = [L.r.scale, O.r.scale];
+    const [y0, y1] = [l.rows[0] - 2, l.rows[1] + 2];
+    const mapY = (y: number) => ((y + 0.5) / sL - tl.rects[0].y + to.rects[0].y) * sO - 0.5;
+    const mapX = (x: number) => Math.round(((x + 0.5) / sL - tl.rects[0].x + to.rects[0].x) * sO - 0.5);
+    const [o0, o1] = [Math.floor(mapY(y0)), Math.ceil(mapY(y1))];
+    const [ka, kb] = pitch(a, b);
+    const [kl, ko] = l.added ? [kb, ka] : [ka, kb];
+    const il = ink(L, kl, (_x, y) => y >= y0 && y <= y1);
+    const io = ink(O, ko, (_x, y) => y >= o0 && y <= o1);
+    const line = new StrokeHue();
+    const glyphs = new StrokeHue();
+    const r = tl.rects[0];
+    const W = L.r.width;
+    const bgL = 0.299 * il.bg[0] + 0.587 * il.bg[1] + 0.114 * il.bg[2];
+    const bgO = 0.299 * io.bg[0] + 0.587 * io.bg[1] + 0.114 * io.bg[2];
+    const [ry0, ry1] = [Math.max(0, Math.floor(r.y * sL)), Math.min(L.r.height, Math.ceil((r.y + r.h * 1.15) * sL))];
+    const before = new StrokeHue();
+    const q = to.rects[0];
+    for (let y = Math.max(0, Math.floor(q.y * sO)); y < Math.min(O.r.height, Math.ceil((q.y + q.h * 1.15) * sO)); y++) {
+      if (y >= o0 && y <= o1) continue;
+      for (let x = Math.max(0, Math.round(q.x * sO)); x < Math.min(O.r.width, Math.round((q.x + q.w) * sO)); x++) if (O.lum[y * O.r.width + x] < bgO - 40) before.add(O.r, y * O.r.width + x);
+    }
+    let all = 0;
+    let other = 0;
+    for (let x = Math.max(0, Math.round(r.x * sL)); x < Math.min(W, Math.round((r.x + r.w) * sL)); x++) {
+      const xo = mapX(x);
+      let paper = xo >= 0 && xo < O.r.width;
+      for (let y = Math.max(0, o0); y <= Math.min(O.r.height - 1, o1) && paper; y++) paper = O.lum[y * O.r.width + xo] >= bgO - 12;
+      for (let y = ry0; y < ry1; y++) {
+        const i = y * W + x;
+        if (y >= l.rows[0] && y <= l.rows[1]) {
+          if (paper) line.add(L.r, i);
+        } else if ((y < y0 || y > y1) && L.lum[i] < bgL - 40) {
+          glyphs.add(L.r, i);
+          const d = (255 - L.lum[i]) / 255;
+          all += d;
+          if (before.apart(L.r, i)) other += d;
+        }
+      }
+    }
+    return { il, io, line, glyphs, moved: all ? other / all : 0 };
+  };
+  // Whether the glyphs of a word with a line `l` through or under it (no
+  // overlay or graphic that changed at it) also changed colour, apart from
+  // the line: their chroma, outside the line's rows (two pixel rows on
+  // either side, and the same rows of the other version as the word
+  // moved), apart by more than 30 as a recolour is told without a line,
+  // with most of their ink there in another colour (see lineHues); and the
+  // line not in the glyphs' new colour (see StrokeHue; the line's
+  // colour from its pixels where the other version leaves paper in those
+  // rows). A word given the line's colour with it (a tracked deletion shown
+  // in the reviewer's colour and struck through in it) is the one change,
+  // the line. Where the line is too faint to tell its colour, or the word
+  // lies on a fill, the line is listed alone, as it was.
+  const recolouredToo = (a: Token, b: Token, l: Line, p: number): Hit | null => {
+    const { il, io, line, glyphs, moved } = lineHues(a, b, l);
+    if (il.n < 6 || io.n < 6) return null;
+    // On paper only: over a fill (a highlight), the glyphs' anti-aliased
+    // edges are of the fill's colour in part, the more so the thinner the
+    // stroke, and re-sampled after a re-flow they change chroma.
+    if (Math.min(...il.bg, ...io.bg) < 240) return null;
+    if (Math.hypot(il.chroma[0] - io.chroma[0], il.chroma[1] - io.chroma[1], il.chroma[2] - io.chroma[2]) <= 30) return null;
+    // Most of the glyphs' ink there took another colour: not a few pixels
+    // of a coloured mark that crosses the word at a slant, past the line's
+    // rows (a stamp's frame turned by a few degrees).
+    if (moved < 0.5) return null;
+    // (A thin line in a light colour, yellow, has little darkness: half a
+    // pixel's worth is enough to tell its colour from the glyphs'.)
+    if (!line.differs(glyphs, 0.5)) return null;
+    return { a, b, colour: true, ink: l.added ? il : io, p };
+  };
   const hits: Hit[] = [];
   // A word whose text runs another way than in the other version, by a
   // quarter or a half turn (a label set upright in one and turned in the
@@ -3430,20 +3524,32 @@ function appearanceChanges(
     const again = !turned && !line && g && g !== 'skip' && (g[0] || g[1]) && !(ca && g[0]) && !(cb && g[1]) && !(sharedBg(g[0]) && sharedBg(g[1]));
     // Behind the word (a fill, a tint), the overlay leaves the glyphs where
     // they were: the word's box is not tried shifted (see addedLine) again.
-    if (again) line = lines(ca ?? g[0], cb ?? g[1], g[0]?.behind || g[1]?.behind ? { ...opts, drift: false } : opts);
+    // A fainter line found on the word as it is (see faint below) is then
+    // looked for again outside the graphic's ink where the word moved: the
+    // glyphs of a paragraph that an image beside it moved, drawn at another
+    // sub-pixel position, are no line. Not where the graphic is a fill
+    // behind the text (taken off the word's darkness there, see offFill),
+    // nor where the glyphs give the very same pixels (see samePixels): a
+    // grey strike there with an arrow drawn after it is counted as before.
+    const filled = (side: 'old' | 'new') => !!fillAround(side, (side === 'old' ? a : b).rects[0]);
+    const behind = (c: Cover | null, side: 'old' | 'new') => !c || (c.clear && filled(side));
+    const fills = !!g && g !== 'skip' && behind(g[0], 'old') && behind(g[1], 'new');
+    const still = exact && samePixels(a.rects[0], A.r.scale, b.rects[0], B.r.scale);
+    if (again) line = lines(ca ?? g[0], cb ?? g[1], g[0]?.behind || g[1]?.behind ? { ...opts, drift: false } : opts, [a, b], !!faint && !fills && !still);
     const [wa, wb] = again ? [ca ?? g[0], cb ?? g[1]] : [ca, cb];
     // So is a line under a watermark that moved, turned or was recoloured
     // (see slant), outside its ink; where its ink cannot be told, the word
-    // is measured as it is.
+    // is measured as it is. So is a fainter line: the edges of the
+    // watermark's letters that changed (made lighter) are no line.
     const sl = slant(a, b);
     const t = sl === 'skip' ? null : sl;
-    if (!turned && !line && t && (t[0] || t[1])) line = lines(wa ?? t[0], wb ?? t[1]);
+    if (!turned && !line && t && (t[0] || t[1])) line = lines(wa ?? t[0], wb ?? t[1], opts, [a, b], !!faint);
     const weak = { ...opts, weak: true, drift: false };
     const fainter = (added: boolean) =>
       added
         ? framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, wa, wb, weak), B, pageLines.new, b, a), B, A, b, a)
         : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, wb, wa, weak), A, pageLines.old, a, b), A, B, a, b);
-    tried.set(b.i, { a, b, p, weak: (added) => (turned ? null : fainter(added)) });
+    tried.set(b.i, { a, b, p, plain: !ca && !cb && !g && !(t && (t[0] || t[1])), weak: (added) => (turned ? null : fainter(added)) });
     // The rule that closes a table fragment at a moved page break, found
     // under the word (see closingRules): part of that consequence. The
     // word's colour and weight are compared as where no line is found. A
@@ -3468,8 +3574,12 @@ function appearanceChanges(
         }
       }
     }
+    // No overlay or graphic that changed at the word.
+    const plain = !ca && !cb && !g && !(t && (t[0] || t[1]));
     if (line) {
       hits.push({ a, b, colour: false, line, p });
+      const tint = plain ? recolouredToo(a, b, line, p) : null;
+      if (tint) also.push(tint);
       continue;
     }
     // A fainter line, weighed below with the words next to it. Only where
@@ -3479,10 +3589,8 @@ function appearanceChanges(
     // a re-flow by a row flipped, taken off the word's darkness; a fill's
     // edge in the box is no line, see goesOn).
     if (faint && !closes(a, b, faint)) {
-      const filled = (side: 'old' | 'new') => !!fillAround(side, (side === 'old' ? a : b).rects[0]);
-      const behind = (c: Cover | null, side: 'old' | 'new') => !c || (c.clear && filled(side));
-      const quiet = !ca && !cb && !(t && (t[0] || t[1])) && (!g || (g !== 'skip' && behind(g[0], 'old') && behind(g[1], 'new'))) && (!graphicAt(a, b) || filled('old') || filled('new'));
-      faints.set(b.i, { a, b, p, line: faint, alone: quiet });
+      const quiet = !ca && !cb && !(t && (t[0] || t[1])) && (!g || fills) && (!graphicAt(a, b) || filled('old') || filled('new'));
+      faints.set(b.i, { a, b, p, line: faint, alone: quiet, plain });
     }
     if (g === 'skip') {
       notePartly(result, newPage, b);
@@ -3668,28 +3776,52 @@ function appearanceChanges(
   // is a line through or under both: a thin strike drawn over a phrase.
   // Elsewhere it is no more than a likeness: the word is counted as
   // compared in part, not listed and not dropped. Not one that runs on
-  // past either end of its line of text, as a table's rule does.
+  // past either end of its line of text, as a table's rule does. Nor one in
+  // another colour than the line next to it (see StrokeHue): a red arrow
+  // drawn after a black strike, at its height over the next word, is
+  // another mark (listed as a graphic where it reaches out of the text).
+  // The words counted so are counted once the lines found have been
+  // followed along (below): a word a line was followed onto is listed.
+  const doubtful: Token[] = [];
   {
-    const lineAt = new Map(hits.filter((h) => h.line).map((h) => [h.b.i, h.line!]));
+    const lineAt = new Map(hits.filter((h) => h.line).map((h) => [h.b.i, h]));
     const same = (u: Line, v: Line) => u.line === v.line && u.added === v.added && Math.abs(u.rows[0] + u.rows[1] - v.rows[0] - v.rows[1]) <= 2;
+    // (Told on paper only: over a fill, a line's anti-aliased pixels are
+    // of the fill's colour in part, and the share varies with the line's
+    // place on the pixel grid.)
+    const hue = new Map<number, ReturnType<typeof lineHues>>();
+    const hueOf = (a: Token, b: Token, l: Line) => {
+      let h = hue.get(b.i);
+      if (!h) hue.set(b.i, (h = lineHues(a, b, l)));
+      return h;
+    };
+    const alike = (a: Token, b: Token, l: Line, c: Token, d: Token, m: Line) => {
+      const [u, v] = [hueOf(a, b, l), hueOf(c, d, m)];
+      return Math.min(...u.il.bg, ...v.il.bg) < 240 || !u.line.differs(v.line, 0.5);
+    };
     const promoted: Hit[] = [];
     for (const [i, f] of faints) {
       const next = [-2, -1, 1, 2].some((d) => {
         const o = faints.get(i + d);
-        if (o) return o.alone && o.b.line === f.b.line && same(o.line, f.line);
-        const l = lineAt.get(i + d);
-        return !!l && TB[i + d].line === f.b.line && same(l, f.line);
+        if (o) return o.alone && o.b.line === f.b.line && same(o.line, f.line) && alike(f.a, f.b, f.line, o.a, o.b, o.line);
+        const h = lineAt.get(i + d);
+        return !!h && TB[i + d].line === f.b.line && same(h.line!, f.line) && alike(f.a, f.b, f.line, h.a, h.b, h.line!);
       });
       // A rule along the row (see runsOn) is compared as a graphic where it
       // runs on outside the text: neither the word's line nor in doubt.
       if (runsOn(f.line.added ? B : A, f.line.added ? pageLines.new : pageLines.old, f.line.added ? f.b : f.a, f.line.rows)) continue;
       if (f.alone && next) promoted.push({ a: f.a, b: f.b, colour: false, line: f.line, p: f.p });
-      else if (!hits.some((h) => h.b.i === i)) notePartly(result, newPage, f.b, true);
+      else doubtful.push(f.b);
     }
+    // A colour or weight found at the word was measured with the line's
+    // pixels: told again outside them (see recolouredToo).
     for (const h of promoted) {
       const k = hits.findIndex((x) => x.b.i === h.b.i);
-      if (k >= 0) hits[k] = h;
-      else hits.push(h);
+      if (k >= 0) {
+        const tint = faints.get(h.b.i)!.plain ? recolouredToo(h.a, h.b, h.line!, h.p) : null;
+        if (tint) also.push(tint);
+        hits[k] = h;
+      } else hits.push(h);
     }
   }
   const byToken = new Map(hits.map((h) => [h.b.i, h]));
@@ -3710,12 +3842,24 @@ function appearanceChanges(
       if (closes(t.a, t.b, found)) continue;
       const next: Hit = { a: t.a, b: t.b, colour: false, line: found, p: t.p };
       const old = byToken.get(t.b.i);
-      if (old) hits[hits.indexOf(old)] = next;
-      else hits.push(next);
+      if (old) {
+        const tint = old.colour && t.plain ? recolouredToo(t.a, t.b, found, t.p) : null;
+        if (tint) also.push(tint);
+        hits[hits.indexOf(old)] = next;
+      } else hits.push(next);
       byToken.set(t.b.i, next);
       queue.push(next);
     }
   }
+  // Nor a word between two words of one line item (see flush below), whose
+  // text takes it in: "were" in a struck "wrenches were missing".
+  const within = new Set<number>();
+  const struck = hits.filter((h) => h.line).sort((u, v) => u.b.i - v.b.i);
+  for (let k = 1; k < struck.length; k++) {
+    const [u, v] = [struck[k - 1], struck[k]];
+    if (u.b.line === v.b.line && v.b.i - u.b.i <= 2 && u.line!.line === v.line!.line && u.line!.added === v.line!.added) for (let i = u.b.i + 1; i < v.b.i; i++) within.add(i);
+  }
+  for (const t of doubtful) if (!byToken.has(t.i) && !within.has(t.i)) notePartly(result, newPage, t, true);
   // The same rule found on a word next to one (see above), or on a word
   // whose format changed: part of that consequence, not a line under them.
   for (let k = hits.length - 1; k >= 0; k--) {
@@ -3792,12 +3936,17 @@ function appearanceChanges(
     h.a.i > last.a.i &&
     h.a.i - last.a.i <= 2 &&
     (!!h.line || (!!h.ink && !!last.ink && last.colour === h.colour && alike(last.ink, h.ink)));
-  for (const h of hits) {
-    const last = group[group.length - 1];
-    if (last && ((last.b.line !== h.b.line && !wraps(last, h)) || h.b.i - last.b.i > 2 || key(last) !== key(h))) flush();
-    group.push(h);
+  // The recolours of words with a line (see recolouredToo) are grouped
+  // among themselves, after the lines.
+  also.sort((u, v) => u.p - v.p);
+  for (const list of [hits, also]) {
+    for (const h of list) {
+      const last = group[group.length - 1];
+      if (last && ((last.b.line !== h.b.line && !wraps(last, h)) || h.b.i - last.b.i > 2 || key(last) !== key(h))) flush();
+      group.push(h);
+    }
+    flush();
   }
-  flush();
   return out;
 }
 
