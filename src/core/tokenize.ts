@@ -219,8 +219,9 @@ interface Reordered {
  *    under the other, that it fits between and overlaps horizontally.
  * Anything else stays where the stream has it: a right column, a sidebar
  * or a margin note drawn last does not share its baseline with a line whose
- * neighbours reach across it, nor stand in a table's column, a page number drawn last lies in the bottom
- * margin, and on a page whose footer comes first nothing follows the footer.
+ * neighbours reach across it, nor stand in a table's column, a page number
+ * drawn last lies in the bottom margin, and on a page whose footer comes
+ * first nothing follows the footer.
  * Late lines left there below all the text drawn before the footer (a note
  * added under the last line) are marked (Token.late), as text a PDF editor
  * appended; those left beside or above that text are not marked, as nothing
