@@ -129,8 +129,9 @@ The numbers that were **not tuned** are the first runs of held-out sets written 
 | Round 2: 12 pairs, 53 edits, Chromium | 49 · 9 | 40 · 17 | 45 · 44 |
 | Round 3: 12 pairs, 73 edits, Chromium, LibreOffice, reportlab | 55 · 38 | 57 · 57 | 73 · 38 |
 | Round 4: 18 pairs, 119 edits, Office files via LibreOffice, 40–85-page and Japanese/Traditional Chinese documents, PDFs assembled with pypdf | 104 · 175 | 89 · 263 | 117 · 404 |
+| Round 5: 18 pairs, 144 edits, Typst, fpdf2 and PyMuPDF (edits as PDF editors make them: redaction, re-inserted text, annotations, overlays), German, French, Chinese and Japanese | 115 · 78 | 98 · 112 | 144 · 59 |
 
-Round 2 was scored with the rules of that time. Round 4 uses the rules registered before its run. Its pixel diff "finds" 117 of 119 edits, but places only 97 of them on the right page.
+Round 2 was scored with the rules of that time. Rounds 4 and 5 use the rules registered before their runs. The pixel diff "finds" 117 of 119 edits in round 4 but places only 97 of them on the right page, and 144 of 144 in round 5, 132 of them on the right page.
 
 In round 3, ChangeLens found fewer edits than the text line diff. Most of those misses were correct changes, reported narrower than the truth snippet ("7 → 6" for "For 7 → For 6"). The rest, and most of the extra items, were real problems:
 - repeated table header rows reported as text;
@@ -143,6 +144,13 @@ These were fixed afterwards.
 In round 4, ChangeLens reported 116 of 119 edits, and the scorer credited 104 of them. It missed the three values of PDF form fields, which it did not read then, and it did not say so. Its main weakness was noise: 154 extra items on long, re-paginated and CJK documents. These were table header bands and rules that came and went with page breaks, automatically renumbered lists and clauses, and colour, strike or underline wrongly reported on glyphs that only moved.
 
 These causes were fixed afterwards. Form field values are now compared. The new rules that hide noise were then probed adversarially, with real edits placed next to each hidden pattern. That found 17 cases of medium or high severity where a real edit was hidden. They were fixed too, so that a rule now hides an item only with evidence that it follows from a listed change. On the same 18 cases ChangeLens now finds 118 of 119 edits with 4 extra items. That is not a blind result. Details: [EVALUATION.md](docs/EVALUATION.md#round-4-after-fix-rounds-5-and-6-no-longer-held-out).
+
+In round 5, ChangeLens found 115 of 144 edits, fewer than the pixel diff, with 78 extra items, more than the pixel diff's 59. By producer:
+- **Typst**: 48 of 51, 19 extra (text line diff 37 · 85, pixel diff 51 · 31).
+- **fpdf2**: 44 of 48, 36 extra, 32 of them in one invoice (text line diff 43 · 7, pixel diff 48 · 24).
+- **PyMuPDF**: 23 of 45, 23 extra (text line diff 18 · 20, pixel diff 45 · 4). These PDFs were edited the way PDF editors do it: text redacted and new text inserted, annotations, overlays, page operations, an incremental save.
+
+Every miss and extra item is being classified, each classification re-checked by a second agent; the result will be in [EVALUATION.md](docs/EVALUATION.md#held-out-round-5-first-run).
 
 On all 31 pairs that are not blind (117 edits), ChangeLens finds and places every edit with no extra item:
 

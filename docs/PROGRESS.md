@@ -21,7 +21,11 @@ Short running notes for whoever continues (people or agents). Newest first.
   - R4-10: single-glyph strikes in drifting Carlito word boxes;
   - R5-07: a strike on a header line drawn along a rule;
   - pages with a large slanted watermark take about 1.7 times as long as at `b3de0f4`.
-- **Blind round 5 registered** (EVALUATION, Held-out round 5): 18 cases, 144 truth items, engine frozen at `f1053f3`. Next: run it once, commit the output unchanged, classify every miss and extra item with a second check.
+- **Blind round 5**, registered in `90471a8` (18 cases, 144 truth items, engine frozen at `f1053f3`), run once and recorded unchanged in `1768e2d`:
+  - default rules: 115 / 115 / 78; registered round-4 rules 111 / 111 / 79; strict 72 / 70 / 118;
+  - baselines: text line diff 98 / 96 / 112, pixel page diff 144 / 132 / 59;
+  - by producer, ChangeLens found 48 of 51 (Typst), 44 of 48 (fpdf2) and 23 of 45 (PyMuPDF).
+- **Next**: classify every miss and extra item, each re-checked by a second agent (`eval/results-holdout5-analysis.md`), then decide the fixes from the causes.
 
 ## 2026-11-04 (fix rounds 5 and 6, after blind round 4)
 

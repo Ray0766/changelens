@@ -129,6 +129,31 @@ Where the baselines lose:
   ```
 - **Reproducing the PDFs**: `eval/make-holdout5-{h,i,j}.py` with the producers in `eval/requirements-holdout5.txt` and the helpers in `eval/holdout5-{h,i,j}/`. They use system fonts (Inter, IPA Gothic, Carlito, DejaVu, Liberation, WenQuanYi Zen Hei). The brief names the authors' session paths, and the authors' check scripts (`*.mjs`) import PDF.js from `/home/user/changelens/node_modules`; change those paths to run them elsewhere. The committed PDFs are what was scored.
 
+### Held-out round 5: first run
+
+Run once on 2026-11-06 with the registered command, recorded unchanged in `1768e2d` (`eval/results-holdout5-blind.{txt,json}`, items in `eval/results-holdout5-blind-items.json`). Rescored from the same items in `cfa9bc5` (`eval/results-holdout5-blind-registered.*`, `eval/results-holdout5-blind-strict.*`).
+
+Found / located / extra (separate), default rules (the headline as registered):
+
+| Producer | Cases | Truth | ChangeLens | Text line diff | Pixel page diff |
+|---|---|---|---|---|---|
+| Typst 0.15 (H) | 6 | 51 | 48 / 48 / 19 | 37 / 36 / 85 | 51 / 46 / 31 |
+| fpdf2 2.9 (I) | 6 | 48 | 44 / 44 / 36 | 43 / 43 / 7 | 48 / 47 / 24 |
+| PyMuPDF 2.1 (J) | 6 | 45 | 23 / 23 / 23 | 18 / 17 / 20 | 45 / 39 / 4 |
+| **All** | 18 | 144 | **115 / 115 / 78 (114)** | 98 / 96 / 112 (73) | 144 / 132 / 59 (118) |
+
+ChangeLens under the other registered rules, from the same items:
+- `--registered-rules` (round 4's rules): 111 / 111 / 79;
+- `--strict-snippets --strict-carets` (rounds 1–3): 72 / 70 / 118.
+
+What the numbers say, before any classification:
+- **Fewer found than the pixel page diff.** ChangeLens found 115 of 144 edits; the pixel page diff marks some region on 144 pages, 132 of them the right page, but does not say what changed. ChangeLens found more than the text line diff (98).
+- **More extra items than the pixel page diff**: 78 against 59 (text line diff: 112).
+- **The PyMuPDF cases account for most misses.** ChangeLens found 23 of 45 there, against 48 of 51 with Typst and 44 of 48 with fpdf2. These are the edits PDF editors make: redacted text with new text inserted, annotations, overlays, page operations and an incremental save. The datasheet with an overlay gave 1 of 8 and the redacted lease 3 of 7.
+- **One fpdf2 invoice gave 32 of the 78 extra items** (`holdout5-i-rechnung-eur`), most of them listed as "Number changed: 8 → 9", "9 → 10", and so on (`eval/results-holdout5-blind.txt`).
+
+Every miss and extra item is being classified by analyst agents, one per group of three cases, and each classification re-checked by an independent verifier. The causes will be added here and in `eval/results-holdout5-analysis.md`.
+
 ### Review round 7 and fix round 8 (probes, not held out)
 
 **Review round 7** probed the engine at `a722e40` (after fix round 6). It used seven lenses: renumbering, page edges and numbers, form fields, appearance (strike, underline, colour), page structure, robustness, and the diff itself.
