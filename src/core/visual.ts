@@ -1301,15 +1301,21 @@ function nearCells(d: Unmatched): Uint8Array {
   return near;
 }
 
-/** Some differing pixels lie in or next to a token's ink box (see ink()). */
-function differsNear(d: Unmatched, r: Raster, rect: Rect): boolean {
+/**
+ * Some differing pixels lie in or next to a token's ink box (see ink()),
+ * outside the cells that meet `except` (a rule that is explained, see
+ * closingRules).
+ */
+function differsNear(d: Unmatched, r: Raster, rect: Rect, except: Rect[] = []): boolean {
   const e = expand(rect, 0.15 * rect.h + 3);
   const cx0 = Math.max(0, Math.floor((e.x * r.scale) / CELL));
   const cy0 = Math.max(0, Math.floor((e.y * r.scale) / CELL));
   const cx1 = Math.min(d.cols - 1, Math.floor(((e.x + e.w) * r.scale) / CELL));
   const rowsN = d.cells.length / d.cols;
   const cy1 = Math.min(rowsN - 1, Math.floor(((e.y + e.h) * r.scale) / CELL));
-  for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) if (d.cells[cy * d.cols + cx] >= 3) return true;
+  const c = CELL / r.scale;
+  const skip = (cx: number, cy: number) => except.some((q) => intersects(q, { x: cx * c, y: cy * c, w: c, h: c }));
+  for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) if (d.cells[cy * d.cols + cx] >= 3 && !skip(cx, cy)) return true;
   return false;
 }
 
@@ -2597,6 +2603,7 @@ function appearanceChanges(
   differs: (X: Prepared, x: number, y: number) => boolean = () => false,
   fillAround: (side: 'old' | 'new', r: Rect, along?: boolean) => number[] | null = () => null,
   closes: (a: Token, b: Token, line: { line: 'strike' | 'underline'; added: boolean; rows: [number, number] }) => boolean = () => false,
+  ruleBelow: (a: Token, b: Token) => { side: 'old' | 'new'; y: number } | null = () => null,
 ): Change[] {
   const TA = result.oldDoc.tokens;
   const TB = result.newDoc.tokens;
@@ -2986,9 +2993,9 @@ function appearanceChanges(
     // slant (see level and crosses).
     const g = near(a, b);
     const opts = { drift: b.kind !== 'cjk', cjk: b.kind === 'cjk', rows: own(a, b), exact, level: !!(ca || cb), crossing: g || graphicAt(a, b) ? differs : undefined };
-    const lines = (ga: Cover | null, gb: Cover | null, o: LineOptions = opts) => {
-      const added = framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, ga, gb, o), B, pageLines.new, b, a), B, A, b, a);
-      const removed = added ? null : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, gb, ga, o), A, pageLines.old, a, b), A, B, a, b);
+    const lines = (ga: Cover | null, gb: Cover | null, o: LineOptions = opts, [ta, tb] = [a, b]) => {
+      const added = framed(rowEdge(addedLine(A, ta.rects[0], B, tb.rects[0], few, ga, gb, o), B, pageLines.new, tb, ta), B, A, tb, ta);
+      const removed = added ? null : framed(rowEdge(addedLine(B, tb.rects[0], A, ta.rects[0], few, gb, ga, o), A, pageLines.old, ta, tb), A, B, ta, tb);
       return added ? { line: added.line, added: true, rows: added.rows } : removed ? { line: removed.line, added: false, rows: removed.rows } : null;
     };
     let line = turned ? null : lines(ca, cb);
@@ -3026,6 +3033,30 @@ function appearanceChanges(
         ? framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, wa, wb, weak), B, pageLines.new, b, a), B, A, b, a)
         : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, wb, wa, weak), A, pageLines.old, a, b), A, B, a, b);
     tried.set(b.i, { a, b, p, weak: (added) => (turned ? null : fainter(added)) });
+    // The rule that closes a table fragment at a moved page break, found
+    // under the word (see closingRules): part of that consequence. The
+    // word's colour and weight are compared as where no line is found. A
+    // line through or under the word besides that rule is looked for with
+    // the word's boxes cut off above the rule (whose rows, in one version
+    // only, read as a change of the glyphs, so that a strike on the row
+    // was not found): one found there is the word's own.
+    if (line && closes(a, b, line)) line = null;
+    const top = turned || line ? null : ruleBelow(a, b);
+    if (top !== null) {
+      const r = (top.side === 'old' ? a : b).rects[0];
+      const h = Math.min(r.h, (top.y - r.y) / 1.15);
+      if (h >= 0.5 * r.h) {
+        const cut = (t: Token): Token => ({ ...t, rects: [{ ...t.rects[0], h }] });
+        const [ta, tb] = [cut(a), cut(b)];
+        line = lines(ca, cb, { ...opts, rows: own(ta, tb) }, [ta, tb]);
+        // Through or under the word as its whole box places it (see lineIn).
+        if (line) {
+          const q = (line.added ? b : a).rects[0];
+          const mid = (line.rows[0] + line.rows[1] + 1) / 2 / (line.added ? B : A).r.scale;
+          line = { ...line, line: (mid - q.y) / q.h >= 0.72 ? 'underline' : 'strike' };
+        }
+      }
+    }
     if (line) {
       hits.push({ a, b, colour: false, line, p });
       continue;
@@ -3226,9 +3257,8 @@ function appearanceChanges(
       queue.push(next);
     }
   }
-  // The rule that closes a table fragment at a moved page break, found
-  // under the words of its last row (see closingRules): part of that
-  // consequence, not a line under them.
+  // The same rule found on a word next to one (see above), or on a word
+  // whose format changed: part of that consequence, not a line under them.
   for (let k = hits.length - 1; k >= 0; k--) {
     const l = hits[k].line;
     if (l && closes(hits[k].a, hits[k].b, l)) hits.splice(k, 1);
@@ -4604,6 +4634,8 @@ interface ClosingRule {
   /** The rule, in points and in pixel rows of `side`'s raster (with a row of blur on each side). */
   rect: Rect;
   rows: [number, number];
+  /** The same place in the other version, under the row there (where it has no line). */
+  away: Rect;
   /** Its darkness summed down each column, along it (median, pixels). */
   weight: number;
   /** The row's text. */
@@ -4818,6 +4850,7 @@ function closingRules(result: CompareResult, oldPage: number, newPage: number, A
         lines: new Set(row.map((l) => l.id)),
         rect: { x: rule.ext[0] / s, y: rule.rows[0] / s, w: (rule.ext[1] - rule.ext[0] + 1) / s, h: (rule.rows[1] - rule.rows[0] + 1) / s },
         rows: rule.rows,
+        away: { x: rule.ext[0] / s + dx, y: rule.rows[0] / s + dy, w: (rule.ext[1] - rule.ext[0] + 1) / s, h: (rule.rows[1] - rule.rows[0] + 1) / s },
         weight: rule.weight,
         text: joinTokens(row.flatMap((l) => doc.tokens.slice(l.start, l.end))),
         // Right before the header row it came or went with (on the old side,
@@ -4995,8 +5028,13 @@ function compareAligned(
       return v;
     };
     const nearOf = (a: Token, b: Token): [Cover | null, Cover | null] | 'skip' | null => {
-      const na = differsNear(fwdDiff, ra, a.rects[0]);
-      const nb = differsNear(bwdDiff, rb, b.rects[0]);
+      // On the last row of a table fragment at a moved page break, the
+      // rule that closes it (see closingRules) is no graphic next to the
+      // words, in either version: a colour or highlight put on them is
+      // compared as elsewhere.
+      const rule = closing.filter((R) => (R.side === 'old' ? R.lines.has(a.line) : R.lines.has(b.line)));
+      const na = differsNear(fwdDiff, ra, a.rects[0], rule.map((R) => (R.side === 'old' ? R.rect : R.away)));
+      const nb = differsNear(bwdDiff, rb, b.rects[0], rule.map((R) => (R.side === 'new' ? R.rect : R.away)));
       if (!na && !nb) return null;
       if (!sameShape(a.rects[0], b.rects[0])) return 'skip';
       const seenA = { differs: 0 };
@@ -5145,7 +5183,13 @@ function compareAligned(
       }
       return null;
     };
-    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, slant, !options.turned, graphicAt, graphicIn, differs, fillAround, closes));
+    // The top of such a rule under a word of the fragment's last row (see
+    // appearanceChanges), in points of the version that has it.
+    const ruleBelow = (a: Token, b: Token) => {
+      const R = closing.find((x) => x.lines.has((x.side === 'old' ? a : b).line));
+      return R ? { side: R.side, y: R.rect.y } : null;
+    };
+    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, slant, !options.turned, graphicAt, graphicIn, differs, fillAround, closes, ruleBelow));
     // Words under the letters of a watermark that both versions have at the
     // same place relative to them (a twin, see slant), dark enough to hide
     // part of a glyph: its ink mixes with their glyphs in both, so a strike

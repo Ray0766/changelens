@@ -89,6 +89,24 @@ test('V1-closing-rules: an underline put on the last row before the moved break 
   }
 });
 
+test('V1-closing-rules: a colour, a highlight or a strike put on the last row stays listed', { skip }, async () => {
+  // Before the rule was folded, the recoloured or highlighted word was only
+  // inside the rule's "Underline removed: “January … 62.9”" item, and the
+  // strike was not found at all (the rule's rows, in one version only, read
+  // as a change of the glyphs). Folding the rule must not drop them: the
+  // rule is no graphic next to the words, and a line is looked for above it.
+  for (const [b, want] of [
+    ['before-red-text', 'Text colour or weight changed'],
+    ['before-hl', 'Text colour or weight changed'],
+    ['before-strike', 'Strikethrough removed: “62.9”'],
+  ] as const) {
+    const r = await probe(b, 'after');
+    assert.deepEqual(list(r.changes), ['Added 49 words', want], b);
+    assert.ok(at(r.changes[1], 'old', 1, 498, 751), `${b}: ${JSON.stringify(r.changes[1].old.rects)}`);
+    assert.equal(r.ignored.closingRules, 1, b);
+  }
+});
+
 test('V1-closing-rules: a number edited in the last row stays listed; the rule under it is still a consequence', { skip }, async () => {
   const r = await probe('before-num', 'after');
   assert.deepEqual(list(r.changes), ['Added 49 words', 'Number changed: 86.6 → 88.6 (+2.3%)']);

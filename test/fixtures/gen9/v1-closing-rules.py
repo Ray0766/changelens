@@ -103,6 +103,10 @@ if __name__ == '__main__':
     build('before-ul', source(False, gap=GAP, cell=lambda r, k, v: f'#underline[{v}]' if (r, k) == (0, 5) else v))
     build('after-ul', source(True, gap=GAP, cell=lambda r, k, v: f'#underline[{v}]' if (r, k) == (0, 5) else v))
     build('before-num', source(False, gap=GAP, cell=lambda r, k, v: '86.6' if (r, k) == (0, 1) else v))
+    on_last = lambda f: (lambda r, k, v: f(v) if (r, k) == (0, 5) else v)
+    build('before-red-text', source(False, gap=GAP, cell=on_last(lambda v: f'#text(fill: rgb("#c00000"))[{v}]')))
+    build('before-hl', source(False, gap=GAP, cell=on_last(lambda v: f'#highlight[{v}]')))
+    build('before-strike', source(False, gap=GAP, cell=on_last(lambda v: f'#strike[{v}]')))
     # The closing rule itself changed: recoloured, thickened, doubled.
     overlay(before, 'before-red', lambda pg, r: pg.draw_line((r.x0, r.y0), (r.x1, r.y0), color=(0.85, 0, 0), width=0.9))
     overlay(before, 'before-thick', lambda pg, r: pg.draw_line((r.x0, r.y0), (r.x1, r.y0), color=(0, 0, 0), width=2.4))
