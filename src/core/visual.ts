@@ -2113,7 +2113,12 @@ function lineAlone(a: Prepared, ra: Rect, b: Prepared, rb: Rect): FoundLine | nu
  * gained), up to a gap of three pixel columns. A stamp's border drawn
  * across the text goes on so; a strike drawn with a line tool ends a point
  * or so past its word (at a space, within the text's mask), however near
- * another mark was added.
+ * another mark was added. A stroke also keeps its colour and its course: a
+ * mark that starts within a point or two of the strike's end, in another
+ * colour (a red arrow after a black strike), or level where the line rises
+ * across the word, is another graphic, and the line is the word's (see
+ * StrokeHue; the course is the line's rise per column across the box,
+ * against the rise followed out of it).
  */
 function crosses(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number, e: number, differs: (X: Prepared, x: number, y: number) => boolean): boolean {
   const s = b.r.scale;
@@ -2128,6 +2133,23 @@ function crosses(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number,
   };
   const j0 = Math.max(0, k - 3);
   const j1 = Math.min(B.rows - 1, e + 3);
+  // The line's own colour and course in the box: its pixels that gained
+  // over paper in `a`, and the centre of the rows that gained in each column.
+  const inside = new StrokeHue();
+  const centres: [number, number][] = [];
+  for (let c = 0; c < C; c++) {
+    let first = -1;
+    let last = -1;
+    for (let j = j0; j <= j1; j++) {
+      const was = A.d[j * A.cols + c];
+      if (B.d[j * B.cols + c] - was < 0.5) continue;
+      if (first < 0) first = j;
+      last = j;
+      if (was < 0.2) inside.add(b.r, B.ys[j] * W + B.x0 + c);
+    }
+    if (first >= 0) centres.push([B.x0 + c, (B.ys[first] + B.ys[last]) / 2]);
+  }
+  const riseIn = rise(centres);
   for (const dir of [1, -1]) {
     // The line's rows at the box's end: the column nearest it, of the last
     // four, with rows that gained.
@@ -2149,6 +2171,8 @@ function crosses(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number,
     let length = 0;
     let gained = 0;
     let reached = false;
+    const outside = new StrokeHue();
+    const course: [number, number][] = [];
     for (let step = 1; step <= 150 * s; step++) {
       const px = x + dir * step;
       if (px < 0 || px >= W) break;
@@ -2160,8 +2184,10 @@ function crosses(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number,
         if (v < 0.25) continue;
         if (dlo < 0) dlo = y;
         dhi = y;
-        if (v - darkA(px, y) < 0.2) continue;
+        const was = darkA(px, y);
+        if (v - was < 0.2) continue;
         up = true;
+        if (was < 0.2 && y >= 0 && y < b.r.height) outside.add(b.r, y * W + px);
         const m = b.mask[y * W + px];
         if (m !== GLYPH && m !== PAD && differs(b, px, y)) reached = true;
       }
@@ -2173,11 +2199,61 @@ function crosses(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number,
       length = step;
       if (up) gained++;
       // Within glyphs dark in both, the course is kept.
-      if (dhi - dlo + 1 <= thick + 2) [lo, hi] = [dlo, dhi];
+      if (dhi - dlo + 1 <= thick + 2) {
+        [lo, hi] = [dlo, dhi];
+        course.push([px, (dlo + dhi) / 2]);
+      }
     }
-    if (reached && length >= 12 * s && gained >= 0.5 * length) return true;
+    if (!(reached && length >= 12 * s && gained >= 0.5 * length)) continue;
+    if (inside.differs(outside)) continue;
+    // Its course: where the line rises across the box (by two pixels or
+    // more over the length followed), the stroke goes on rising the same
+    // way, not level or falling. (Measured across a short word, through
+    // glyphs, the rise in the box can be half the border's.)
+    const riseOut = rise(course);
+    if (riseIn !== null && riseOut !== null && Math.abs(riseIn) * length >= 2 && (riseOut * riseIn <= 0 || Math.abs(riseOut) < 0.25 * Math.abs(riseIn))) continue;
+    return true;
   }
   return false;
+}
+
+/**
+ * The rise per pixel column of a line through points (column, row): the
+ * least-squares slope, or null for fewer than four columns.
+ */
+function rise(points: [number, number][]): number | null {
+  if (points.length < 4) return null;
+  let mx = 0;
+  let my = 0;
+  for (const [x, y] of points) [mx, my] = [mx + x, my + y];
+  [mx, my] = [mx / points.length, my / points.length];
+  let sxy = 0;
+  let sxx = 0;
+  for (const [x, y] of points) [sxy, sxx] = [sxy + (x - mx) * (y - my), sxx + (x - mx) * (x - mx)];
+  return sxx ? sxy / sxx : null;
+}
+
+/**
+ * The colour of a stroke, from its pixels: each channel's difference from
+ * the luminance per unit of darkness, which anti-aliasing and transparency
+ * over paper leave as they are (a red line drawn half-transparent is the
+ * same red; black and grey are 0, 0, 0). `differs`: two strokes, each with
+ * a few pixels' worth of darkness, are of other colours (by more than a
+ * quarter of the scale in a channel: black against red, blue or green).
+ */
+class StrokeHue {
+  private off = [0, 0, 0];
+  private dark = 0;
+  add(r: Raster, i: number): void {
+    const p = rgb(r, i);
+    const l = 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2];
+    for (let c = 0; c < 3; c++) this.off[c] += p[c] - l;
+    this.dark += (255 - l) / 255;
+  }
+  differs(o: StrokeHue): boolean {
+    if (this.dark < 2 || o.dark < 2) return false;
+    return this.off.some((v, c) => Math.abs(v / this.dark - o.off[c] / o.dark) > 64);
+  }
 }
 
 /** The darkness of a token's glyph ink: the darkest pixel of its box (1 when it is nearly paper). */
