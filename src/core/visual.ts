@@ -2282,6 +2282,10 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       let lies = !!opts.level;
       for (let j = Math.max(0, k - 3); j <= Math.min(n - 1, e + 3) && over && !lies; j++) lies = over[j] === 1;
       if ((lies || opts.crossing) && !level(A, B, C, n, k, e) && (lies || crosses(a, b, A, B, C, k, e, opts.crossing!))) return null;
+      // Nor, wherever it lies, one that rises or falls across the word as no
+      // strike does (see steep): the border of a stamp turned by 10° or more,
+      // drawn across the text where the graphics comparison does not look.
+      if (steep(A, B, C, n, k, e)) return null;
       let c0 = k;
       let c1 = e;
       let most = 0;
@@ -2437,6 +2441,46 @@ function level(A: Box, B: Box, C: number, n: number, k: number, e: number): bool
     return mid[mid.length >> 1];
   };
   return !(Math.abs(height(c0, c0 + third) - height(c1 - third, c1)) > 1);
+}
+
+/**
+ * Whether what `B` gained around rows k..e over `A` (see level) rises or
+ * falls across the word at a slope of 0.18 or more (10°), by 3 pixel rows
+ * or more over the columns where it shows: the border of a stamp turned so,
+ * drawn across a word where no graphic was found to change (text masks the
+ * border's pixels from the graphics comparison) and no overlay over it
+ * (its letters lie elsewhere). Such a border can leave the box on one side.
+ * Its height is taken in each column where it gained half a line or more,
+ * within eight rows of the line's and no thicker than the line, in a third
+ * of the columns or more; the slope is the median of those of the pairs of
+ * such columns three or more apart (Theil–Sen), which a few glyph strokes
+ * re-sampled elsewhere do not move. A strike drawn with a line tool rises
+ * a point or two over a word (2.5 pt over "writing": a slope of 0.08); a
+ * line drawn with the text is level.
+ */
+function steep(A: Box, B: Box, C: number, n: number, k: number, e: number): boolean {
+  if (C < 6) return false;
+  const j0 = Math.max(0, k - 8);
+  const j1 = Math.min(n - 1, e + 8);
+  const pts: [number, number][] = [];
+  for (let c = 0; c < C; c++) {
+    let first = -1;
+    let last = -1;
+    for (let j = j0; j <= j1; j++) {
+      if (B.d[j * B.cols + c] - A.d[j * A.cols + c] < 0.5) continue;
+      if (first < 0) first = j;
+      last = j;
+    }
+    if (first >= 0 && last - first <= e - k + 3) pts.push([c, (first + last) / 2]);
+  }
+  if (pts.length < Math.max(6, C / 3)) return false;
+  const slopes: number[] = [];
+  for (let i = 0; i < pts.length; i++)
+    for (let j = i + 1; j < pts.length; j++) if (pts[j][0] - pts[i][0] >= 3) slopes.push((pts[j][1] - pts[i][1]) / (pts[j][0] - pts[i][0]));
+  if (!slopes.length) return false;
+  slopes.sort((p, q) => p - q);
+  const m = Math.abs(slopes[slopes.length >> 1]);
+  return m >= 0.18 && m * (pts[pts.length - 1][0] - pts[0][0]) >= 3;
 }
 
 /**

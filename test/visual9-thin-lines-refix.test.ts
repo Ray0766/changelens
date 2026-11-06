@@ -81,3 +81,14 @@ test('V2-thin refix: a thin underline in a filled table cell is listed, not take
     assert.equal(counted(ctrl), 0, fill);
   }
 });
+
+test('V2-thin refix: a stamp’s border turned by 18° across a figure is no underline', { skip }, async () => {
+  // Review round 7's probe p15: a red stamp at 55 % opacity, turned -18°,
+  // whose border crosses the foot of "253.86", over a statement that a
+  // note line re-flowed. Before: "Underlined: “253.86”".
+  for (const after of ['n25', 'n90']) {
+    const r = await run(fixtures + 'probe9-V2-refix-stamp-SYNTHETIC-before.pdf', fixtures + `probe9-V2-refix-stamp-SYNTHETIC-${after}.pdf`);
+    assert.deepEqual(lines(r), [], after);
+    assert.ok(list(r.changes).includes('Added “PAID”'), after);
+  }
+});
