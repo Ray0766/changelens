@@ -112,6 +112,20 @@ test('V1-closing-rules: a closing rule recoloured, thickened or doubled stays li
   assert.ok(at(r.changes[1], 'old', 1, 300, RULE_Y + 4.2), JSON.stringify(r.changes[1].old.rects));
 });
 
+test('V1-closing-rules: where the other version closes the table with no rule, the rule at the moved break stays listed', { skip }, async () => {
+  // "after-noend-rule" draws the table without its end rule, and a
+  // full-width 0.9 pt rule a paragraph's space below the next paragraph,
+  // which looks like the rule at the foot of page 1 of "before" but closes
+  // no row of the table.
+  const r = await probe('before', 'after-noend-rule');
+  const lines = r.changes.filter((c) => c.format?.decoration);
+  assert.ok(
+    lines.some((c) => at(c, 'old', 1, 300, RULE_Y)),
+    list(r.changes).join(' | '),
+  );
+  assert.equal(r.ignored.closingRules ?? 0, 0);
+});
+
 test('V1-closing-rules: a rule added at a page foot where no break moved stays listed', { skip }, async () => {
   // "after-rule" draws a 0.9 pt rule at the foot of page 1, which has no
   // table in that version; the closing rule of "before" is still folded.

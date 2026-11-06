@@ -110,3 +110,9 @@ if __name__ == '__main__':
     # A rule really added at a page foot where no page break moved: under the
     # last line of page 1 of "after", which keeps no table.
     build('after-rule', source(True, gap=GAP).replace('#v(450pt)', '#v(1fr)\n#line(length: 100%, stroke: 0.9pt)\n#pagebreak()'))
+    # The table without its end rule, and a full-width 0.9 pt rule a
+    # paragraph's space below the next paragraph: the other version closes
+    # the table with no rule, so the rule at the foot of page 1 of "before"
+    # is no rule that only moved.
+    noend = source(True, gap=GAP, end_stroke='none')
+    build('after-noend-rule', noend.replace(FILLER[4] + '\n', FILLER[4] + '\n\n#line(length: 100%, stroke: 0.9pt)\n', 1))

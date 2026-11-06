@@ -4713,8 +4713,9 @@ function ruleLook(P: Prepared, x0: number, x1: number, y0: number, y1: number): 
  * - the other version has no line at the same place under the row;
  * - it closes the same table further down that page with a rule of the
  *   same extent (within 2 pt at each end), weight (within a quarter: a thin
- *   line's anti-aliased darkness varies with its sub-pixel place) and hue:
- *   the table's end, or the fragment's end at its own page break.
+ *   line's anti-aliased darkness varies with its sub-pixel place) and hue,
+ *   right under a line that this version has after the break: the table's
+ *   end, or the fragment's end at its own page break.
  * A rule recoloured, thickened or doubled, or drawn where the other version
  * closes the table with none, so stays a change; and one at a page foot
  * where no page break moved is not looked at.
@@ -4797,6 +4798,16 @@ function closingRules(result: CompareResult, oldPage: number, newPage: number, A
       // The same table closed further down in the other version, alike.
       const ref = ruleIn(Q, ca, cb, Math.ceil(oy(rule.rows[1])) + 2, Q.r.height - 2, rule.rows[1] - rule.rows[0] + 3);
       if (!ref || Math.abs(ref.ext[0] - ca) > 2 * so || Math.abs(ref.ext[1] - cb) > 2 * so) continue;
+      // Right under a line that this version has after the break (the
+      // table's last row, or the last row before the other version's own
+      // break), as this rule lies under its row: not a rule a paragraph's
+      // space below the text (another table's top rule, a section rule).
+      const mid = (ref.rows[0] + ref.rows[1] + 1) / 2 / so;
+      let above: Line | null = null;
+      for (const l of obody) if (l.rect.y + l.rect.h <= mid + 0.5 && (!above || l.rect.y + l.rect.h > above.rect.y + above.rect.h)) above = l;
+      if (!above || mid - (above.rect.y + above.rect.h) > 0.6 * lh) continue;
+      const later = odoc.tokens.slice(above.start, above.end).map((t) => otherMate[t.i]).filter((q) => q >= 0);
+      if (!later.length || later.some((q) => doc.tokens[q].page <= page)) continue;
       const wa = rule.weight / s;
       const wb = ref.weight / so;
       if (Math.abs(wa - wb) > 0.25 * Math.max(wa, wb) || Math.hypot(rule.hue[0] - ref.hue[0], rule.hue[1] - ref.hue[1], rule.hue[2] - ref.hue[2]) > 30) continue;
