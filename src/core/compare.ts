@@ -108,9 +108,6 @@ function foldRule(ctx: Ctx, initial?: DiffOp[]): (eq: Span, before: Span, after:
     // Structure on both sides (a heading, the end of a paragraph, a row that
     // is its own block) stays visible and keeps the edits around it apart.
     if (crosses(A, eq.a0, eq.a1) && crosses(B, eq.b0, eq.b1)) return false;
-    // Figures of one date written with 年月日, also where a line break puts
-    // its unit at the start of a line ("2026年11" / "月30日"): one change.
-    if (cjkDateEdit(A, B, { a0: before.a0, a1: after.a1, b0: before.b0, b1: after.b1 })) return true;
     // A row label: starts a line in both versions.
     const label = lineStart(A, eq.a0) && lineStart(B, eq.b0);
     let words = 0;
@@ -150,7 +147,12 @@ function foldRule(ctx: Ctx, initial?: DiffOp[]): (eq: Span, before: Span, after:
 /** Clean-up shared by the main diff and the diff inside a moved passage. */
 function refine(ctx: Ctx, ops: DiffOp[], fold: (eq: Span, before: Span, after: Span) => boolean): DiffOp[] {
   const { A, B } = ctx;
-  ops = cleanupSemantic(ops, (i) => weight(A[i]), (i) => weight(B[i]), fold);
+  // Figures of one date written with 年月日 are one change, however long the
+  // unchanged parts between them ("年10月" in 2026年10月30日 → 2027年10月31日),
+  // also where a line break puts a unit at the start of a line ("2026年11" /
+  // "月30日").
+  const oneDate = (_eq: Span, before: Span, after: Span) => !!cjkDateEdit(ctx, { a0: before.a0, a1: after.a1, b0: before.b0, b1: after.b1 });
+  ops = cleanupSemantic(ops, (i) => weight(A[i]), (i) => weight(B[i]), fold, oneDate);
   ops = normalizeReplaces(ops, A, B);
   slideToBoundaries(ops, A, B);
   return ops;
@@ -639,7 +641,7 @@ function textChange(ctx: Ctx, h: Hunk): Change {
   // Figures of a date or time written with 年, 月 and 日 (or 时 and 分):
   // a number change, shown as the whole date, without a percentage on the
   // day ("2026年11月10日 → 2026年11月12日").
-  const [dateA, dateB] = cjkDateEdit(A, B, h) ?? [];
+  const [dateA, dateB] = cjkDateEdit(ctx, h) ?? [];
   if (dateA && dateB) {
     oldSide.text = joinTokens(A.slice(dateA.s, dateA.e));
     newSide.text = joinTokens(B.slice(dateB.s, dateB.e));
@@ -790,25 +792,86 @@ function isListLabel(T: Token[], s: number, e: number, label: string): boolean {
  * (时, 時 or 点), minute, second.
  */
 const DATE_UNIT_RANK: Record<string, number> = { 年: 0, 月: 1, 日: 2, 时: 3, 時: 3, 点: 3, 分: 4, 秒: 5 };
+/** The figures each unit but the year takes in a date or time: 1–12 for a month, 1–31 for a day, 0–24 for an hour, 0–59 for minutes and seconds. */
+const DATE_UNIT_RANGE: Record<string, [number, number]> = { 月: [1, 12], 日: [1, 31], 时: [0, 24], 時: [0, 24], 点: [0, 24], 分: [0, 59], 秒: [0, 59] };
 /** Words for the time of day written before an hour ("午後６時", "下午3点"). */
 const DAY_PERIOD = /^(?:午前|午後|上午|下午|早上|晚上|凌晨)$/;
+/** Era names written before the year of a date ("令和8年", "民國114年"). */
+const ERA_NAME = /^(?:令和|平成|昭和|大正|明治|民国|民國)$/;
+
+/**
+ * T[k] and T[k + 1] are written as parts of one date: on one line at most
+ * about a word space apart, not across the gap between two table cells or
+ * columns ("3年 | 11月1日"); or across a line break in a paragraph, onto
+ * the line below, where the line break falls between a figure and its unit
+ * ("2026年11" / "月30日") or the line ran full to the edge of its column
+ * ("…有效期至2026年" / "11月30日止"), not where a table row or a short line
+ * ends ("检定年度 2026年" / "11月 首次检定").
+ */
+function writtenTogether(doc: DocModel, T: Token[], k: number): boolean {
+  const a = T[k];
+  const b = T[k + 1];
+  if (!a || !b || a.page !== b.page) return false;
+  const em = Math.max(a.size, b.size, 1);
+  if (a.line === b.line) {
+    const ra = a.rects[a.rects.length - 1];
+    const rb = b.rects[0];
+    // The gap between the two boxes, along whichever direction the line runs.
+    return Math.max(rb.x - (ra.x + ra.w), ra.x - (rb.x + rb.w), rb.y - (ra.y + ra.h), ra.y - (rb.y + rb.h)) <= em;
+  }
+  const la = doc.lines[a.line];
+  const lb = doc.lines[b.line];
+  if (a.block !== b.block || !la || !lb || la.id !== a.line || lb.id !== b.line || a.i !== la.end - 1 || b.i !== lb.start) return false;
+  const unitFirst = b.kind === 'cjk' && DATE_UNIT_RANK[b.text] !== undefined;
+  // On a turned page the boxes are not upright: only the break between a
+  // figure and its unit is read.
+  if (doc.pages[a.page]?.textAngle) return unitFirst;
+  if (lb.rect.y < la.rect.y + 0.5 * la.rect.h) return false;
+  if (unitFirst) return true;
+  const right = (l: Line) => l.rect.x + l.rect.w;
+  // The right edge of the column: the lines of the paragraph that stand
+  // above or below this one, and the lines nearby on the page that start
+  // where it starts (a short line or a table row in a column of text).
+  let edge = right(la);
+  for (const dir of [-1, 1]) {
+    for (let j = la.id + dir; Math.abs(j - la.id) <= 40; j += dir) {
+      const l = doc.lines[j];
+      if (!l || l.page !== la.page) break;
+      const above = l.block === la.block && l.rect.x < right(la) && right(l) > la.rect.x;
+      if (above || Math.abs(l.rect.x - la.rect.x) <= em) edge = Math.max(edge, right(l));
+    }
+  }
+  return right(la) >= edge - 2 * em;
+}
 
 /**
  * T[s, e) lies inside a date or time written with Chinese or Japanese
  * units: figures, each followed by its unit, in the order of
  * DATE_UNIT_RANK ("2026年11月30日", "11月30日", "2026年11月", "14时30分",
- * "１１月１０日"). Returns the whole date or time T[s, e) and its units, or
- * null. A date names its month with the year or the day; a figure before
- * 年, 月 or 日 alone can be a term ("3年", "30日以内"). A time names its
- * hour with the minutes ("14时30分"), or after a word for the time of day
- * ("午後６時"); an hour followed by 間 or 间 is a term of hours ("2時間").
+ * "１１月１０日"), written together (see writtenTogether). Returns the whole
+ * date or time T[s, e), with the era name before its year if any, and its
+ * units; or null. A date names its month with the year or the day; a
+ * figure before 年, 月 or 日 alone can be a term ("3年", "30日以内"). A year
+ * has three or four digits ("2026年", "114年") or follows an era name
+ * ("令和8年"): "2年" before a month is a term ("租期2年 1月1日起算"). A time
+ * names its hour with the minutes ("14时30分"), or after a word for the time
+ * of day ("午後６時"); an hour followed by 間 or 间 is a term of hours
+ * ("2時間"). A month, day, hour or minute out of its range is not part of a
+ * date ("15月").
  */
-function cjkDate(T: Token[], s: number, e: number): { s: number; e: number; units: string } | null {
+function cjkDate(doc: DocModel, T: Token[], s: number, e: number): { s: number; e: number; units: string } | null {
   const figure = (k: number) => !!T[k] && T[k].kind === 'number' && /^\d{1,4}$/.test(T[k].text.normalize('NFKC'));
   const unit = (k: number) => !!T[k] && T[k].kind === 'cjk' && DATE_UNIT_RANK[T[k].text] !== undefined;
   const rank = (k: number) => DATE_UNIT_RANK[T[k].text];
-  const joined = (k: number) => !!T[k] && !!T[k + 1] && (T[k].line === T[k + 1].line || T[k].block === T[k + 1].block);
-  const part = (k: number) => figure(k) && unit(k + 1) && joined(k);
+  const joined = (k: number) => writtenTogether(doc, T, k);
+  const era = (k: number) => k >= 2 && joined(k - 2) && joined(k - 1) && ERA_NAME.test(T[k - 2].text + T[k - 1].text);
+  const fits = (k: number) => {
+    const digits = T[k].text.normalize('NFKC');
+    const range = DATE_UNIT_RANGE[T[k + 1].text];
+    if (!range) return digits.length >= 3 || era(k);
+    return +digits >= range[0] && +digits <= range[1];
+  };
+  const part = (k: number) => figure(k) && unit(k + 1) && joined(k) && fits(k);
   if (e <= s) return null;
   let p = figure(s) ? s : unit(s) && part(s - 1) ? s - 1 : -1;
   if (p < 0 || !part(p)) return null;
@@ -826,17 +889,20 @@ function cjkDate(T: Token[], s: number, e: number): { s: number; e: number; unit
   const date = units.length >= 2 && units.includes('月');
   const at = units.findIndex((u) => DATE_UNIT_RANK[u] === 3);
   const time = at >= 0 && (units[at + 1] === '分' || (units.length === 1 && joined(p - 2) && joined(p - 1) && DAY_PERIOD.test(T[p - 2].text + T[p - 1].text)));
-  return date || time ? { s: p, e: k, units: units.join('') } : null;
+  if (!date && !time) return null;
+  return { s: units[0] === '年' && era(p) ? p - 2 : p, e: k, units: units.join('') };
 }
 
 /**
  * The whole date or time on each side of a hunk that changes only figures
  * of it, with the same units on both sides ("11月30" → "12月31" in
- * 2026年11月30日 → 2026年12月31日), or null.
+ * 2026年11月30日 → 2026年12月31日), or null. The clean-up folds all edits of
+ * one date into one hunk (see refine), so two changes never show the same
+ * date.
  */
-function cjkDateEdit(A: Token[], B: Token[], h: Hunk): [{ s: number; e: number }, { s: number; e: number }] | null {
-  const a = cjkDate(A, h.a0, h.a1);
-  const b = a && cjkDate(B, h.b0, h.b1);
+function cjkDateEdit(ctx: Pick<Ctx, 'oldDoc' | 'newDoc' | 'A' | 'B'>, h: Hunk): [{ s: number; e: number }, { s: number; e: number }] | null {
+  const a = cjkDate(ctx.oldDoc, ctx.A, h.a0, h.a1);
+  const b = a && cjkDate(ctx.newDoc, ctx.B, h.b0, h.b1);
   return a && b && a.units === b.units ? [a, b] : null;
 }
 
@@ -2052,7 +2118,7 @@ function runningFieldValues(
   };
   const listed = (c: Change, h: Hunk) => {
     // Around the whole date when the value's date changed (see textChange).
-    const date = c.numeric && cjkDateEdit(A, B, h);
+    const date = c.numeric && cjkDateEdit(ctx, h);
     [c.contextBefore, c.contextAfter] = date ? around(B, date[1].s, date[1].e, newDoc) : h.b1 > h.b0 ? around(B, h.b0, h.b1, newDoc) : around(A, h.a0, h.a1, oldDoc);
     c.order = sideOrder(c.new, newDoc);
     out.changes.push(c);

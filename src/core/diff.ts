@@ -352,12 +352,16 @@ export interface Span {
  * Groups that were merged keep the size of their largest original change in
  * `orig`, so a decision can be based on the edits themselves rather than on
  * what earlier merges produced (which would let merging snowball).
+ * `mustDissolve(eq, before, after)`, if given, names equalities that are
+ * folded whatever their length (the unchanged parts of one date between two
+ * of its changed figures).
  */
 export function cleanupSemantic(
   ops: DiffOp[],
   weightA: (i: number) => number,
   weightB: (i: number) => number,
   canDissolve: (eq: Span, before: Span, after: Span) => boolean,
+  mustDissolve?: (eq: Span, before: Span, after: Span) => boolean,
 ): DiffOp[] {
   const wA = (a0: number, a1: number) => {
     let s = 0;
@@ -395,7 +399,7 @@ export function cleanupSemantic(
         const len = wA(grp.a0, grp.a1);
         const lb = Math.max(wA(before.a0, before.a1), wB(before.b0, before.b1));
         const la = Math.max(wA(after.a0, after.a1), wB(after.b0, after.b1));
-        if (len <= lb && len <= la && canDissolve(grp, before, after)) {
+        if ((len <= lb && len <= la && canDissolve(grp, before, after)) || mustDissolve?.(grp, before, after)) {
           // Merge before + this + after into one change group.
           out[out.length - 1] = { eq: false, a0: before.a0, a1: after.a1, b0: before.b0, b1: after.b1, orig: Math.max(before.orig, after.orig) };
           g++;
