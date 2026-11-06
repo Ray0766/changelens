@@ -20,6 +20,8 @@ interface RawLine {
   runs: TextRun[];
   /** Drawn after the page's footer, below the text drawn before it, and left at the end of the page (see restoreReadingOrder). */
   late?: true;
+  /** Runs drawn after the page's footer and put back by their position, into this line or as this line (see restoreReadingOrder). */
+  retyped?: Set<TextRun>;
 }
 
 const WS = /\s|\u00a0|\u3000|\u200b/;
@@ -271,9 +273,9 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number): R
   const out: RawLine[] = [];
   lines.forEach((line, k) => {
     if (moved.has(k)) return;
-    const extra = into.get(k);
-    out.push(extra ? { page: line.page, runs: mergeRuns(line.runs, extra.flatMap((j) => lines[j].runs)) } : kept.has(k) ? { ...line, late: true } : line);
-    for (const j of (after.get(k) ?? []).sort((a, b) => boxes[a]!.top - boxes[b]!.top)) out.push(lines[j]);
+    const extra = into.get(k)?.flatMap((j) => lines[j].runs);
+    out.push(extra ? { page: line.page, runs: mergeRuns(line.runs, extra), retyped: new Set(extra) } : kept.has(k) ? { ...line, late: true } : line);
+    for (const j of (after.get(k) ?? []).sort((a, b) => boxes[a]!.top - boxes[b]!.top)) out.push({ ...lines[j], retyped: new Set(lines[j].runs) });
   });
   return { lines: out, placed: moved.size };
 }
@@ -390,7 +392,13 @@ function mergeRuns(runs: TextRun[], extra: TextRun[]): TextRun[] {
   return out;
 }
 
-/** Expand a line's runs into positioned characters. */
+/**
+ * Expand a line's runs into positioned characters. Text re-typed into the
+ * line (RawLine.retyped) is a word of its own where it meets a letter or
+ * digit of the line: a value re-typed in a wider font than the original
+ * (Helvetica for Times) runs into the word after it, which is no reason to
+ * read the two as one word.
+ */
 function lineChars(line: RawLine): Char[] {
   const chars: Char[] = [];
   let prevEnd: number | null = null;
@@ -402,8 +410,9 @@ function lineChars(line: RawLine): Char[] {
     if (prevEnd !== null && prevRun) {
       const gap = run.x - prevEnd;
       const lastCh = chars.length ? chars[chars.length - 1].ch : ' ';
-      if (gap > 0.18 * Math.max(run.fontSize, prevRun.fontSize) && !WS.test(lastCh) && !WS.test(cps[0])) {
-        chars.push({ ch: ' ', n: ' ', x0: prevEnd, x1: run.x, run, virtual: true });
+      const seam = !!line.retyped && line.retyped.has(run) !== line.retyped.has(prevRun) && classify(lastCh) === 'alnum' && classify(cps[0]) === 'alnum';
+      if ((gap > 0.18 * Math.max(run.fontSize, prevRun.fontSize) || seam) && !WS.test(lastCh) && !WS.test(cps[0])) {
+        chars.push({ ch: ' ', n: ' ', x0: Math.min(prevEnd, run.x), x1: Math.max(prevEnd, run.x), run, virtual: true });
       }
     }
     // A comb field draws one character per cell of equal width.

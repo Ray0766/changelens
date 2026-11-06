@@ -173,6 +173,18 @@ test('T1: a value re-typed after the footer in a table row is put in its row, by
   assert.equal(inOrder.newDoc.pages[0].outOfOrder, undefined);
 });
 
+test('T1: a value re-typed in a wider font, running into the next word, is a word of its own', async () => {
+  // fpdf2 in Times; PyMuPDF re-types "2,480.00" as "2,840.00" in Helvetica
+  // at the same size (its digits are wider: the new run ends past the start
+  // of "payable"), and "120.00" unchanged beside the deleted word "early".
+  const r = await probe('glue');
+  assert.deepEqual(listed(r), ['Number changed: 2,480.00 → 2,840.00 (+15%)', '“120.00” font Times-Roman → Helvetica', 'Deleted “early”']);
+  assert.ok(lineTexts(r.newDoc, 0).includes('Price (EUR) 2,840.00 payable within 30 days'));
+  // Control: the same new version written in reading order.
+  const c = compareDocs(await load(`${fixtures}probe9-T1-glue-before.pdf`), await load(`${fixtures}probe9-T1-glue-inorder.pdf`));
+  assert.deepEqual(listed(c), ['Number changed: 2,480.00 → 2,840.00 (+15%)', 'Deleted “early”']);
+});
+
 // ------------------------------------------------------- narrowness -------
 
 /** A page of runs given as [text, x, baseline] in stream order (11 pt, 0.5 em per character; lines by geometry). */
