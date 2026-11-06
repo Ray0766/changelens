@@ -168,14 +168,14 @@ The causes, ordered by the number of items they affect:
 1. **Re-typed text after the footer (PyMuPDF)**: 18 misses and 20 extra items, in 5 of the 6 PyMuPDF cases.
    - Text that PyMuPDF writes after redacting, and its HTML boxes, come after the page footer in the content stream, and ChangeLens keeps stream order.
    - `compare.ts` `inPlaceTokens` joins a deletion and an insertion at the same place only for hunks that a same-key pairing already touched.
-   - So the reviewer gets "Deleted X" in place and the new value inside an "Added …" at the page end. Several values are merged ("1,975.00 15 March 2027 Retail"), and false rewrites cross pages ("Rewrote 86 words").
+   - So the reviewer gets "Deleted X" in place and the new value inside a separate "Added …", highlighted in place but with the text at the end of the page as its excerpt. Several values are merged ("1,975.00 15 March 2027 Retail"), and false rewrites cross pages ("Rewrote 86 words").
    - 2 of the 18 misses are scoring only: the header "Rev. B → Rev. C", which the header count discloses.
 2. **Row numbers set close to the next cell**: 28 extra items in one fpdf2 invoice.
    - The Pos. column stands 0.67 em before the next cell, and the row-number rule needs a gap of one em.
    - So the +1 shift after an inserted row is listed row by row, each with a percentage.
    - Round 4 had the same class of problem, blocked by a different rule.
 3. **Closing rules of table fragments at moved page breaks**: 10 extra items in the 37-page Typst report. Each rule is listed as an underline added or removed on the last row, and again as a graphic.
-4. **Six characters of context in Chinese and Japanese, and dates written with 年月日 not read as numbers**: 3 misses and 3 extra items. Round 4's `zh-en-supply-annex` #3 had the same cause, and it was not fixed before the freeze.
+4. **Six characters of context in Chinese and Japanese, and a 年月日 date change that takes in 月 (11月30 → 12月31) not read as a number**: 3 misses and 3 extra items. Round 4's `zh-en-supply-annex` #3 had the same cause, and it was not fixed before the freeze.
 5. **A rewrite split around an unchanged phrase, with context taken from the new side only**: 2 misses and 4 extra items.
 6. **Thin or light lines judged by luminance**: 3 misses and 1 extra item.
    - 2 misses are silent and within the documented scope: a 0.4 pt black strike on a re-flowed row and a 0.73 pt #00ff00 underline.
@@ -188,19 +188,19 @@ The causes, ordered by the number of items they affect:
     - The miss: an amount moved from the Débit to the Crédit column of an unchanged row. It is not listed and not disclosed.
     - The extra item: a two-line stamp moved and gave one item per line (scoring).
 11. **DR/CR not read as a sign**: 1 miss and 1 extra item, scoring only. The word change DR → CR was listed.
-12. **A re-justified line fails the in-place test of an unchanged footnote**: 1 extra item, a false "Moved and edited".
+12. **A re-justified line fails the in-place test of a footnote edited in place**: 1 extra item, a false "Moved and edited" for a footnote that did not move.
 
 Some credited items mislead too, without changing a count:
 - "+44%" for −1.8 → −2.6 in a "Change (%)" column;
 - "+20%" on a day of the month;
 - "+97%" on the digits of an account number;
 - 1,500 → 2,000 for △1,500 → △2,000;
-- "+194%" across a sign change written with a trailing minus.
+- "+194%" on the closing balance 43.30 → 127.50, whose sign change is written in words ("en notre faveur" → "en votre faveur"); the running balance 43.30- → 127.50, written with a trailing minus, gets no note at all.
 
 The README now lists all of these under "Scope and limitations". Some function-level traces (logged values in `crossingBack`, `overlayInk` and `addedLine`, and one analyst's experimental patch) were made by the analysts only. The verifiers re-checked the facts they rest on (PDF.js text order, spans, fills, renders) but not those logged values.
 
 **Against the baselines.**
-- **Overall.** ChangeLens found more edits than the text line diff (115 against 98) and listed fewer extra items (78 against 112). It found fewer than the pixel page diff, which marks a region on some page for all 144 edits and on the right page for 132, with 59 extra regions.
+- **Overall.** ChangeLens found more edits than the text line diff (115 against 98) and listed fewer extra items (78 against 112). It found fewer than the pixel page diff, which marks a region on an expected page (old or new) for all 144 edits and on the expected page in both files for 132, with 59 extra regions.
 - **Per case.** ChangeLens found fewer than the pixel diff in 13 of 18 cases, and fewer than the text line diff in 2: the payslip and the datasheet with an overlay.
 - **Typst.** ChangeLens beats the text line diff on every count and has fewer extra items than the pixel diff (19 against 31). Its 3 misses there are all scoring only.
 - **fpdf2.**
@@ -214,7 +214,7 @@ On PDFs edited the way PDF editors edit them (PyMuPDF redaction, re-inserted tex
 
 No fix has been made: the engine is unchanged since `f1053f3`. If these cases are used for fixes, they are no longer held out, as with round 4.
 
-**Analysis file.** The per-item analysis, with evidence, causes in the code and fix ideas, is in [`eval/results-holdout5-analysis.md`](../eval/results-holdout5-analysis.md). The script `write-analysis.py` arranged it from the agents' structured output and checked the sums. It is agent-written working material; the paths in it point to scratch folders that are not kept.
+**Analysis file.** The per-item analysis, with evidence, causes in the code and fix ideas, is in [`eval/results-holdout5-analysis.md`](../eval/results-holdout5-analysis.md). A scratch script (`write-analysis.py`, not kept in the repository) arranged it from the agents' structured output and checked the sums. They can be recounted from the `xN` counts and `verified` tags of its entries. It is agent-written working material; the paths in it point to scratch folders that are not kept.
 
 ### Review round 7 and fix round 8 (probes, not held out)
 
