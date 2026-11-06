@@ -425,7 +425,8 @@ test('T1 round 5: the Chinese quote, whose stream is in reading order, is unchan
   const r = await round5('zh-quote-htmlbox');
   assert.equal(r.newDoc.pages.some((p) => p.outOfOrder), false);
   assert.deepEqual(listed(r).filter((d) => !/^(Graphic|Underlined)/.test(d)), [
-    'Changed “11月30” → “12月31”',
+    // A date written with 年月日 (see engine9-cjk-dates.test.ts).
+    'Number changed: 2026年11月30日 → 2026年12月31日',
     'Changed “季度” → “月”',
     'Moved a paragraph',
     'Number changed: 4 → 6 (+50%)',

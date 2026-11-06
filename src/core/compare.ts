@@ -633,7 +633,16 @@ function textChange(ctx: Ctx, h: Hunk): Change {
   // A form field's value (see TextRun.field): said so in the description.
   const changed = [...delToks, ...insToks].filter((t) => t.kind !== 'punct');
   if (changed.length && changed.every((t) => t.field)) change.field = true;
-  if (kind === 'replace' && isNumericPhrase(delToks.map((t) => t.text)) && isNumericPhrase(insToks.map((t) => t.text))) {
+  // Figures of a date or time written with 年, 月 and 日 (or 时 and 分):
+  // a number change, shown as the whole date, without a percentage on the
+  // day ("2026年11月10日 → 2026年11月12日").
+  const [dateA, dateB] = cjkDateEdit(A, B, h) ?? [];
+  if (dateA && dateB) {
+    oldSide.text = joinTokens(A.slice(dateA.s, dateA.e));
+    newSide.text = joinTokens(B.slice(dateB.s, dateB.e));
+    [change.contextBefore, change.contextAfter] = lateNew ? context(A, dateA.s, dateA.e) : context(B, dateB.s, dateB.e);
+    change.numeric = { from: oldSide.text, to: newSide.text, fromValue: null, toValue: null };
+  } else if (kind === 'replace' && isNumericPhrase(delToks.map((t) => t.text)) && isNumericPhrase(insToks.map((t) => t.text))) {
     // Show the unchanged unit or currency sign that is written onto the
     // number ("4%" → "8%", "€62.40"), so the description keeps its meaning.
     // Likewise a magnitude ("−£7.4m"), and a percent sign set after a space
@@ -770,6 +779,62 @@ function isListLabel(T: Token[], s: number, e: number, label: string): boolean {
   if (/^\(\d{1,2}\)?$|^\d{1,2}\)$/.test(text)) return true;
   const next = T[e];
   return /^\d{1,2}$/.test(text) && !!next && next.line === T[e - 1].line && !next.spaceBefore && /^[.)]$/.test(next.text.normalize('NFKC'));
+}
+
+/**
+ * The units of a date or time written in Chinese or Japanese, in the order
+ * they follow each other ("2026年11月30日14时30分"): year, month, day, hour
+ * (时, 時 or 点), minute, second.
+ */
+const DATE_UNIT_RANK: Record<string, number> = { 年: 0, 月: 1, 日: 2, 时: 3, 時: 3, 点: 3, 分: 4, 秒: 5 };
+/** Words for the time of day written before an hour ("午後６時", "下午3点"). */
+const DAY_PERIOD = /^(?:午前|午後|上午|下午|早上|晚上|凌晨)$/;
+
+/**
+ * T[s, e) lies inside a date or time written with Chinese or Japanese
+ * units: figures, each followed by its unit, in the order of
+ * DATE_UNIT_RANK ("2026年11月30日", "11月30日", "2026年11月", "14时30分",
+ * "１１月１０日"). Returns the whole date or time T[s, e) and its units, or
+ * null. A date names its month with the year or the day; a figure before
+ * 年, 月 or 日 alone can be a term ("3年", "30日以内"). A time names its
+ * hour with the minutes ("14时30分"), or after a word for the time of day
+ * ("午後６時"); an hour followed by 間 or 间 is a term of hours ("2時間").
+ */
+function cjkDate(T: Token[], s: number, e: number): { s: number; e: number; units: string } | null {
+  const figure = (k: number) => !!T[k] && T[k].kind === 'number' && /^\d{1,4}$/.test(T[k].text.normalize('NFKC'));
+  const unit = (k: number) => !!T[k] && T[k].kind === 'cjk' && DATE_UNIT_RANK[T[k].text] !== undefined;
+  const rank = (k: number) => DATE_UNIT_RANK[T[k].text];
+  const joined = (k: number) => !!T[k] && !!T[k + 1] && (T[k].line === T[k + 1].line || T[k].block === T[k + 1].block);
+  const part = (k: number) => figure(k) && unit(k + 1) && joined(k);
+  if (e <= s) return null;
+  let p = figure(s) ? s : unit(s) && part(s - 1) ? s - 1 : -1;
+  if (p < 0 || !part(p)) return null;
+  // Back to the first part, then on to the last.
+  while (part(p - 2) && joined(p - 1) && rank(p - 1) < rank(p + 1)) p -= 2;
+  let k = p;
+  const units: string[] = [];
+  while (part(k) && (k === p || (joined(k - 1) && rank(k + 1) > rank(k - 1)))) {
+    units.push(T[k + 1].text);
+    k += 2;
+  }
+  if (e > k || (rank(k - 1) === 3 && /^[間间]$/.test(T[k]?.text ?? ''))) return null;
+  // A date names its month ("11月30日", "2026年11月"); a time its hour, with
+  // the minutes or after a word for the time of day.
+  const date = units.length >= 2 && units.includes('月');
+  const at = units.findIndex((u) => DATE_UNIT_RANK[u] === 3);
+  const time = at >= 0 && (units[at + 1] === '分' || (units.length === 1 && joined(p - 2) && joined(p - 1) && DAY_PERIOD.test(T[p - 2].text + T[p - 1].text)));
+  return date || time ? { s: p, e: k, units: units.join('') } : null;
+}
+
+/**
+ * The whole date or time on each side of a hunk that changes only figures
+ * of it, with the same units on both sides ("11月30" → "12月31" in
+ * 2026年11月30日 → 2026年12月31日), or null.
+ */
+function cjkDateEdit(A: Token[], B: Token[], h: Hunk): [{ s: number; e: number }, { s: number; e: number }] | null {
+  const a = cjkDate(A, h.a0, h.a1);
+  const b = a && cjkDate(B, h.b0, h.b1);
+  return a && b && a.units === b.units ? [a, b] : null;
 }
 
 /** Words that a clause, step or page number follows in a cross-reference ("under clause 4.4", "see step 3", "§ 12", "第 4.4 条"). */
@@ -1983,7 +2048,9 @@ function runningFieldValues(
     return k;
   };
   const listed = (c: Change, h: Hunk) => {
-    [c.contextBefore, c.contextAfter] = h.b1 > h.b0 ? around(B, h.b0, h.b1, newDoc) : around(A, h.a0, h.a1, oldDoc);
+    // Around the whole date when the value's date changed (see textChange).
+    const date = c.numeric && cjkDateEdit(A, B, h);
+    [c.contextBefore, c.contextAfter] = date ? around(B, date[1].s, date[1].e, newDoc) : h.b1 > h.b0 ? around(B, h.b0, h.b1, newDoc) : around(A, h.a0, h.a1, oldDoc);
     c.order = sideOrder(c.new, newDoc);
     out.changes.push(c);
   };
