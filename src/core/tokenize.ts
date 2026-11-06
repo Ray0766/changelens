@@ -18,6 +18,8 @@ interface Char {
 interface RawLine {
   page: number;
   runs: TextRun[];
+  /** Drawn after the page's footer and left at the end of the page (see restoreReadingOrder). */
+  late?: true;
 }
 
 const WS = /\s|\u00a0|\u3000|\u200b/;
@@ -202,8 +204,10 @@ interface Reordered {
  * or a margin note drawn last does not share its baseline with a line whose
  * neighbours reach across it, a page number drawn last lies in the bottom
  * margin, and on a page whose footer comes first nothing follows the footer.
- * Pages without such a footer, and pages in reading order, are unchanged.
- * Lines left out (blank or turned) keep their place in the stream.
+ * Late lines left there outside the bottom margin are marked (Token.late),
+ * as their place in the reading order is not known. Pages without such a
+ * footer, and pages in reading order, are unchanged. Lines left out (blank
+ * or turned) keep their place in the stream.
  */
 function restoreReadingOrder(lines: RawLine[], width: number, height: number): Reordered {
   const none: Reordered = { lines, placed: 0 };
@@ -236,6 +240,7 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number): R
     else m.set(at, [k]);
   };
   const moved = new Set<number>();
+  const kept = new Set<number>();
   for (let k = footer + 1; k < lines.length; k++) {
     const late = boxes[k];
     if (!late || late.zone === 'bottom') continue;
@@ -243,15 +248,18 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number): R
     const gap = target < 0 ? gapAbove(late, before, boxes) : -1;
     if (target >= 0) add(into, target, k);
     else if (gap >= 0) add(after, gap, k);
-    else continue;
+    else {
+      kept.add(k);
+      continue;
+    }
     moved.add(k);
   }
-  if (!moved.size) return none;
+  if (!moved.size && !kept.size) return none;
   const out: RawLine[] = [];
   lines.forEach((line, k) => {
     if (moved.has(k)) return;
     const extra = into.get(k);
-    out.push(extra ? { page: line.page, runs: mergeRuns(line.runs, extra.flatMap((j) => lines[j].runs)) } : line);
+    out.push(extra ? { page: line.page, runs: mergeRuns(line.runs, extra.flatMap((j) => lines[j].runs)) } : kept.has(k) ? { ...line, late: true } : line);
     for (const j of (after.get(k) ?? []).sort((a, b) => boxes[a]!.top - boxes[b]!.top)) out.push(lines[j]);
   });
   return { lines: out, placed: moved.size };
@@ -700,6 +708,7 @@ export function buildDocModel(doc: DocText): DocModel {
           ...(main.comb ? { comb: true as const } : {}),
           ...(main.autoSize ? { autoSize: true as const } : {}),
           ...(main.widget ? { widget: main.widget } : {}),
+          ...(rl.late ? { late: true as const } : {}),
         });
       }
       const line: Line = {

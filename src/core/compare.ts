@@ -429,6 +429,30 @@ function splitHunk(ctx: Ctx, h: Hunk, blocks = true): Hunk[] {
 }
 
 /**
+ * A replace one side of which holds text drawn after a page's footer that
+ * found no place in the reading order (Token.late, see restoreReadingOrder
+ * in tokenize.ts), whose two sides share no word and stand on pages that
+ * do not correspond: the text drawn last on one page next to the edited
+ * start of the next page, not one rewrite ("3 Electrical connection" →
+ * "Document no. DS-UFM80-004"). It is a deletion and an insertion, which
+ * move detection then sees.
+ */
+function splitStranded(ctx: Ctx, h: Hunk, oldToNew: number[]): Hunk[] {
+  if (h.a1 === h.a0 || h.b1 === h.b0) return [h];
+  const da = ctx.A.slice(h.a0, h.a1);
+  const db = ctx.B.slice(h.b0, h.b1);
+  if (!da.some((t) => t.late) && !db.some((t) => t.late)) return [h];
+  const words = new Set(da.filter((t) => t.kind !== 'punct').map((t) => t.key));
+  if (db.some((t) => t.kind !== 'punct' && words.has(t.key))) return [h];
+  const pages = new Set(da.map((t) => oldToNew[t.page]));
+  if (db.some((t) => pages.has(t.page))) return [h];
+  return [
+    { a0: h.a0, a1: h.a1, b0: h.b0, b1: h.b0 },
+    { a0: h.a1, a1: h.a1, b0: h.b0, b1: h.b1 },
+  ];
+}
+
+/**
  * Both sides read the same and only their tokens are cut differently: a
  * superscript or subscript set as a raised run of its own ("m" + "2", "H" +
  * "2" + "O") against the Unicode character or plain text ("m²", "H2O").
@@ -2417,7 +2441,8 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
   const repeated = repeatedAtPageTop(ctx, hunks, pairs);
   const oldToNew = pageMap(oldDoc, newDoc, A, B, pairs).oldToNew;
   const manual = validPairs(options.manualPairs ?? [], oldDoc.pages.length, newDoc.pages.length);
-  const moved = detectMoves(ctx, hunks.filter((h) => !repeated.has(h)), fold, oldToNew);
+  const unpaired = hunks.filter((h) => !repeated.has(h)).flatMap((h) => (relabelled.labels.has(h) || crossed.labels.has(h) ? [h] : splitStranded(ctx, h, oldToNew)));
+  const moved = detectMoves(ctx, unpaired, fold, oldToNew);
   moved.inPlace.push(...crossed.pairs);
   const stray = inPlaceTokens(ctx, moved.rest, new Set([...relabelled.labels, ...crossed.labels]), oldToNew, [...pairs, ...moved.inPlace]);
   moved.rest = stray.rest;

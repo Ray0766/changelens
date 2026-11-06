@@ -107,6 +107,21 @@ test('T1 controls: a right column drawn after the footer, and a note added below
   assert.equal(b.newDoc.pages[0].outOfOrder, undefined);
 });
 
+test('T1: a line drawn after the footer that finds no place is not paired with the next page’s deleted heading', async () => {
+  // p. 1: "Document no. DS-004" added below the last line, appended after
+  // the footer; p. 2: its first heading, set larger than the body, deleted.
+  const r = await probe('stranded');
+  assert.deepEqual(listed(r), ['Deleted “3 Electrical connection”', 'Added “Document no. DS-004”']);
+  assert.deepEqual([r.changes[0].old.pages, r.changes[1].new.pages], [[1], [0]]);
+  assert.ok(r.newDoc.tokens.some((t) => t.late && t.text === 'Document'));
+  // Control: the same new version written in reading order (the line
+  // before the footer) is compared as before this rule: the two edits at
+  // the page break still read as one rewrite (a known limit).
+  const c = compareDocs(await load(`${fixtures}probe9-T1-stranded-before.pdf`), await load(`${fixtures}probe9-T1-stranded-inorder.pdf`));
+  assert.deepEqual(listed(c), ['Changed “3 Electrical connection” → “Document no. DS-004”']);
+  assert.ok(!c.newDoc.tokens.some((t) => t.late));
+});
+
 // ------------------------------------------------------- narrowness -------
 
 /** A page of runs given as [text, x, baseline] in stream order (11 pt, 0.5 em per character; lines by geometry). */

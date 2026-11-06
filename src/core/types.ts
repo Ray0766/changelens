@@ -141,6 +141,13 @@ export interface Token {
   autoSize?: true;
   /** The box of the widget that shows a form field's value (see TextRun.widget). */
   widget?: Rect;
+  /**
+   * Drawn after the page's footer (as PDF editors append re-typed text) and
+   * left at the end of the page, as no place for it was found (see
+   * restoreReadingOrder in tokenize.ts): its place in the reading order is
+   * not known.
+   */
+  late?: true;
 }
 
 export interface Line {

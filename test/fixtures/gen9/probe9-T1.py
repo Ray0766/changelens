@@ -16,6 +16,10 @@ PyMuPDF appends to the end of the page's content, after the footer.
                                              word, and a note added below the last line (not placed)
   probe9-T1-break-before.pdf / -after.pdf    a note added below the last line of p. 1 and the first
                                              heading of p. 2 deleted: two edits, not one rewrite
+  probe9-T1-stranded-before.pdf / -after.pdf a line added below the last line of p. 1, drawn after the
+                                             footer, and the first heading of p. 2 (set larger than the
+                                             body) deleted: two edits, not one rewrite; -inorder.pdf is
+                                             the same new version written in reading order (control)
   probe9-T1-columns-before.pdf / -after.pdf  a two-column page whose right column is drawn after
                                              the footer, beside a full-width paragraph (in order in
                                              "before"): nothing is put back by position
@@ -193,6 +197,40 @@ def break_after(before, path):
     save(doc, path)
 
 
+# ------------------------------------------------------------------ stranded
+
+def stranded_doc(path, note_in_order=False, heading=True):
+    """p. 1 ends with a paragraph, p. 2 starts with a heading set larger than the body (its own paragraph)."""
+    doc = pymupdf.open()
+    p = doc.new_page(width=A4[0], height=A4[1])
+    header(p, 1, 2, "Probe T1 stranded")
+    text(p, 72, 100, "1 Scope (SYNTHETIC)", size=12, bold=True)
+    text(p, 72, 118, "This SYNTHETIC datasheet applies to every transmitter of the series.")
+    text(p, 72, 132, "Each section covers one topic, so that it can be printed on its own.")
+    if note_in_order:
+        p.insert_text((72, 160), "Document no. DS-004", fontname="helv", fontsize=10)
+    footer(p, 1, 2)
+    p = doc.new_page(width=A4[0], height=A4[1])
+    header(p, 2, 2, "Probe T1 stranded")
+    if heading:
+        text(p, 72, 100, "3 Electrical connection", size=14, bold=True)
+    text(p, 72, 118, "The transmitter has spring terminals for the supply.")
+    text(p, 72, 132, "The pulse output is an open collector.")
+    footer(p, 2, 2)
+    save(doc, path)
+
+
+def stranded_after(before, path):
+    doc = pymupdf.open(before)
+    p1, p2 = doc[0], doc[1]
+    # p. 1: a line added below the last line, appended after the footer (no place found for it);
+    # p. 2: its first heading deleted.
+    p1.insert_text((72, 160), "Document no. DS-004", fontname="helv", fontsize=10)
+    redact(p2, find(p2, "3 Electrical connection")[0])
+    p2.apply_redactions(images=NO_IMG, graphics=NO_ART)
+    save(doc, path)
+
+
 # ------------------------------------------------------------------ columns
 
 LEFT = [
@@ -273,6 +311,9 @@ def main():
     lease_after(o("lease-before"), o("lease-after"))
     break_before(o("break-before"))
     break_after(o("break-before"), o("break-after"))
+    stranded_doc(o("stranded-before"))
+    stranded_after(o("stranded-before"), o("stranded-after"))
+    stranded_doc(o("stranded-inorder"), note_in_order=True, heading=False)
     columns(o("columns-before"), False)
     columns(o("columns-after"), True)
     turned_before(o("turned-before"))
