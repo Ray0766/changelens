@@ -3875,6 +3875,21 @@ function foldClipped(changes: Change[], overflow: Change[], oldDoc: DocModel, ne
     if (side === 'end') return Math.abs(na.span(n[0].rects[0])[0] - oa.span(o[0].rects[0])[0] - d) <= tol;
     return Math.abs(na.span(lastRect(n[n.length - 1]))[1] - oa.span(lastRect(o[o.length - 1]))[1] - d) <= tol;
   };
+  /**
+   * How far the end of the replacement that old token k ends moved on new
+   * page `np`, along the text: its visible part on k's line, new end less
+   * old end. Null where k ends none, or its new part is not on one line of
+   * that page.
+   */
+  const endShift = (k: number, np: number): number | null => {
+    const r = byOldEnd.get(k);
+    if (!r) return null;
+    const [oa, na] = axes(oldDoc.tokens[k].page, np);
+    const o = oldDoc.tokens.slice(r.old.start, r.old.end).filter((t) => include(t) && t.line === oldDoc.tokens[k].line);
+    const n = newDoc.tokens.slice(r.new.start, r.new.end).filter(include);
+    if (!oa || !na || !o.length || !n.length || n.some((t) => t.line !== n[0].line) || n[0].page !== np) return null;
+    return na.span(lastRect(n[n.length - 1]))[1] - oa.span(lastRect(o[o.length - 1]))[1];
+  };
   interface Part {
     old: Token[];
     new: Token[];
@@ -3965,8 +3980,12 @@ function foldClipped(changes: Change[], overflow: Change[], oldDoc: DocModel, ne
         }
         // Wholly beyond the edge, placed by the page's shift and by the word
         // before, which that tolerance lets move ("30 days," → "30 days"
-        // earlier on the line would have set "(net)" inside the page).
-        const by = next === null ? [shift.along] : [shift.along, next];
+        // earlier on the line would have set "(net)" inside the page). Where
+        // the word before ends a replacement on the line, by how far its end
+        // moved too: words kept after a figure re-set shorter follow its new
+        // end ("11,250.00 CR" → "1,250.00" would have left "CR" inside).
+        const ends = onLine && next === null ? endShift(k, npage) : null;
+        const by = next === null ? (ends === null ? [shift.along] : [shift.along, ends]) : [shift.along, next];
         return o.every((t) => by.every((d) => oa.span(t.rects[0])[0] + d > L - 0.5));
       }
       const a = squash(joinTokens(o));
