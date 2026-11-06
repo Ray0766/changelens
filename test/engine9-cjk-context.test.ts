@@ -16,6 +16,7 @@ import { compareDocs } from '../src/core/compare.ts';
 import { describeChange } from '../src/core/describe.ts';
 import { excerptHtml } from '../src/core/report.ts';
 import type { Change, CompareResult } from '../src/core/types.ts';
+import { makeDoc, model } from './helpers.ts';
 
 const fixtures = new URL('./fixtures/', import.meta.url).pathname;
 const cases = new URL('../eval/cases/', import.meta.url).pathname;
@@ -78,4 +79,25 @@ test('T3: the round-4 and round-5 CJK items show the phrase their truth names', 
   // holdout4-e-docx-zh-en-supply-annex #3: 10% 作为质量保证金.
   const annex = await evalCase('holdout4-e-docx-zh-en-supply-annex');
   assert.ok(around(annex, 'Number changed: 10% → 5% (-5 pp)').contextAfter.startsWith('作为质量保证金'));
+});
+
+test('T3: the context leaves out a full-width mark cut from the text around it', () => {
+  // Synthetic text runs: a quotation's fields on one line, and numbered clauses.
+  const doc = (name: string, until: string, days: string) =>
+    makeDoc(name, [
+      [
+        ['报价编号：QH-2026-901'],
+        [`报价日期：2026年11月4日 有效期至：${until}`],
+        [`本合同共两条。（二）乙方应于${days}日内完成全部设备的安装接线调试工作（含试运行）。`],
+      ],
+    ]);
+  const r = compareDocs(model(doc('a', '2026年11月30日', '3')), model(doc('b', '2026年12月31日', '5')));
+  // The colon of the field before (报价日期：) is not shown at the start of the context.
+  const date = around(r, 'Number changed: 2026年11月30日 → 2026年12月31日');
+  assert.equal(date.contextBefore, '2026年11月4日 有效期至：');
+  // Nor the opening bracket of the text after the context; control: the
+  // bracket that opens the clause number before the change stays.
+  const days = around(r, 'Number changed: 3 → 5 (+67%)');
+  assert.equal(days.contextBefore, '（二）乙方应于');
+  assert.equal(days.contextAfter, '日内完成全部设备的安装接线调试工作');
 });

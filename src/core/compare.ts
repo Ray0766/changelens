@@ -551,6 +551,8 @@ const CONTEXT_BUDGET = 18;
 const contextCost = (t: Token) => (isWideToken(t) ? 1 : 3);
 /** The full stop, exclamation and question marks that end a Chinese or Japanese sentence. */
 const SENTENCE_END = /^[。！？]$/;
+/** Opening brackets and quotation marks of Chinese and Japanese text. */
+const OPENING_MARK = /^[（［｛〔【〖〘〚「『《〈]$/;
 
 /**
  * The context around toks[s, e): within its paragraph, or within `within`
@@ -584,6 +586,13 @@ function context(toks: Token[], s: number, e: number, within?: [number, number])
     after.push(t);
     if (end) break;
   }
+  // A full-width mark cut from the text before the context (the colon of
+  // the field before it, "：2026年11月4日 有效期至："; the comma of the clause
+  // before it) is left out, and so is an opening bracket cut from the text
+  // after it.
+  const wideMark = (t: Token | undefined) => !!t && t.kind === 'punct' && isWideToken(t);
+  while (wideMark(before[0]) && !OPENING_MARK.test(before[0].text)) before.shift();
+  while (wideMark(after[after.length - 1]) && OPENING_MARK.test(after[after.length - 1].text)) after.pop();
   return [joinTokens(before), joinTokens(after)];
 }
 
