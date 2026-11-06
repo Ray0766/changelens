@@ -152,12 +152,12 @@ Problems the verifiers of fix round 8 found beyond the 106, still open:
   All of these are in the README limits.
 - **Speed:** pages with a large slanted watermark take about 1.7 times as long as at `b3de0f4`; see [Performance](#performance).
 
-On the evaluation sets nothing moved. The last verifier ran them on 2026-11-06 at `251a4f3`, whose engine is the merged branch's:
+On the evaluation sets nothing moved. Run on 2026-11-06 on the merged branch (`c2b3353`):
 - 31 non-blind pairs: 117 / 117 / 0;
 - round 3: 73 / 73 / 1;
 - round 4: 118 / 118 / 4, and 108 / 108 / 10 with the registered rules (one fewer found than before, explained under round 4 below).
 
-The `--items` output of all 61 cases is identical before and after the last two fix passes. The fixes were made for the probes, so they say nothing new about other documents; a fifth blind round is the test of that.
+The `--items` output of all 61 cases is identical to the last independent verifier's run, and to the runs before the last two fix passes. The fixes were made for the probes, so they say nothing new about other documents; a fifth blind round is the test of that.
 
 ### Held-out round 4: registered before the run, then run once
 
@@ -387,6 +387,17 @@ Measured with `node eval/perf.ts`, which generates the 24 → 24 page pair itsel
 | 24 → 24 pages, text + visual, median of 3 | 21.1 s · 343 MB | 23.0 s · 366 MB |
 
 The checks added in fix rounds 5 and 6 cost about 5–10 % in the visual stage, and nothing measurable in the text stage.
+
+**Fix round 8, A/B on one machine.** On 2026-11-06, on the 2.10 GHz machine of the first table (Node 22.23, load 0.5–1.4), runs alternated between `b3de0f4` (before fix round 8) and the merged branch (`c2b3353`). The 34-page memo is the SYNTHETIC review-7 robustness probe with a large slanted DRAFT watermark on every page (not in the repository).
+
+| Pair | `b3de0f4` | `c2b3353` |
+|---|---|---|
+| Demo, text + visual, 3 runs | 5.0–5.2 s · 345–362 MB | 5.7–5.9 s · 342–359 MB |
+| 24 → 24 pages, text only, median of 3 | 0.8 s · 199 MB | 0.8 s · 203 MB |
+| 24 → 24 pages, text + visual, median of 3 | 11.0 s · 369 MB | 12.4 s · 378 MB |
+| 34-page watermark memo, text + visual, 1 run | 22.4 s · 396 MB | 37.4 s · 423 MB |
+
+Fix round 8 costs about 12–15 % in the visual stage on ordinary pages, and nothing measurable in the text stage. On watermark pages the visual stage takes about 1.7 times as long. A profile of the memo found no single hot spot: the appearance checks (8.1 → 18.4 s) and the line tests (2.7 → 8.3 s) are now run for each overlay, each nearby graphic and each slanted text, and the new watermark letter maps add about 6 s. A cache of ink per box gained nothing measurable and was not kept. The independent verifiers measured much the same on this machine: 1–17 % on the demo pair (median about 11 %) and 37.7 s against 22.5 s on the memo.
 
 The extra time comes from the checks that were added for missed changes: strikethrough and underline, faint fills and hairlines, ink balance for shifts, and re-checking regions against neighbouring pages. Most of the time is spent in the per-pixel comparison (`unmatched`, 23 %), the 3 × 3 min/max planes (13 %) and the blur (10 %). Text comparison takes about 0.6 s of the total.
 
