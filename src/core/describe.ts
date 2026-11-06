@@ -192,14 +192,25 @@ function describeMarkup(lang: Lang, c: Change): string {
   return t(lang, `markup${kind}${change}`, { text: truncate((m.change === 'removed' ? c.old : c.new).text, 32) });
 }
 
-/** A graphic drawn by a stamp, a free-text note or a comment annotation (see Change.note), with its text. */
+/**
+ * A graphic drawn by a stamp, a free-text note or a comment annotation (see
+ * Change.note), with its text; one that holds other graphic changes as
+ * well (noteChange.beside), as a graphic change with the note's.
+ */
 function describeNote(lang: Lang, c: Change): string {
   const what = t(lang, ({ stamp: 'noteStamp', freetext: 'noteFreetext', comment: 'noteComment' } as const)[c.note!]);
   const [o, n] = [c.old.rects.length > 0, c.new.rects.length > 0];
-  if (n && !o) return t(lang, 'noteAdded', { what, text: truncate(c.new.text, 48) });
-  if (o && !n) return t(lang, 'noteRemoved', { what, text: truncate(c.old.text, 48) });
-  if (c.old.text && c.new.text && c.old.text !== c.new.text) return t(lang, 'noteChanged', { what, from: truncate(c.old.text, 40), to: truncate(c.new.text, 40) });
-  return t(lang, 'noteChangedLook', { what, text: truncate(c.new.text || c.old.text, 48) });
+  const change = c.noteChange?.change ?? (n && !o ? 'added' : o && !n ? 'removed' : 'changed');
+  const note =
+    change === 'added'
+      ? t(lang, 'noteAdded', { what, text: truncate(c.new.text, 48) })
+      : change === 'removed'
+        ? t(lang, 'noteRemoved', { what, text: truncate(c.old.text, 48) })
+        : c.old.text && c.new.text && c.old.text !== c.new.text
+          ? t(lang, 'noteChanged', { what, from: truncate(c.old.text, 40), to: truncate(c.new.text, 40) })
+          : t(lang, 'noteChangedLook', { what, text: truncate(c.new.text || c.old.text, 48) });
+  if (!c.noteChange?.beside) return note;
+  return t(lang, 'noteBeside', { graphic: t(lang, !o ? 'graphicAdded' : !n ? 'graphicRemoved' : 'graphicChanged'), note });
 }
 
 /** "6 annotations (1 stamp, 1 highlight, …)": the subtypes counted on the pages of one version (see PageAnnotations.counts). */

@@ -6880,8 +6880,17 @@ function unnoteMarkup(result: CompareResult, oldPage: number, newPage: number, A
  * the same kind, at the same place within 3 pt, with the same text): the
  * change that covers most of its box on that page is marked with its kind
  * (`note`) and given its text, so that it reads "Stamp added (annotation):
- * “FOR COMMENT”", "Note changed (annotation): “…” → “…”". A note whose text
- * could not be read leaves the change as it is.
+ * “FOR COMMENT”", "Note changed (annotation): “…” → “…”" (`noteChange`:
+ * added or removed where the other version has no note there, changed
+ * where it has one with other text). The note explains the change alone
+ * only where the change lies within its box (90 % of its area, the box
+ * 6 pt wider) on the side that has it, and on the other side within the
+ * other note's box, or, where the other side has none, the change there
+ * is at most a quarter of its size (what the note covers of the page's
+ * own drawing). Otherwise the change holds more than the note (a logo
+ * recoloured under or beside a stamp): it is marked `beside`, and reads as
+ * a graphic change with the note's. A note whose text could not be read
+ * leaves the change as it is.
  */
 function nameNotes(result: CompareResult, oldPage: number, newPage: number, changes: Change[]): void {
   const na = result.oldDoc.pages[oldPage]?.annotations?.notes ?? [];
@@ -6891,12 +6900,25 @@ function nameNotes(result: CompareResult, oldPage: number, newPage: number, chan
     x.kind === y.kind && Math.abs(x.rect.x - y.rect.x) <= 3 && Math.abs(x.rect.y - y.rect.y) <= 3 && Math.abs(x.rect.w - y.rect.w) <= 3 && Math.abs(x.rect.h - y.rect.h) <= 3;
   const area = (r: Rect, s: Rect) => Math.max(0, Math.min(r.x + r.w, s.x + s.w) - Math.max(r.x, s.x)) * Math.max(0, Math.min(r.y + r.h, s.y + s.h) - Math.max(r.y, s.y));
   const plain = (c: Change) => c.kind === 'graphic' && !c.format && !c.minor && !c.pageChange && !c.consequence;
-  const best = (side: 'old' | 'new', n: AnnotationNote, page: number): Change | null => {
+  const pageOf = (side: 'old' | 'new') => (side === 'old' ? oldPage : newPage);
+  const size = (c: Change, side: 'old' | 'new') => c[side].rects.filter((q) => q.page === pageOf(side)).reduce((s, q) => s + q.rect.w * q.rect.h, 0);
+  // Share of the change's area on one side within a note's box (6 pt
+  // wider: a region of the pixels takes in whole cells around them).
+  const within = (c: Change, side: 'old' | 'new', r: Rect) => {
+    const all = size(c, side);
+    const box = expand(r, 6);
+    return all > 0 ? c[side].rects.filter((q) => q.page === pageOf(side)).reduce((s, q) => s + area(q.rect, box), 0) / all : 1;
+  };
+  const alone = (c: Change, side: 'old' | 'new', n: AnnotationNote, twin: AnnotationNote | undefined) => {
+    const o = side === 'old' ? 'new' : 'old';
+    return within(c, side, n.rect) >= 0.9 && (twin ? within(c, o, twin.rect) >= 0.9 : size(c, o) <= 0.25 * size(c, side));
+  };
+  const best = (side: 'old' | 'new', n: AnnotationNote): Change | null => {
     let top: Change | null = null;
     let most = 0.25 * n.rect.w * n.rect.h;
     for (const c of changes) {
       if (!plain(c)) continue;
-      const v = c[side].rects.filter((q) => q.page === page).reduce((s, q) => s + area(q.rect, n.rect), 0);
+      const v = c[side].rects.filter((q) => q.page === pageOf(side)).reduce((s, q) => s + area(q.rect, n.rect), 0);
       if (v > most) [top, most] = [c, v];
     }
     return top;
@@ -6905,17 +6927,24 @@ function nameNotes(result: CompareResult, oldPage: number, newPage: number, chan
     const twin = na.find((o) => place(o, n));
     if (twin && twin.text === n.text) continue;
     if (!n.text && !twin?.text) continue;
-    const c = best('new', n, newPage) ?? (twin ? best('old', twin, oldPage) : null);
+    const c = best('new', n) ?? (twin ? best('old', twin) : null);
     if (!c || c.note) continue;
     c.note = n.kind;
+    c.noteChange = { change: twin ? 'changed' : 'added', ...(alone(c, 'new', n, twin) ? {} : { beside: true }) };
     c.new.text = n.text;
     if (twin) c.old.text = twin.text;
   }
   for (const o of na) {
     if (!o.text || nb.some((n) => place(o, n))) continue;
-    const c = best('old', o, oldPage);
+    const c = best('old', o);
     if (!c || (c.note && c.old.text)) continue;
-    c.note ??= o.kind;
+    if (c.note) {
+      // A note added where another went: changed.
+      c.noteChange = { change: 'changed', ...(c.noteChange?.beside || within(c, 'old', o.rect) < 0.9 ? { beside: true } : {}) };
+    } else {
+      c.note = o.kind;
+      c.noteChange = { change: 'removed', ...(alone(c, 'old', o, undefined) ? {} : { beside: true }) };
+    }
     c.old.text = o.text;
   }
 }

@@ -77,3 +77,26 @@ test('V3-markup refix N4: a graphic under a new highlight is dropped on both sid
   assert.deepEqual(list(recoloured), ['Graphic or image changed', 'Highlighted (annotation): “Calibration records for two tor…”']);
   assert.ok(recoloured.changes[0].old.rects.length > 0 && recoloured.changes[0].new.rects.length > 0);
 });
+
+test('V3-markup refix N3: a stamp is named alone only where the change lies within it; an added one reads "added"', { skip }, async () => {
+  // Control: the logo recoloured, blue → red.
+  assert.deepEqual(list(await probe('logo-blue', 'logo-red')), ['Graphic or image changed']);
+  // A stamp added over the logo that is the same: the change lies within
+  // the stamp's box, but what it covers of the logo differs as well, which
+  // cannot be told from a change under it. Before: "Stamp changed".
+  const over = await probe('logo-blue', 'logo-blue-stamp');
+  assert.deepEqual(list(over), ['Graphic or image changed — Stamp added (annotation): “FOR COMMENT”']);
+  assert.equal(describeChange('zh', over.changes[0]), '图形或图片有变化，其中新增图章（批注）：「FOR COMMENT」');
+  // The logo recoloured under it: the change reaches out of the stamp's
+  // box. Before: "Stamp changed (annotation): “FOR COMMENT”".
+  assert.deepEqual(list(await probe('logo-blue', 'logo-red-stamp')), ['Graphic or image changed — Stamp added (annotation): “FOR COMMENT”']);
+  // A stamp 10 pt beside the recoloured logo, in one region with it.
+  // Before: "Stamp changed (annotation): “APPROVED”".
+  assert.deepEqual(list(await probe('logo-blue', 'logo-red-near')), ['Graphic or image changed — Stamp added (annotation): “APPROVED”']);
+  // A stamp on blank paper, and a note whose text changed in place: the
+  // note alone, as before.
+  assert.deepEqual(list(await probe('before', 'comment')), ['Stamp added (annotation): “APPROVED”', 'Comment added (annotation): “Ask for the calibration certificates. SYNTHETIC”', HL]);
+  assert.deepEqual(list(await probe('note-before', 'note-changed')), ['Note changed (annotation): “Draft for internal review, SYNTHETIC” → “Reviewed 2 Nov 2026: plan accepted, SYN…”']);
+  // Removed: from the version that has it.
+  assert.deepEqual(list(await probe('comment', 'hl')), ['Stamp removed (annotation): “APPROVED”', 'Comment removed (annotation): “Ask for the calibration certificates. SYNTHETIC”']);
+});
