@@ -1638,7 +1638,38 @@ function coverStates(X: Prepared, r: Rect, own: Cover[], other: Cover[]): Record
  * (fractional when re-sampled) each cell comes from. `bg`: the darkness of
  * the box's lightest cell, taken off every cell (see offFill), else 0.
  */
-type Box = { d: Float32Array; cols: number; rows: number; top: number; x0: number; ys: Float32Array; bg?: number };
+type Box = { d: Float32Array; cols: number; rows: number; top: number; x0: number; ys: Float32Array; bg?: number; luma?: boolean };
+
+/**
+ * Whether a word's box (extended below as boxDarkness extends it) lies on a
+ * light, saturated fill: a highlighter's yellow, green or cyan. A third or
+ * more of its pixels are half as dark as black or more in their lowest
+ * channel (see luminance) and lighter by 0.3 or more in luminance. In the
+ * lowest channel such a fill is as far from the paper as the glyphs, and a
+ * black or red line over it adds nothing (pure yellow is 0 in blue): a pair
+ * of boxes where either lies on one is measured by luminance, as the
+ * glyphs' darkness was before lines were judged by their distance from the
+ * paper. A line in a light colour on such a fill is then as faint as it is
+ * in luminance. A line itself (2 pt across a 10 pt word: a sixth of the
+ * box's rows), or the glyphs of coloured text, cover less of the box.
+ */
+function onTint(side: Prepared, rect: Rect): boolean {
+  const { r, lum, low } = side;
+  const s = r.scale;
+  const x0 = Math.max(0, Math.round(rect.x * s));
+  const x1 = Math.min(r.width, Math.round((rect.x + rect.w) * s));
+  const y0 = Math.max(0, Math.floor(rect.y * s));
+  const y1 = Math.min(r.height, Math.ceil((rect.y + rect.h * 1.15) * s));
+  let n = 0;
+  let tint = 0;
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const i = y * r.width + x;
+      n++;
+      if (low[i] <= 127 && lum[i] - low[i] >= 77) tint++;
+    }
+  return n > 0 && tint >= n / 3;
+}
 
 /**
  * A box measured against its own background: where no cell of it is
@@ -1667,8 +1698,9 @@ function offFill(X: Box): Box {
  * fraction of a pixel is interpolated between pixel rows, as if the glyphs
  * had been drawn at the other version's sub-pixel position.
  */
-function boxDarkness(side: Prepared, rect: Rect, on?: { rect: Rect; scale: number }): Box {
-  const { r, low: lum } = side;
+function boxDarkness(side: Prepared, rect: Rect, on?: { rect: Rect; scale: number }, luma = false): Box {
+  const { r } = side;
+  const lum = luma ? side.lum : side.low;
   const s = r.scale;
   const x0 = Math.max(0, Math.round(rect.x * s));
   const x1 = Math.min(r.width, Math.round((rect.x + rect.w) * s));
@@ -1684,7 +1716,7 @@ function boxDarkness(side: Prepared, rect: Rect, on?: { rect: Rect; scale: numbe
       ys[k] = y0 + k;
       for (let c = 0; c < cols; c++) d[k * cols + c] = dark(y0 + k, c);
     }
-    return { d, cols, rows, top: y0 / s, x0, ys };
+    return { d, cols, rows, top: y0 / s, x0, ys, luma };
   }
   const so = on.scale;
   const oy0 = Math.max(0, Math.floor(on.rect.y * so));
@@ -1699,7 +1731,7 @@ function boxDarkness(side: Prepared, rect: Rect, on?: { rect: Rect; scale: numbe
     ys[k] = y;
     for (let c = 0; c < cols; c++) d[k * cols + c] = (1 - t) * dark(j, c) + t * dark(j + 1, c);
   }
-  return { d, cols, rows, top: oy0 / so - on.rect.y + rect.y, x0, ys };
+  return { d, cols, rows, top: oy0 / so - on.rect.y + rect.y, x0, ys, luma };
 }
 
 /**
@@ -1802,9 +1834,13 @@ function addedLine(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, c
 function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: Cover | null, cb: Cover | null, opts: LineOptions, shifted = false): FoundLine | 'part' | null {
   // Without an overlay found there, a fill under the word is taken off
   // (see offFill); an overlay's fill is measured against below.
+  // On a light, saturated fill (see onTint), both are measured by luminance.
   const plain = !ca && !cb;
-  const A = plain ? offFill(boxDarkness(a, ra, { rect: rb, scale: b.r.scale })) : boxDarkness(a, ra, { rect: rb, scale: b.r.scale });
-  const B = plain ? offFill(boxDarkness(b, rb)) : boxDarkness(b, rb);
+  const luma = onTint(a, ra) || onTint(b, rb);
+  const A0 = boxDarkness(a, ra, { rect: rb, scale: b.r.scale }, luma);
+  const B0 = boxDarkness(b, rb, undefined, luma);
+  const A = plain ? offFill(A0) : A0;
+  const B = plain ? offFill(B0) : B0;
   if (A.cols < 4 || B.cols < 4) return null;
   const n = Math.min(A.rows, B.rows);
   // Rows that belong to the glyphs of the line above or below (see
@@ -1838,10 +1874,10 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       // is that of the glyphs, and of a line drawn over it: compared, with
       // its darkness taken against the fill's lightness `lf` (a pixel of
       // the fill is as light as paper), in its lowest channel as the box's
-      // darkness is (see luminance).
+      // darkness is (see luminance), or by luminance (see onTint).
       const fill = cov.behind && cov.clear;
       const [r0, g0, b0] = cov.colours[0];
-      const lf = Math.min(r0, g0, b0) / 255;
+      const lf = (luma ? 0.299 * r0 + 0.587 * g0 + 0.114 * b0 : Math.min(r0, g0, b0)) / 255;
       for (let k = 0; k < n; k++) {
         const y = Math.round(X.ys[k]);
         for (let c = 0; c < C; c++) {
@@ -1874,8 +1910,8 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
   // which its own units would scale up along their edges (a red figure
   // under a red and a blue stamp: a false strike along the bar of a "4").
   const bare = (u: number, X: Box) => (X.bg ? Math.max(0, (u - X.bg) / (1 - X.bg)) : u);
-  const ua = bare(inkUnit(a, ra), A);
-  const ub = bare(inkUnit(b, rb), B);
+  const ua = bare(inkUnit(a, ra, luma), A);
+  const ub = bare(inkUnit(b, rb, luma), B);
   const unit = Math.min(ua, ub);
   const [ha, hb] = [inkHue(a, ra), inkHue(b, rb)];
   const recoloured = !valid && Math.hypot(ha[0] - hb[0], ha[1] - hb[1], ha[2] - hb[2]) > 30;
@@ -2295,7 +2331,7 @@ function goesOn(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number, 
   const darkB = (j: number, c: number) => {
     const y = Math.round(B.ys[0]) + j;
     const x = B.x0 + c;
-    const v = y < 0 || y >= b.r.height || x >= b.r.width ? 0 : (255 - b.low[y * b.r.width + x]) / 255;
+    const v = y < 0 || y >= b.r.height || x >= b.r.width ? 0 : (255 - (B.luma ? b.lum : b.low)[y * b.r.width + x]) / 255;
     return B.bg ? (v - B.bg) / (1 - B.bg) : v;
   };
   // `a`'s row as the word moved (see boxDarkness), interpolated.
@@ -2304,7 +2340,8 @@ function goesOn(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number, 
     const i = Math.floor(y);
     const t = y - i;
     const x = A.x0 + c;
-    const at = (v: number) => (v < 0 || v >= a.r.height || x >= a.r.width ? 0 : (255 - a.low[v * a.r.width + x]) / 255);
+    const plane = A.luma ? a.lum : a.low;
+    const at = (v: number) => (v < 0 || v >= a.r.height || x >= a.r.width ? 0 : (255 - plane[v * a.r.width + x]) / 255);
     const v = (1 - t) * at(i) + t * at(i + 1);
     return A.bg ? (v - A.bg) / (1 - A.bg) : v;
   };
@@ -2401,8 +2438,9 @@ function level(A: Box, B: Box, C: number, n: number, k: number, e: number): bool
  * rows).
  */
 function lineAlone(a: Prepared, ra: Rect, b: Prepared, rb: Rect): FoundLine | null {
-  const A = boxDarkness(a, ra);
-  const B = boxDarkness(b, rb);
+  const luma = onTint(a, ra) || onTint(b, rb);
+  const A = boxDarkness(a, ra, undefined, luma);
+  const B = boxDarkness(b, rb, undefined, luma);
   if (A.cols < 6 || B.cols < 6) return null;
   const s = b.r.scale;
   const across = (X: Box, k: number, c0: number, c1: number) => {
@@ -2618,8 +2656,9 @@ class StrokeHue {
 }
 
 /** The darkness of a token's glyph ink: the darkest pixel of its box (1 when it is nearly paper). */
-function inkUnit(side: Prepared, rect: Rect): number {
-  const { r, low: lum } = side;
+function inkUnit(side: Prepared, rect: Rect, luma = false): number {
+  const { r } = side;
+  const lum = luma ? side.lum : side.low;
   const s = r.scale;
   let min = 255;
   for (let y = Math.max(0, Math.floor(rect.y * s)); y < Math.min(r.height, Math.ceil((rect.y + rect.h) * s)); y++)

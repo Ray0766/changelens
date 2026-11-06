@@ -1,0 +1,64 @@
+// Visual stage, fix round 9, area V2-thin-light-lines, second pass: what
+// the verifier's counter-probes found after lines through and under words
+// were first measured by their distance from the paper (each pixel's lowest
+// channel).
+// - On a highlighter's fill (pure yellow, bright green, cyan) the lowest
+//   channel reads the fill as dark as the glyphs: 1 pt black strikes and
+//   0.75 pt underlines over highlighted words were lost, mostly silently.
+//   Such a pair of boxes is now measured by luminance, as before.
+// - A thin underline in a filled table cell was taken for a table rule
+//   (the fill runs on past the text) and dropped silently. A line is now
+//   measured against what lies just above and below it.
+// - A colour change of a word under a line found on it was lost: the line
+//   replaced it. It is now told outside the line's rows and listed too,
+//   unless the word took the line's own colour.
+// - A stamp's border turned by 18° crossing a figure read as an underline.
+//   A line that rises 10° or more across the word is no line of it.
+// - A red arrow after a struck word lengthened the strike onto the next
+//   word, and a word a strike was followed onto was counted as well.
+// Fixtures test/fixtures/probe9-V2-refix-*.pdf are SYNTHETIC: fpdf2 2.9
+// and PyMuPDF 2.1 (test/fixtures/gen9/v2-thin-lines-refix.py), and the
+// stamp probe of review round 7 made with Chromium
+// (test/fixtures/gen9/v2-stamp-frame.cjs).
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { openPdf } from '../src/node/pdf.ts';
+import { renderPage, canRender } from '../src/node/render.ts';
+import { extractText } from '../src/pdf/extract.ts';
+import { buildDocModel } from '../src/core/tokenize.ts';
+import { compareDocs } from '../src/core/compare.ts';
+import { addVisualChanges } from '../src/core/pipeline.ts';
+import { describeChange } from '../src/core/describe.ts';
+import type { Change, CompareResult } from '../src/core/types.ts';
+
+const fixtures = new URL('./fixtures/', import.meta.url).pathname;
+const skip = !(await canRender()) && 'no canvas';
+
+async function run(before: string, after: string): Promise<CompareResult> {
+  const pa = await openPdf(before);
+  const pb = await openPdf(after);
+  const r = compareDocs(buildDocModel(await extractText(pa, 'old')), buildDocModel(await extractText(pb, 'new')));
+  await addVisualChanges(r, (p) => renderPage(pa, p, 1.5), (p) => renderPage(pb, p, 1.5));
+  return r;
+}
+const probe = (a: string, b: string) => run(fixtures + `probe9-V2-refix-${a}.pdf`, fixtures + `probe9-V2-refix-${b}.pdf`);
+const list = (cs: Change[]) => cs.map((c) => describeChange('en', c));
+const lines = (r: CompareResult) => list(r.changes.filter((c) => c.format?.decoration));
+const counted = (r: CompareResult) => (r.coverage?.new.partlyCompared ?? []).reduce((n, u) => n + u.count, 0);
+
+test('V2-thin refix: strikes and underlines on a highlighter’s yellow, green or cyan fill are found, moved or not', { skip }, async () => {
+  // Before: "No differences found" for the black 1 pt strike on yellow and
+  // the 0.75 pt underline on green (the lowest channel read the fill as
+  // black). The red 0.5 pt strike on cyan is as faint as in luminance: it
+  // is counted as compared in part where unmoved, and listed as a colour
+  // where the text moved (both as before the lines were measured so).
+  const r = await probe('hl-before', 'hl-marks');
+  assert.deepEqual(lines(r), ['Struck through: “storage of finished parts”', 'Underlined: “within 30 days”']);
+  assert.equal(counted(r), 2);
+  const moved = await probe('hl-before', 'hl-shift-marks');
+  assert.deepEqual(lines(moved), ['Struck through: “storage of finished parts”', 'Underlined: “within 30 days”']);
+  // Control: the highlighted text moved 7 pt gives no line and no count.
+  const ctrl = await probe('hl-before', 'hl-shift-before');
+  assert.deepEqual(list(ctrl.changes), []);
+  assert.equal(counted(ctrl), 0);
+});
