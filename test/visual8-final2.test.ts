@@ -11,6 +11,7 @@ import { buildDocModel } from '../src/core/tokenize.ts';
 import { compareDocs } from '../src/core/compare.ts';
 import { addVisualChanges } from '../src/core/pipeline.ts';
 import { describeChange } from '../src/core/describe.ts';
+import { partlyCompared } from '../src/core/visual.ts';
 import type { Change, CompareResult } from '../src/core/types.ts';
 
 const fixtures = new URL('./fixtures/', import.meta.url).pathname;
@@ -26,6 +27,7 @@ async function run(before: string, after: string): Promise<CompareResult> {
 const list = (cs: Change[]) => cs.map((c) => describeChange('en', c));
 const lines = (r: CompareResult) => list(r.changes.filter((c) => c.format?.decoration));
 const recoloured = (r: CompareResult) => r.changes.filter((c) => describeChange('en', c) === 'Text colour or weight changed').map((c) => c.new.text);
+const counted = (r: CompareResult) => partlyCompared(r).flatMap((p) => p.words);
 
 test('V-V3: a sloped strike followed within a point by a mark of another colour or course is listed', { skip }, async () => {
   // SYNTHETIC (reportlab): a black 0.8 pt strike rising 1.5 pt over
@@ -88,4 +90,21 @@ test('V-V1: pale stripes, panels, gradients, bands and tints the words moved in 
   // Control: a #d9d9d9 highlight put on "post" in the moved text is listed.
   const hl = await run('probe8-V-V1-moved-before.pdf', 'probe8-V-V1-moved-hl.pdf');
   assert.deepEqual(recoloured(hl), ['post']);
+});
+
+test('V-V2: a word struck or recoloured under an image stamp both versions draw is counted as compared in part', { skip }, async () => {
+  // SYNTHETIC (reportlab and PIL, the verifier's generator): a blue
+  // "APPROVED" PNG stamp over the second line in both versions, at 59 % and
+  // 86 % opacity; "written" under its lettering struck through, or turned
+  // red. Before: "No differences found.", and no notice.
+  const strike = await run('probe8-V-V2-a150.pdf', 'probe8-V-V2-a150-strike.pdf');
+  assert.ok(counted(strike).includes('written'), JSON.stringify(partlyCompared(strike)));
+  const red = await run('probe8-V-V2-a220.pdf', 'probe8-V-V2-a220-red.pdf');
+  assert.ok(counted(red).includes('written'), JSON.stringify(partlyCompared(red)));
+  // Controls: the stamped page compared with itself counts nothing; a strike
+  // on "by", clear of the lettering, is listed.
+  const same = await run('probe8-V-V2-a150.pdf', 'probe8-V-V2-a150.pdf');
+  assert.deepEqual([list(same.changes), counted(same)], [[], []]);
+  const by = await run('probe8-V-V2-a150.pdf', 'probe8-V-V2-a150-strike-by.pdf');
+  assert.deepEqual(list(by.changes), ['Struck through: “by”']);
 });

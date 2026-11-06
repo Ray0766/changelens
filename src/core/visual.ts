@@ -1473,6 +1473,41 @@ function aroundOther(X: Prepared, rect: Rect, bg: number[]): boolean {
 }
 
 /**
+ * The share of a word's box drawn in a colour that neither its glyphs nor
+ * the background behind them explain: farther than 48 levels from every
+ * blend of the two (their anti-aliased edges, glyphs on a fill), as the ink
+ * of an image or a stamp drawn over the word in a colour of its own is
+ * (blue lettering over black text). The glyphs' colour is that of the
+ * pixel farthest from the background (white glyphs on a dark band too).
+ */
+function foreignShare(side: Prepared, rect: Rect, bg: number[]): number {
+  const { r } = side;
+  const s = r.scale;
+  const x0 = Math.max(0, Math.round(rect.x * s));
+  const x1 = Math.min(r.width, Math.round((rect.x + rect.w) * s));
+  const y0 = Math.max(0, Math.floor(rect.y * s));
+  const y1 = Math.min(r.height, Math.ceil((rect.y + rect.h) * s));
+  let g = [0, 0, 0];
+  let gg = 0;
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const p = rgb(r, y * r.width + x).map((v, c) => v - bg[c]);
+      const d = p[0] * p[0] + p[1] * p[1] + p[2] * p[2];
+      if (d > gg) [g, gg] = [p, d];
+    }
+  let n = 0;
+  let foreign = 0;
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const p = rgb(r, y * r.width + x).map((v, c) => v - bg[c]);
+      const t = gg ? Math.max(0, Math.min(1, (p[0] * g[0] + p[1] * g[1] + p[2] * g[2]) / gg)) : 0;
+      n++;
+      if (Math.hypot(p[0] - t * g[0], p[1] - t * g[1], p[2] - t * g[2]) > 48) foreign++;
+    }
+  return n ? foreign / n : 0;
+}
+
+/**
  * Whether `bg`, a pale background found behind a word (see ink), is the
  * word's own: the colour of nearly all of its box between the glyphs (four
  * in five of the pixels no more than 24 levels darker than it, within 12
@@ -2884,6 +2919,11 @@ function appearanceChanges(
   // comparison lists as that edit, not as formatting; its box is a tenth
   // taller, shorter, wider or narrower): its glyphs' ink follows their
   // size, so their weight is not compared.
+  const stampWord = (doc: DocModel, t: Token) => {
+    const r = t.rects[0];
+    const [x, y] = [r.x + r.w / 2, r.y + r.h / 2];
+    return (doc.runs[t.page] ?? []).some((u) => slantedRun(u) && Math.abs(u.fontSize - t.size) <= 0.5 && u.str.includes(t.text) && x >= u.x && x <= u.x + u.w && y >= u.y && y <= u.y + u.h);
+  };
   const refitted = (a: Token, b: Token) => {
     if (!a.autoSize || !b.autoSize) return false;
     const [u, v] = [a.rects[0], b.rects[0]];
@@ -3039,6 +3079,20 @@ function appearanceChanges(
       // nor where a widget draws the word again in one version only.
       const bold = exact && !colour && change > 0.1 && !twice(a, b) && (ib.total > ia.total ? heavier(A, ka, B, kb) : heavier(B, kb, A, ka));
       if (colour || weight || bold) hits.push({ a, b, colour, ink: ib, p, bold });
+      // An image or a stamp drawn over the word in a colour of its own, in
+      // both versions alike (not a graphic that changed): a strike or a
+      // colour under its ink is fainter there or mixed with it, and was not
+      // found. Compared in part, unless the word shows the very same pixels
+      // in both versions (see sameInk). Not a word of a stamp written as
+      // text at a slant, over the words under it.
+      else if (
+        (Math.hypot(...ia.chroma) > 8 || Math.hypot(...ib.chroma) > 8) &&
+        !stampWord(result.newDoc, b) &&
+        foreignShare(A, ka, ia.bg) >= 0.1 &&
+        foreignShare(B, kb, ib.bg) >= 0.1 &&
+        !(exact && sameInk(A, a.rects[0], B, b.rects[0]))
+      )
+        notePartly(result, newPage, b);
       continue;
     }
     // Next to an overlay, the weight is measured outside all of its ink
