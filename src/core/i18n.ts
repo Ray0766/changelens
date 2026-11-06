@@ -455,7 +455,7 @@ const zh: Record<MessageKey, string> = {
   markupHighlightRemoved: '去掉了高亮（批注）：「{text}」',
   markupHighlightRecoloured: '高亮颜色有变化（批注）：「{text}」',
   noteStamp: '图章',
-  noteFreetext: '文本框批注',
+  noteFreetext: '文本框',
   noteComment: '评论',
   noteAdded: '新增{what}（批注）：「{text}」',
   noteRemoved: '删除了{what}（批注）：「{text}」',

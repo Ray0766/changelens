@@ -240,7 +240,7 @@ test('V3-markup: stamps, free-text notes and comments are named with their text 
   assert.deepEqual(list(c), ['Stamp added (annotation): “APPROVED”', 'Comment added (annotation): “Ask for the calibration certificates. SYNTHETIC”', HL]);
   const n = await probe('note-before', 'note-changed');
   assert.deepEqual(list(n), ['Note changed (annotation): “Draft for internal review, SYNTHETIC” → “Reviewed 2 Nov 2026: plan accepted, SYN…”']);
-  assert.equal(describeChange('zh', n.changes[0]), '文本框批注有变化（批注）：「Draft for internal review, SYNTHETIC」→「Reviewed 2 Nov 2026: plan accepted, SYN…」');
+  assert.equal(describeChange('zh', n.changes[0]), '文本框有变化（批注）：「Draft for internal review, SYNTHETIC」→「Reviewed 2 Nov 2026: plan accepted, SYN…」');
   // Round 4: a stamp, a highlight with a pop-up comment, a free-text note
   // whose text changed and a comment icon.
   const r4 = await run(cases + 'holdout4-g-annotated-agreement/before.pdf', cases + 'holdout4-g-annotated-agreement/after.pdf');
