@@ -18,7 +18,7 @@ interface Char {
 interface RawLine {
   page: number;
   runs: TextRun[];
-  /** Drawn after the page's footer and left at the end of the page (see restoreReadingOrder). */
+  /** Drawn after the page's footer, below the text drawn before it, and left at the end of the page (see restoreReadingOrder). */
   late?: true;
 }
 
@@ -176,8 +176,6 @@ interface Reordered {
   lines: RawLine[];
   /** Lines drawn after the footer that were placed by their position. */
   placed: number;
-  /** Lines drawn after the footer, outside the margins and above text drawn before it, that found no place. */
-  kept: number;
 }
 
 /**
@@ -191,9 +189,13 @@ interface Reordered {
  * only to upright lines (turned text, such as a turned page, a margin note
  * or a watermark, is neither moved nor moved into) on a page without form
  * field values, where
- *  - a footer was drawn after the body: a line in the bottom margin, below
- *    every line drawn before it and at least one line height under the
- *    lowest of them, with body text (outside the margins) before it.
+ *  - a footer was drawn after the body: the last line in the stream that
+ *    lies in the bottom margin, below every line drawn before it and at
+ *    least one line height under the lowest of them, with body text
+ *    (outside the margins) before it. (The last such line, not the first:
+ *    on a page set in columns, the last line of the first column can start
+ *    in the bottom margin after a paragraph gap, and the next column and
+ *    the real footer come after it.)
  * A line drawn after that footer, outside the bottom margin, is placed
  *  - into a line drawn before the footer whose baseline it shares, at its x,
  *    where it does not overprint that line's glyphs, and either fills a gap
@@ -206,17 +208,20 @@ interface Reordered {
  * or a margin note drawn last does not share its baseline with a line whose
  * neighbours reach across it, a page number drawn last lies in the bottom
  * margin, and on a page whose footer comes first nothing follows the footer.
- * Late lines left there outside the bottom margin are marked (Token.late),
- * as their place in the reading order is not known; those in the body
- * area, above text drawn before the footer, are counted for a notice. Pages without such a
- * footer, and pages in reading order, are unchanged. Lines left out (blank
- * or turned) keep their place in the stream.
+ * Late lines left there below all the text drawn before the footer (a note
+ * added under the last line) are marked (Token.late), as text a PDF editor
+ * appended; those left beside or above that text are not marked, as nothing
+ * tells them from a column drawn last. Pages without such a footer, and
+ * pages in reading order, are unchanged. Lines left out (blank or turned)
+ * keep their place in the stream.
  */
 function restoreReadingOrder(lines: RawLine[], width: number, height: number): Reordered {
-  const none: Reordered = { lines, placed: 0, kept: 0 };
+  const none: Reordered = { lines, placed: 0 };
   if (lines.some((l) => l.runs.some((r) => r.field))) return none;
   const boxes = lines.map((l) => (l.runs.some((r) => r.angle !== 0) ? null : lineBox(l, { x: 0, y: 0, w: width, h: height })));
   let footer = -1;
+  /** The lowest bottom of the lines drawn before the footer. */
+  let floor = -Infinity;
   let lowest = -Infinity;
   let body = false;
   for (let k = 0; k < lines.length; k++) {
@@ -224,7 +229,7 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number): R
     if (!b) continue;
     if (b.zone === 'bottom' && body && b.top >= lowest + b.size) {
       footer = k;
-      break;
+      floor = lowest;
     }
     if (!b.zone) body = true;
     lowest = Math.max(lowest, b.bottom);
@@ -244,7 +249,6 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number): R
   };
   const moved = new Set<number>();
   const kept = new Set<number>();
-  let stranded = 0;
   for (let k = footer + 1; k < lines.length; k++) {
     const late = boxes[k];
     if (!late || late.zone === 'bottom') continue;
@@ -253,8 +257,7 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number): R
     if (target >= 0) add(into, target, k);
     else if (gap >= 0) add(after, gap, k);
     else {
-      kept.add(k);
-      if (!late.zone && late.top < lowest) stranded++;
+      if (!late.zone && late.top >= floor) kept.add(k);
       continue;
     }
     moved.add(k);
@@ -267,7 +270,7 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number): R
     out.push(extra ? { page: line.page, runs: mergeRuns(line.runs, extra.flatMap((j) => lines[j].runs)) } : kept.has(k) ? { ...line, late: true } : line);
     for (const j of (after.get(k) ?? []).sort((a, b) => boxes[a]!.top - boxes[b]!.top)) out.push(lines[j]);
   });
-  return { lines: out, placed: moved.size, kept: stranded };
+  return { lines: out, placed: moved.size };
 }
 
 /**
@@ -663,11 +666,11 @@ export function buildDocModel(doc: DocText): DocModel {
   const lines: Line[] = [];
   let blockId = -1;
 
-  const outOfOrder = new Map<number, { placed: number; kept: number }>();
+  const outOfOrder = new Map<number, { placed: number }>();
   for (const page of doc.pages) {
     const order = restoreReadingOrder(groupLines(page.index, page.runs.map(upright)), page.width, page.height);
     const raw = order.lines;
-    if (order.placed || order.kept) outOfOrder.set(page.index, { placed: order.placed, kept: order.kept });
+    if (order.placed) outOfOrder.set(page.index, { placed: order.placed });
     let prev: { rect: Rect; size: number; angle: number; last: Tok } | null = null;
     for (const rl of raw) {
       const chars = lineChars(rl);
