@@ -17,6 +17,8 @@ import {
   rowCopies,
   rowDiffers,
   rowFolds,
+  clearFragmentFeet,
+  openFragment,
   listRow,
   pageTurn,
   sameGraphic,
@@ -52,8 +54,10 @@ export async function addVisualChanges(
   // the ones it finds in their look (an earlier run on this result).
   const textFurniture = furnitureText.get(result) ?? result.ignored.furniture;
   furnitureText.set(result, textFurniture);
-  // Regions shown with repeated header rows by an earlier run on this result.
+  // Regions shown with repeated header rows by an earlier run on this result,
+  // and the table fragment feet it saw (see openFragment).
   rowFolds(result).splice(0);
+  clearFragmentFeet(result);
   const skipped = { old: new Set<number>(), new: new Set<number>() };
   const large = (side: 'old' | 'new', p: number) => {
     const pg = docs[side].pages[p];
@@ -338,6 +342,13 @@ export async function addVisualChanges(
   if (marks.length) found.splice(0, found.length, ...found.filter((c) => !furnitureMark(c)));
   result.ignored.furniture = textFurniture + marks.length;
   await graphicsOfUnpairedPages(result, pairs, render, large);
+  // A rule shown with a table's moved page break, where another foot of the
+  // same table has no such rule (see openFragment): a graphic of its own.
+  for (const c of found) {
+    if (c.consequence !== 'closingRule' || !openFragment(result, c)) continue;
+    c.minor = false;
+    delete c.consequence;
+  }
   const visual = [...dedupeGraphics(found.filter((c) => !c.minor)), ...pageChanges];
   // Rules that close a table at a page foot, which came or went with a
   // header row repeated at the next page top (see compareRasters): counted

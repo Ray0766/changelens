@@ -4648,8 +4648,42 @@ interface ClosingRule {
   text: string;
   /** Where it lies in the new version's order (see Change.order). */
   order: number;
+  /** The text of the header row repeated after it: its table (see openFragment). */
+  table: string;
   /** The change it is shown with, made on its first fold (see compareAligned). */
   change?: Change;
+}
+
+/**
+ * The feet of table fragments looked at for a closing rule (see
+ * closingRules), per result: the tables, by the text of the header row
+ * repeated after the foot, that have a foot without a rule under its last
+ * row in either version; and the table of each closing rule shown with a
+ * moved page break.
+ */
+const fragmentFeet = new WeakMap<CompareResult, { open: Set<string>; tables: WeakMap<Change, string> }>();
+function feetOf(result: CompareResult): { open: Set<string>; tables: WeakMap<Change, string> } {
+  let v = fragmentFeet.get(result);
+  if (!v) fragmentFeet.set(result, (v = { open: new Set(), tables: new WeakMap() }));
+  return v;
+}
+
+/** Forget the fragment feet seen by an earlier run on the result (see openFragment). */
+export function clearFragmentFeet(result: CompareResult): void {
+  fragmentFeet.delete(result);
+}
+
+/**
+ * A closing rule shown with a moved page break (consequence 'closingRule')
+ * whose table has another fragment foot, in either version, with no rule
+ * under its last row: the producer does not close the table's fragments,
+ * so the rule was drawn there as a graphic of its own, not with the break.
+ * Known once every page pair has been compared (see addVisualChanges).
+ */
+export function openFragment(result: CompareResult, c: Change): boolean {
+  const v = fragmentFeet.get(result);
+  const table = v?.tables.get(c);
+  return table !== undefined && v!.open.has(table);
 }
 
 /** The document token facing each token of either version (-1 where none), per result. */
@@ -4862,7 +4896,14 @@ function closingRules(result: CompareResult, oldPage: number, newPage: number, A
       const below = doc.lines.filter((l) => l.page === page && l.end > l.start && l.rect.y >= bottom - 0.5).map((l) => l.rect.y);
       const limit = Math.min(bottom + 0.6 * lh, ...below);
       const rule = ruleIn(P, rowRect.x * s, (rowRect.x + rowRect.w) * s, (bottom - 0.3 * lh) * s, limit * s - 1, Math.round(3 * s) + 2);
-      if (!rule) continue;
+      // The table, by its header row's text; a foot without a rule under its
+      // last row makes every closing rule of the table a graphic of its own
+      // (see openFragment).
+      const table = joinTokens(doc.tokens.slice(h.start, h.end).filter((t) => !t.furniture));
+      if (!rule) {
+        feetOf(result).open.add(table);
+        continue;
+      }
       // Where the other version has the row: the same words, displaced alike.
       const t0 = words[0];
       const u0 = odoc.tokens[mate[t0.i]];
@@ -4955,6 +4996,7 @@ function closingRules(result: CompareResult, oldPage: number, newPage: number, A
         // Right before the header row it came or went with (on the old side,
         // which the new version's order does not place).
         order: side === 'new' ? newPage * 100000 + rule.rows[0] / s : c.order - 0.01,
+        table,
       });
     }
   }
@@ -5019,6 +5061,7 @@ function compareAligned(
     const place = { pages: [R.page], rects: [{ page: R.page, rect: R.rect }], text: R.text };
     const none = { pages: [], rects: [], text: '' };
     R.change = { id: '', kind: 'graphic', category: 'visual', minor: true, consequence: 'closingRule', old: R.side === 'old' ? place : none, new: R.side === 'new' ? place : none, size: 0, cjk: false, contextBefore: '', contextAfter: '', order: R.order };
+    feetOf(result).tables.set(R.change, R.table);
     return R.change;
   };
   // A line of the word's own besides such a rule (see ownLineBy).

@@ -198,6 +198,33 @@ test('V1-closing-rules: a rule added at a page foot where no break moved stays l
   assert.equal(same.ignored.closingRules ?? 0, 0);
 });
 
+test('V1-closing-rules: a rule drawn at a moved break of a table whose other fragment feet have none stays listed', { skip }, async () => {
+  // SYNTHETIC reportlab pairs (test/fixtures/gen9/v1-closing-rules-rl.py): a
+  // table that breaks after Week 5 in "before" and after Week 3 in "after".
+  // "closed" closes each fragment with a 0.9 pt rule, like its end; "open"
+  // does not, and "open-drawn" has a 0.9 pt rule drawn by hand under Week 5,
+  // where "closed" has it. The foot of "after" (under Week 3) has no rule,
+  // so the producer does not close the table's fragments: the drawn rule is
+  // a graphic of its own. Before, it was shown with the moved break.
+  const rl = (a: string, b: string) => run(fixtures + `probe9-V1-closing-rules-rl-${a}.pdf`, fixtures + `probe9-V1-closing-rules-rl-${b}.pdf`);
+  const r = await rl('open-drawn', 'open-after');
+  assert.deepEqual(list(r.changes), ['Added 40 words', 'Graphic or image removed']);
+  assert.ok(at(r.changes[1], 'old', 1, 300, 751.7), JSON.stringify(r.changes[1].old.rects));
+  assert.equal(r.ignored.closingRules ?? 0, 0);
+  assert.equal(r.ignored.repeatedLines, 2);
+  const back = await rl('open-after', 'open-drawn');
+  assert.deepEqual(list(back.changes), ['Deleted 40 words', 'Graphic or image added']);
+  assert.equal(back.ignored.closingRules ?? 0, 0);
+  // Controls: the table that closes its fragments (both feet folded), and
+  // the one that does not, with no rule drawn.
+  const closed = await rl('closed-before', 'closed-after');
+  assert.deepEqual(list(closed.changes), ['Added 40 words']);
+  assert.equal(closed.ignored.closingRules, 2);
+  const open = await rl('open-before', 'open-after');
+  assert.deepEqual(list(open.changes), ['Added 40 words']);
+  assert.equal(open.ignored.closingRules ?? 0, 0);
+});
+
 test('V1-closing-rules: round 5 annual report, the five moved table breaks give no underline or graphic item', { skip }, async () => {
   // holdout5-h-annual-technical-report (SYNTHETIC, Typst 0.15). Before: items
   // 2–11 of 21, an underline and a graphic item at each of the five rules
