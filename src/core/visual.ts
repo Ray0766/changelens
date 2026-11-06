@@ -6500,6 +6500,75 @@ function markupChanges(
 }
 
 /**
+ * The colour a highlight annotation of `list` (if any) tints the paper with
+ * on the word `t` of `X` (`u` of `Y` in the other version): from the pixels
+ * in its quadrilaterals within the word's box where the other version shows
+ * paper, their median per channel; its /C where there are too few. Null
+ * where no highlight of `list` lies there.
+ */
+function markupTint(X: Prepared, t: Rect, Y: Prepared, u: Rect, list: Markup[]): number[] | null {
+  const lit = list.filter((m) => m.kind === 'highlight');
+  if (!lit.length) return null;
+  const quads = lit.flatMap((m) => m.quads);
+  const s = X.r.scale;
+  const so = Y.r.scale;
+  const px: number[][] = [];
+  for (let y = Math.max(0, Math.floor(t.y * s)); y < Math.min(X.r.height, Math.ceil((t.y + t.h) * s)); y++)
+    for (let x = Math.max(0, Math.floor(t.x * s)); x < Math.min(X.r.width, Math.ceil((t.x + t.w) * s)); x++) {
+      const [fx, fy] = [(x + 0.5) / s, (y + 0.5) / s];
+      if (!quads.some((q) => fx >= q.x && fx <= q.x + q.w && fy >= q.y && fy <= q.y + q.h)) continue;
+      const xo = Math.round((fx - t.x + u.x) * so - 0.5);
+      const yo = Math.round((fy - t.y + u.y) * so - 0.5);
+      if (xo < 0 || yo < 0 || xo >= Y.r.width || yo >= Y.r.height) continue;
+      const j = (yo * Y.r.width + xo) * 4;
+      if (Math.min(Y.r.data[j], Y.r.data[j + 1], Y.r.data[j + 2]) < 245) continue;
+      const i = (y * X.r.width + x) * 4;
+      px.push([X.r.data[i], X.r.data[i + 1], X.r.data[i + 2]]);
+    }
+  if (px.length < 12) return markupColour(lit[0]);
+  return [0, 1, 2].map((c) => px.map((p) => p[c]).sort((a, b) => a - b)[px.length >> 1]);
+}
+
+/**
+ * Whether the pixel `p` is the colour `c` drawn over the pixel `q`, in part
+ * (anti-aliased, or with an opacity): within 40 levels (Euclidean) of the
+ * segment from `q` to `c`.
+ */
+function overDrawn(p: number[], q: number[], c: readonly number[]): boolean {
+  const v = [c[0] - q[0], c[1] - q[1], c[2] - q[2]];
+  const vv = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+  const w = [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
+  const k = vv > 0 ? Math.max(0, Math.min(1, (w[0] * v[0] + w[1] * v[1] + w[2] * v[2]) / vv)) : 0;
+  return Math.hypot(w[0] - k * v[0], w[1] - k * v[1], w[2] - k * v[2]) <= 40;
+}
+
+/**
+ * Whether a line found on a word (boxes `rects`) of `X` at the rows `rows`
+ * (points) is no darker than a highlight's tint `tint` there, as the edge
+ * of the tint is: in at least half of the word's columns, the darkest pixel
+ * in those rows is at most 24 levels of luminance darker than the tint. A
+ * line of the page's own under highlighted words (a black underline) is
+ * darker in nearly every column; the glyphs' strokes (a descender through
+ * the rows) in only a few.
+ */
+function tintEdge(X: Prepared, rects: Rect[], rows: [number, number], tint: number[]): boolean {
+  const s = X.r.scale;
+  const floor = 0.299 * tint[0] + 0.587 * tint[1] + 0.114 * tint[2] - 24;
+  const y0 = Math.max(0, Math.floor(rows[0] * s));
+  const y1 = Math.min(X.r.height, Math.ceil(rows[1] * s));
+  let n = 0;
+  let light = 0;
+  for (const r of rects)
+    for (let x = Math.max(0, Math.ceil(r.x * s)); x < Math.min(X.r.width, Math.floor((r.x + r.w) * s)); x++) {
+      let low = 255;
+      for (let y = y0; y < y1; y++) low = Math.min(low, X.lum[y * X.r.width + x]);
+      n++;
+      if (low >= floor) light++;
+    }
+  return n > 0 && light >= 0.5 * n;
+}
+
+/**
  * Whether markup annotations that came, went or changed colour (`on`, per
  * side, see markupChanges) explain what appearanceChanges found on the
  * word `a` → `b` as part of the item `c`, so that one mark is not listed
@@ -6508,7 +6577,7 @@ function markupChanges(
  *   annotation of that kind on it (a strike-out for a strike; an underline
  *   or a squiggly one for an underline), at its rows: through the middle
  *   of the annotation's quadrilateral, or in its lower half or just below
- *   it; or the edge of a highlight;
+ *   it; or the edge of a highlight, no darker than its tint (see tintEdge);
  * - a colour, weight or background found on a word that such an annotation
  *   covers or touches, where its glyphs outside the annotation's ink are
  *   the same in both versions: the rows of the annotation's line left out
@@ -6518,30 +6587,63 @@ function markupChanges(
  *   beyondOverlays) and their darkness against the background within 12 %.
  *   A word recoloured, made bold or struck as well under the annotation
  *   keeps its item.
+ * A line found on a word that is the annotation's, where the glyphs outside
+ * the annotation's ink differ as well (a line of the page's own under a
+ * strike-out that the pixels found as the strike), gives 'line': the line
+ * is explained, the word's other change is not.
  */
-function markupExplains(c: Change, a: Token, b: Token, rows: [number, number] | null, A: Prepared, B: Prepared, on: { old: Markup[]; new: Markup[] }): boolean {
+function markupExplains(c: Change, a: Token, b: Token, rows: [number, number] | null, A: Prepared, B: Prepared, on: { old: Markup[]; new: Markup[] }): boolean | 'line' {
   const d = c.format?.decoration;
   if (d) {
     const side = d.added ? 'new' : 'old';
-    const t = d.added ? b : a;
+    const [t, u] = d.added ? [b, a] : [a, b];
+    const [X, Y] = d.added ? [B, A] : [A, B];
     if (!rows) return false;
     const [y0, y1] = rows;
-    return on[side].some(
+    const own = on[side].some(
       (m) =>
         markedShare(t, m, 1) >= 0.3 &&
         m.quads.some((q) => {
           if (!t.rects.some((r) => intersects(r, expand(q, 1)))) return false;
-          if (m.kind === 'highlight') return Math.abs(y0 - q.y) <= 1.5 || Math.abs(y1 - q.y) <= 1.5 || Math.abs(y0 - q.y - q.h) <= 1.5 || Math.abs(y1 - q.y - q.h) <= 1.5;
+          if (m.kind === 'highlight') {
+            // The edge of its tint: at its quadrilateral's top or bottom, and
+            // no darker than the tint, which a line of the page's own (a black
+            // underline under the highlighted words) is.
+            const edge = Math.abs(y0 - q.y) <= 1.5 || Math.abs(y1 - q.y) <= 1.5 || Math.abs(y0 - q.y - q.h) <= 1.5 || Math.abs(y1 - q.y - q.h) <= 1.5;
+            if (!edge) return false;
+            const tint = (t.rects.length === 1 && u.rects.length === 1 && markupTint(X, t.rects[0], Y, u.rects[0], [m])) || markupColour(m);
+            return tintEdge(X, t.rects, rows, tint);
+          }
           const band = d.line === 'strike' ? (m.kind === 'strike' ? [q.y + 0.2 * q.h, q.y + 0.85 * q.h] : null) : m.kind !== 'strike' ? [q.y + 0.5 * q.h, q.y + 1.35 * q.h] : null;
           return !!band && y1 >= band[0] && y0 <= band[1];
         }),
     );
+    if (!own) return false;
+    // (A word in two parts, hyphenated: its line only.)
+    if (a.rects.length !== 1 || b.rects.length !== 1) return true;
+    return sameBesideMarkup(a, b, A, B, on) || 'line';
   }
+  return sameBesideMarkup(a, b, A, B, on);
+}
+
+/**
+ * Whether the glyphs of the word `a` → `b` outside the ink of the markup
+ * annotations that changed (`on`) on it are the same in both versions (see
+ * markupExplains).
+ */
+function sameBesideMarkup(a: Token, b: Token, A: Prepared, B: Prepared, on: { old: Markup[]; new: Markup[] }): boolean {
   if (a.rects.length !== 1 || b.rects.length !== 1) return false;
   const ma = on.old.filter((m) => markedShare(a, m, 3) > 0);
   const mb = on.new.filter((m) => markedShare(b, m, 3) > 0);
   if (!ma.length && !mb.length) return false;
-  // The rows of the annotations' lines over the word, in both versions.
+  // The rows of the annotations' lines over the word, in both versions:
+  // rows where the line of an annotation of `X` lies (a strike-out's
+  // through the middle of its quadrilateral, an underline's in its lower
+  // half or just below it), where 40 % of the word's columns differ from
+  // the other version, and where 70 % of those pixels are the annotation's
+  // colour drawn over what the other version shows there (see overDrawn).
+  // A line of the page's own in another colour there (a black underline
+  // under a red strike-out) is not one of them.
   const ra = a.rects[0];
   const rb = b.rects[0];
   const skip = { old: new Set<number>(), new: new Set<number>() };
@@ -6557,20 +6659,27 @@ function markupExplains(c: Change, a: Token, b: Token, rows: [number, number] | 
     if (x1 - x0 < 2) return;
     const d = X.r.data;
     const e = Y.r.data;
+    const band = (m: Markup, q: Rect, py: number) => (m.kind === 'strike' ? py >= q.y + 0.2 * q.h && py <= q.y + 0.85 * q.h : py >= q.y + 0.5 * q.h && py <= q.y + 1.4 * q.h);
     for (let y = y0; y < y1; y++) {
       const py = (y + 0.5) / s;
-      if (!lines.some((m) => m.quads.some((q) => py >= q.y + 0.15 * q.h && py <= q.y + 1.4 * q.h && q.x < t.x + t.w && q.x + q.w > t.x))) continue;
+      const here = lines.filter((m) => m.quads.some((q) => band(m, q, py) && q.x < t.x + t.w && q.x + q.w > t.x));
+      if (!here.length) continue;
       const yo = Math.round((py - t.y + u.y) * so - 0.5);
       if (yo < 0 || yo >= Y.r.height) continue;
       let n = 0;
+      const drawn = here.map(() => 0);
       for (let x = x0; x < x1; x++) {
         const xo = Math.round(((x + 0.5) / s - t.x + u.x) * so - 0.5);
         if (xo < 0 || xo >= Y.r.width) continue;
         const i = (y * X.r.width + x) * 4;
         const j = (yo * Y.r.width + xo) * 4;
-        if (Math.max(Math.abs(d[i] - e[j]), Math.abs(d[i + 1] - e[j + 1]), Math.abs(d[i + 2] - e[j + 2])) > 40) n++;
+        if (Math.max(Math.abs(d[i] - e[j]), Math.abs(d[i + 1] - e[j + 1]), Math.abs(d[i + 2] - e[j + 2])) <= 40) continue;
+        n++;
+        here.forEach((m, k) => {
+          if (overDrawn([d[i], d[i + 1], d[i + 2]], [e[j], e[j + 1], e[j + 2]], markupColour(m))) drawn[k]++;
+        });
       }
-      if (n < 0.4 * (x1 - x0)) continue;
+      if (n < 0.4 * (x1 - x0) || Math.max(...drawn) < 0.7 * n) continue;
       for (let k = -1; k <= 1; k++) {
         own.add(y + k);
         other.add(yo + k);
@@ -6583,33 +6692,9 @@ function markupExplains(c: Change, a: Token, b: Token, rows: [number, number] | 
   const ib = ink(B, rb, skip.new.size ? (_x, y) => skip.new.has(y) : undefined);
   if (ia.n < 6 || ib.n < 6) return false;
   // A highlight is a tint behind the glyphs, which their anti-aliased
-  // edges take (see beyondOverlays): its colour over the paper, from the
-  // pixels in its quadrilaterals within the word's box where the other
-  // version shows paper (its /C where there are too few).
-  const tintOf = (X: Prepared, t: Rect, Y: Prepared, u: Rect, list: Markup[]): number[] | null => {
-    const lit = list.filter((m) => m.kind === 'highlight');
-    if (!lit.length) return null;
-    const quads = lit.flatMap((m) => m.quads);
-    const s = X.r.scale;
-    const so = Y.r.scale;
-    const px: number[][] = [];
-    for (let y = Math.max(0, Math.floor(t.y * s)); y < Math.min(X.r.height, Math.ceil((t.y + t.h) * s)); y++)
-      for (let x = Math.max(0, Math.floor(t.x * s)); x < Math.min(X.r.width, Math.ceil((t.x + t.w) * s)); x++) {
-        const [fx, fy] = [(x + 0.5) / s, (y + 0.5) / s];
-        if (!quads.some((q) => fx >= q.x && fx <= q.x + q.w && fy >= q.y && fy <= q.y + q.h)) continue;
-        const xo = Math.round((fx - t.x + u.x) * so - 0.5);
-        const yo = Math.round((fy - t.y + u.y) * so - 0.5);
-        if (xo < 0 || yo < 0 || xo >= Y.r.width || yo >= Y.r.height) continue;
-        const j = (yo * Y.r.width + xo) * 4;
-        if (Math.min(Y.r.data[j], Y.r.data[j + 1], Y.r.data[j + 2]) < 245) continue;
-        const i = (y * X.r.width + x) * 4;
-        px.push([X.r.data[i], X.r.data[i + 1], X.r.data[i + 2]]);
-      }
-    if (px.length < 12) return markupColour(lit[0]);
-    return [0, 1, 2].map((c) => px.map((p) => p[c]).sort((a, b) => a - b)[px.length >> 1]);
-  };
-  const ta = tintOf(A, ra, B, rb, ma);
-  const tb = tintOf(B, rb, A, ra, mb);
+  // edges take (see beyondOverlays and markupTint).
+  const ta = markupTint(A, ra, B, rb, ma);
+  const tb = markupTint(B, rb, A, ra, mb);
   const oa = ta ? [{ colours: [ta] } as unknown as Cover] : [];
   const ob = tb ? [{ colours: [tb] } as unknown as Cover] : [];
   const shift = [ib.chroma[0] - ia.chroma[0], ib.chroma[1] - ia.chroma[1], ib.chroma[2] - ia.chroma[2]];
@@ -6645,32 +6730,51 @@ function withoutMarkup(result: CompareResult, oldPage: number, newPage: number, 
   if (!on.old.length && !on.new.length) return found;
   const TA = result.oldDoc.tokens;
   const TB = result.newDoc.tokens;
-  const out: Change[] = [];
+  type Hits = { a: number; b: number; rows: [number, number] | null }[];
+  // Words whose line is the annotation's, with another change beside it
+  // (see markupExplains): that change, as one of colour or weight, in the
+  // line's item's place, unless an item of the kind already lists the word.
+  const out: (Change | { of: Change; rest: Hits })[] = [];
+  // New words an item other than a line's keeps.
+  const listed = new Set<number>();
   for (const c of found) {
     const hits = hitPairs.get(c);
     if (!hits || c.format?.markup) {
       out.push(c);
+      for (const h of hits ?? []) if (!c.format?.decoration) listed.add(h.b);
       continue;
     }
-    const kept = hits.filter((h) => !markupExplains(c, TA[h.a], TB[h.b], h.rows, A, B, on));
+    const why = hits.map((h) => markupExplains(c, TA[h.a], TB[h.b], h.rows, A, B, on));
+    const kept = hits.filter((_h, k) => !why[k]);
+    if (!c.format?.decoration) for (const h of kept) listed.add(h.b);
+    const rest = hits.filter((_h, k) => why[k] === 'line');
+    const of = { ...c };
     if (kept.length === hits.length) out.push(c);
-    else if (kept.length) {
-      const as = kept.map((h) => TA[h.a]);
-      const bs = kept.map((h) => TB[h.b]);
-      const lines = (page: number, ts: Token[]) => {
-        const by = new Map<number, Rect[]>();
-        for (const t of ts) by.set(t.line, [...(by.get(t.line) ?? []), t.rects[0]]);
-        return [...by.values()].map((rs) => ({ page, rect: union(rs) }));
-      };
-      c.old = { pages: [oldPage], rects: lines(oldPage, as), text: joinTokens(as) };
-      c.new = { pages: [newPage], rects: lines(newPage, bs), text: joinTokens(bs) };
-      c.size = kept.length;
-      c.order = newPage * 100000 + bs[0].rects[0].y;
-      hitPairs.set(c, kept);
-      out.push(c);
-    }
+    else if (kept.length) out.push(withHits(c, kept, oldPage, newPage, TA, TB));
+    if (rest.length) out.push({ of, rest });
   }
-  return out;
+  return out.flatMap((x) => {
+    if (!('rest' in x)) return [x];
+    const rest = x.rest.filter((h) => !listed.has(h.b));
+    return rest.length ? [withHits({ ...x.of, format: { appearanceChanged: true } }, rest, oldPage, newPage, TA, TB)] : [];
+  });
+}
+
+/** The item `c` of appearanceChanges made again on some of its words (`hits`): its text, places and size. */
+function withHits(c: Change, hits: { a: number; b: number; rows: [number, number] | null }[], oldPage: number, newPage: number, TA: Token[], TB: Token[]): Change {
+  const as = hits.map((h) => TA[h.a]);
+  const bs = hits.map((h) => TB[h.b]);
+  const lines = (page: number, ts: Token[]) => {
+    const by = new Map<number, Rect[]>();
+    for (const t of ts) by.set(t.line, [...(by.get(t.line) ?? []), t.rects[0]]);
+    return [...by.values()].map((rs) => ({ page, rect: union(rs) }));
+  };
+  c.old = { pages: [oldPage], rects: lines(oldPage, as), text: joinTokens(as) };
+  c.new = { pages: [newPage], rects: lines(newPage, bs), text: joinTokens(bs) };
+  c.size = hits.length;
+  c.order = newPage * 100000 + bs[0].rects[0].y;
+  hitPairs.set(c, hits);
+  return c;
 }
 
 /**
@@ -6722,7 +6826,7 @@ function unnoteMarkup(result: CompareResult, oldPage: number, newPage: number, A
     const b = result.newDoc.tokens[i];
     if (!w?.faint || !a || !b || a.page !== oldPage || b.page !== newPage) continue;
     const line: Change = { id: '', kind: 'graphic', category: 'visual', old: { pages: [], rects: [], text: '' }, new: { pages: [], rects: [], text: '' }, format: { decoration: { line: f.line, added: f.added } }, size: 0, cjk: false, contextBefore: '', contextAfter: '', order: 0 };
-    if (a.rects.length !== 1 || b.rects.length !== 1 || !markupExplains(line, a, b, f.rows, A, B, on)) continue;
+    if (a.rects.length !== 1 || b.rects.length !== 1 || markupExplains(line, a, b, f.rows, A, B, on) !== true) continue;
     const ok = f.added ? sameOutside(B, b.rects[0], A, a.rects[0], f.rows) : sameOutside(A, a.rects[0], B, b.rects[0], f.rows);
     if (ok) words.delete(i);
   }
