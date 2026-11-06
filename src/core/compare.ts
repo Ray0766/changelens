@@ -310,7 +310,7 @@ function codeRun(T: Token[], s: number, e: number): Token[] | null {
   const close = (p: Token, t: Token) => {
     const r = p.rects[p.rects.length - 1];
     const gap = t.rects[0].x - (r.x + r.w);
-    return t.line === line && t.spaceBefore && gap > -0.1 * t.size && gap < 0.6 * t.size;
+    return p.line === line && t.line === line && t.spaceBefore && gap > -0.1 * t.size && gap < 0.6 * t.size;
   };
   for (let k = s; k < e; k++) if (!/^\d+$/.test(T[k].text) || (k > s && !close(T[k - 1], T[k]))) return null;
   const part = (t: Token) => /^\d+$/.test(t.text) || (/^[\p{L}\d]+$/u.test(t.text) && /\p{L}/u.test(t.text) && /\d/.test(t.text));
