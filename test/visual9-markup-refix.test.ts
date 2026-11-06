@@ -16,6 +16,7 @@ import { buildDocModel } from '../src/core/tokenize.ts';
 import { compareDocs } from '../src/core/compare.ts';
 import { addVisualChanges } from '../src/core/pipeline.ts';
 import { describeChange } from '../src/core/describe.ts';
+import { reportNotices } from '../src/core/report.ts';
 import type { CompareResult, DiffOptions } from '../src/core/types.ts';
 
 const fixtures = new URL('./fixtures/', import.meta.url).pathname;
@@ -119,4 +120,23 @@ test('V3-markup refix N6: quadrilaterals off the page or far larger than it are 
   );
   // Before: every word of the page "Struck through (annotation)".
   assert.equal(pageAnnotations(bad, vt, page)!.markup.length, 0);
+});
+
+test('V3-markup refix N7: identical annotated files are compared in full; a changed pop-up text still warns', { skip }, async () => {
+  // Before: two warnings, so "not everything was compared" (exit 3 with
+  // --fail-on-change) for a file compared with itself.
+  const same = await probe('comment', 'comment');
+  assert.deepEqual(list(same), []);
+  assert.deepEqual(
+    reportNotices('en', same).map((n) => n.level),
+    ['info', 'info'],
+  );
+  // Control: only the comment's pop-up text changed, which is not compared
+  // (no item): the warnings stay.
+  const popup = await probe('comment', 'comment-b');
+  assert.deepEqual(list(popup), []);
+  assert.deepEqual(
+    reportNotices('en', popup).map((n) => n.level),
+    ['warn', 'warn'],
+  );
 });

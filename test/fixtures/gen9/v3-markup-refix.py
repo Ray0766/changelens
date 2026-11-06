@@ -18,9 +18,20 @@
 #   right of page 1, blue or red; logo-blue-stamp, logo-red-stamp: the same,
 #   and a "FOR COMMENT" stamp annotation over the logo; logo-red-near: the
 #   red logo and an "APPROVED" stamp 10 pt to the left of it.
+# - hl-baked: probe9-V3-markup-hl.pdf with its highlight flattened into the
+#   page content (PyMuPDF bake): the same pixels, no annotation;
+# - comment-b: probe9-V3-markup-comment.pdf with the comment's pop-up text
+#   changed (its icon and place the same);
+# - hl-normal, hl-normal-pink: the highlight of v3-markup.py's "hl" drawn in
+#   normal blend at 40 % opacity, yellow or pink; red-hl-normal: the yellow
+#   one over the phrase printed in red (the page content of v3-markup.py's
+#   "red-plain", made here again with its note() and fpdf2 2.9, and not
+#   kept).
 #
-# Run with a Python that has pymupdf (2.1), from test/fixtures:
+# Run with a Python that has pymupdf (2.1) and fpdf2 (2.9), from
+# test/fixtures:
 #   python gen9/v3-markup-refix.py .
+import os
 import sys
 import pymupdf
 
@@ -40,8 +51,8 @@ def quads(page, text):
     return q
 
 
-def make(name, fn):
-    doc = pymupdf.open(f'{OUT}/probe9-V3-markup-before.pdf')
+def make(name, fn, base='before'):
+    doc = pymupdf.open(f'{OUT}/probe9-V3-markup-{base}.pdf')
     fn(doc)
     save(doc, f'{OUT}/probe9-V3-markup-{name}.pdf')
 
@@ -100,6 +111,33 @@ def main():
     make('logo-blue-stamp', lambda d: (logo(d[0], BLUE), stamp(d[0], OVER, pymupdf.STAMP_ForComment)))
     make('logo-red-stamp', lambda d: (logo(d[0], RED), stamp(d[0], OVER, pymupdf.STAMP_ForComment)))
     make('logo-red-near', lambda d: (logo(d[0], RED), stamp(d[0], NEAR, pymupdf.STAMP_Approved)))
+    make('hl-baked', lambda d: d.bake(), base='hl')
+
+    def recomment(d):
+        p = d[0]
+        for a in p.annots(types=[pymupdf.PDF_ANNOT_TEXT]):
+            a.set_info(content='Certificates received on 3 Nov. SYNTHETIC')
+            a.update()
+    make('comment-b', recomment, base='comment')
+
+    def hl_normal(colour):
+        def f(d):
+            p = d[0]  # (the page must outlive its annotation's updates)
+            a = p.add_highlight_annot(quads(p, HL))
+            a.set_colors(stroke=colour)
+            a.set_opacity(0.4)
+            a.set_blendmode(pymupdf.PDF_BM_Normal)
+            a.update()
+        return f
+    make('hl-normal', hl_normal((1, 1, 0)))
+    make('hl-normal-pink', hl_normal((1, 0.4, 0.7)))
+    # The phrase printed in red, as v3-markup.py does (its note(), without its main()).
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'v3-markup.py')).read()
+    ns = {'__name__': 'v3_markup'}
+    exec(compile(src.replace('\nmain()\n', '\n'), 'v3-markup.py', 'exec'), ns)
+    ns['note'](f'{OUT}/probe9-V3-markup-red-plain.pdf', red=(220, 0, 0))
+    make('red-hl-normal', hl_normal((1, 1, 0)), base='red-plain')
+    os.remove(f'{OUT}/probe9-V3-markup-red-plain.pdf')
 
 
 main()

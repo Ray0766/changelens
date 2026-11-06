@@ -92,6 +92,8 @@ export interface PageAnnotations {
   notes: AnnotationNote[];
   /** Annotations that show or carry text (contents, a pop-up comment, a stamp's or a note's own text). */
   withText: number;
+  /** The contents of those that have any (a comment's pop-up text, a markup annotation's note), one line each. */
+  contents?: string[];
   /** Text-markup annotations past the bound read per page, not compared on their words. */
   unread?: number;
 }

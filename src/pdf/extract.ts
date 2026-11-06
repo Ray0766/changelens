@@ -332,6 +332,7 @@ export function pageAnnotations(annotations: AnnotationData[], vt: number[], pag
   let withText = 0;
   let unread = 0;
   let quads = 0;
+  const texts: string[] = [];
   for (const a of annotations) {
     const sub = typeof a.subtype === 'string' ? a.subtype : '';
     if (!sub || sub === 'Widget' || sub === 'Link' || sub === 'Popup') continue;
@@ -342,6 +343,7 @@ export function pageAnnotations(annotations: AnnotationData[], vt: number[], pag
     const contents = oneLine(a.contentsObj?.str);
     const note = NOTE_KINDS[sub];
     if (contents || note) withText++;
+    if (contents) texts.push(contents);
     const kind = MARKUP_KINDS[sub];
     if (kind) {
       const q = a.quadPoints;
@@ -373,7 +375,7 @@ export function pageAnnotations(annotations: AnnotationData[], vt: number[], pag
     }
   }
   if (!Object.keys(counts).length) return null;
-  return { counts, markup, notes, withText, ...(unread ? { unread } : {}) };
+  return { counts, markup, notes, withText, ...(texts.length ? { contents: texts } : {}), ...(unread ? { unread } : {}) };
 }
 
 /**

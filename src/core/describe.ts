@@ -319,7 +319,14 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
   }
   // Annotations other than form fields' widgets and links: how many of
   // which kind, and that their text is not compared as text. A warning
-  // where one shows or carries text (a stamp, a note, a comment's pop-up).
+  // where one shows or carries text (a stamp, a note, a comment's pop-up)
+  // and the two versions do not carry the same texts (of the same kinds).
+  const carried = (doc: CompareResult['oldDoc'] | undefined) =>
+    (doc?.pages ?? [])
+      .flatMap((pg) => [...(pg.annotations?.contents ?? []), ...(pg.annotations?.notes ?? []).map((n) => `${n.kind}\u0000${n.text}`)])
+      .sort()
+      .join('\u0001');
+  const sameTexts = carried(r.oldDoc) === carried(r.newDoc);
   for (const s of ['old', 'new'] as const) {
     const doc = s === 'old' ? r.oldDoc : r.newDoc;
     const counts = new Map<string, number>();
@@ -339,7 +346,7 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
       }
     }
     const n = [...counts.values()].reduce((x, y) => x + y, 0);
-    if (n) out.push({ level: withText ? 'warn' : 'info', text: t(lang, 'noticeAnnotations', { side: side(s), pages: pageRuns(lang, pages), n, list: annotationList(lang, counts) }) });
+    if (n) out.push({ level: withText && !sameTexts ? 'warn' : 'info', text: t(lang, 'noticeAnnotations', { side: side(s), pages: pageRuns(lang, pages), n, list: annotationList(lang, counts) }) });
     if (unread) out.push({ level: 'warn', text: t(lang, 'noticeAnnotationsUnread', { side: side(s), pages: pageRuns(lang, unreadPages), n: unread }) });
   }
   for (const s of ['old', 'new'] as const) {
