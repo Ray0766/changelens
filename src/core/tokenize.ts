@@ -170,6 +170,7 @@ function lineBox(line: RawLine, pageBox: Rect): LineBox | null {
 }
 
 const overlapX = (a: { x0: number; x1: number }, b: { x0: number; x1: number }) => Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
+const runSpan = (r: TextRun) => ({ x0: r.x, x1: r.x + r.w });
 
 /** Lines of one page put back in reading order (see restoreReadingOrder). */
 interface Reordered {
@@ -201,12 +202,15 @@ interface Reordered {
  *    where it does not overprint that line's glyphs, and either fills a gap
  *    inside the line, or the lines just before and after that line in the
  *    stream reach across its whole width (a cell of the same table or a word
- *    of the same paragraph, not another column); or else
+ *    of the same paragraph, not another column); or
+ *  - into a table row whose first cell is on its baseline, where another row
+ *    of the same table, starting at the same x, has a cell under or over it
+ *    (see rowCell); or else
  *  - between two lines drawn one after the other before the footer, one
  *    under the other, that it fits between and overlaps horizontally.
  * Anything else stays where the stream has it: a right column, a sidebar
  * or a margin note drawn last does not share its baseline with a line whose
- * neighbours reach across it, a page number drawn last lies in the bottom
+ * neighbours reach across it, nor stand in a table's column, a page number drawn last lies in the bottom
  * margin, and on a page whose footer comes first nothing follows the footer.
  * Late lines left there below all the text drawn before the footer (a note
  * added under the last line) are marked (Token.late), as text a PDF editor
@@ -252,7 +256,8 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number): R
   for (let k = footer + 1; k < lines.length; k++) {
     const late = boxes[k];
     if (!late || late.zone === 'bottom') continue;
-    const target = sharedBaseline(late, before, boxes);
+    let target = sharedBaseline(late, before, boxes);
+    if (target < 0) target = rowCell(late, before, boxes);
     const gap = target < 0 ? gapAbove(late, before, boxes) : -1;
     if (target >= 0) add(into, target, k);
     else if (gap >= 0) add(after, gap, k);
@@ -287,7 +292,7 @@ function sharedBaseline(late: LineBox, before: number[], boxes: (LineBox | null)
     const size = Math.max(e.size, late.size);
     const d = Math.abs(e.baseline - late.baseline);
     if (d > 0.35 * size || d >= bestD) continue;
-    if (e.inked.some((r) => overlapX({ x0: r.x, x1: r.x + r.w }, late) > 0.25 * Math.min(e.size, late.size))) continue;
+    if (e.inked.some((r) => overlapX(runSpan(r), late) > 0.25 * Math.min(e.size, late.size))) continue;
     const inside = late.x0 >= e.x0 && late.x1 <= e.x1;
     if (!inside) {
       const width = late.x1 - late.x0;
@@ -299,6 +304,54 @@ function sharedBaseline(late: LineBox, before: number[], boxes: (LineBox | null)
     }
     best = before[n];
     bestD = d;
+  }
+  return best;
+}
+
+/**
+ * The table row drawn before the footer that a late line is a cell of (-1
+ * if none): a value re-typed beside its label, where the row above or below
+ * does not reach across it (the first row under a short heading, a row next
+ * to one whose value was deleted). The late line shares the baseline of a
+ * line (the row) that it stands beside, nothing drawn before the footer is
+ * printed where it stands, and another row of the same table within four
+ * lines above or below it, starting at the same x, has a cell over or under
+ * it: a run set apart from the run before it by a column gap (1.5 em or
+ * more) that overlaps the late line by half the narrower width. A column of
+ * running text drawn last has no such cell beside it: the runs of a
+ * paragraph are a word space apart. Of several rows on the baseline, the
+ * nearest to the late line.
+ */
+function rowCell(late: LineBox, before: number[], boxes: (LineBox | null)[]): number {
+  const width = late.x1 - late.x0;
+  const occupied = before.some((k) => {
+    const o = boxes[k]!;
+    return Math.min(o.bottom, late.bottom) - Math.max(o.top, late.top) > 0.5 * Math.min(o.bottom - o.top, late.bottom - late.top) && o.inked.some((r) => overlapX(runSpan(r), late) > 0.25 * late.size);
+  });
+  if (occupied) return -1;
+  const cellOver = (f: LineBox) =>
+    f.inked.some((r) => {
+      const left = f.inked.filter((o) => o !== r && o.x + o.w <= r.x + 0.1 * f.size);
+      if (!left.length) return false;
+      const gap = r.x - Math.max(...left.map((o) => o.x + o.w));
+      return gap >= 1.5 * f.size && overlapX(runSpan(r), late) >= 0.5 * Math.min(width, r.w);
+    });
+  let best = -1;
+  let bestGap = Infinity;
+  for (const k of before) {
+    const e = boxes[k]!;
+    const size = Math.max(e.size, late.size);
+    if (e.zone || Math.abs(e.baseline - late.baseline) > 0.35 * size || overlapX(e, late) > 0) continue;
+    const gap = late.x0 >= e.x1 ? late.x0 - e.x1 : e.x0 - late.x1;
+    if (gap >= bestGap) continue;
+    const row = before.some((j) => {
+      const f = boxes[j]!;
+      const d = Math.abs(f.baseline - late.baseline);
+      return j !== k && !f.zone && Math.abs(f.x0 - e.x0) <= 0.5 * size && d > 0.5 * size && d <= 4.5 * size && cellOver(f);
+    });
+    if (!row) continue;
+    best = k;
+    bestGap = gap;
   }
   return best;
 }

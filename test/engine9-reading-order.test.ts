@@ -150,16 +150,27 @@ test('T1: a line drawn after the footer that finds no place is not paired with t
   assert.ok(!c.newDoc.tokens.some((t) => t.late));
 });
 
-test('T1: a value re-typed after the footer that finds no place by position is compared in stream order, as before', async () => {
+test('T1: a value re-typed after the footer in a table row is put in its row, by the cell of another row under it', async () => {
   // The amount of a table's first row, under a short heading (no line above
   // it reaches across it), re-typed in Helvetica 9 pt; the second row's
-  // amount only deleted (control). Beside text drawn before the footer, a
-  // line that finds no place is not marked: nothing tells it from a column.
+  // amount only deleted (control). The third row has a cell under it.
   const r = await probe('firstrow');
-  assert.deepEqual(listed(r), ['Deleted “240.00 … 18.50”', 'Added “260.00”']);
-  assert.equal(r.newDoc.pages[0].outOfOrder, undefined);
-  assert.ok(!r.newDoc.tokens.some((t) => t.late));
-  assert.deepEqual(notices('en', r), []);
+  assert.deepEqual(listed(r), ['Number changed: 240.00 → 260.00 (+8.3%)', 'Deleted “18.50”']);
+  const [c] = r.changes;
+  assert.deepEqual([c.old.rects[0].page, c.new.rects[0].page], [0, 0]);
+  assert.ok(Math.abs(c.old.rects[0].rect.x - c.new.rects[0].rect.x) < 1);
+  assert.equal(c.contextBefore, 'Annual inspection');
+  assert.deepEqual(r.newDoc.pages[0].outOfOrder, { placed: 1 });
+  assert.deepEqual(lineTexts(r.newDoc, 0)[2], 'Annual inspection 260.00');
+  // The first row of a table deleted, so that the rows below move up, and
+  // the amount of the next row re-typed (fpdf2, edited with PyMuPDF): the
+  // re-typed amount stands beside its own label, not in the deleted row's
+  // place, and reads as in the same edit written in reading order.
+  const d = await probe('rowdel');
+  assert.deepEqual(listed(d).sort(), ['Deleted “Filter cartridge 45.00”', 'Number changed: 60.00 → 65.00 (+8.3%)']);
+  const inOrder = compareDocs(await load(`${fixtures}probe9-T1-rowdel-before.pdf`), await load(`${fixtures}probe9-T1-rowdel-inorder.pdf`));
+  assert.deepEqual(listed(d).sort(), listed(inOrder).sort());
+  assert.equal(inOrder.newDoc.pages[0].outOfOrder, undefined);
 });
 
 // ------------------------------------------------------- narrowness -------
@@ -213,6 +224,58 @@ test('T1 narrowness: only lines drawn after a footer drawn after the body, onto 
   // A line that overprints the glyphs of the line on its baseline (a stamp or watermark set as text): unchanged.
   const over = page([['Meter reading service, monthly, plus VAT', 56, 114], ['Annual inspection', 56, 128], footer, ['COPY', 100, 114]]);
   assert.equal(order(over).at(-1), 'COPY');
+});
+
+test('T1 narrowness: a value in a table row is put in its row only where another row has a cell under or over it', () => {
+  const footer: [string, number, number] = ['Synthetic sample · Page 1 of 1', 56, 810];
+  const rows: [string, number, number][] = [
+    ['Fees', 56, 100],
+    ['Annual inspection', 56, 120],
+    ['Meter reading service', 56, 136],
+    ['Out-of-hours call-out', 56, 152],
+    ['95.00', 300, 152],
+  ];
+  // The first row's amount drawn after the footer: the third row's amount is under it.
+  const cell = page([...rows, footer, ['240.00', 300, 120]]);
+  assert.deepEqual(order(cell).slice(0, 2), ['Fees', 'Annual inspection 240.00']);
+  // Control: a column of running text beside the rows, its first line
+  // drawn after the footer (no row has a cell under it): left where the
+  // stream has it, and not marked.
+  const column = page([...rows.slice(0, 4), ['Spare parts are held', 300, 136], ['at the central depot.', 300, 152], footer, ['Crews carry the seals;', 300, 120]]);
+  assert.equal(order(column).at(-1), 'Crews carry the seals;');
+  assert.equal(buildDocModel(column).pages[0].outOfOrder, undefined);
+  assert.ok(!buildDocModel(column).tokens.some((t) => t.late));
+});
+
+test('T1: a late value below the text drawn before the footer is joined only with the old value of its own row', () => {
+  // Old, in reading order: two rows; new, as a PDF editor writes it: the
+  // first row deleted, the second row moved up into its place and re-typed
+  // after the footer, its amount 60.00 → 65.00 as a line of its own.
+  const intro = 'The SYNTHETIC service order covers the parts listed below and one visit by a technician.';
+  const footer: [string, number, number] = ['Synthetic sample · Page 1 of 1', 56, 810];
+  const old = page([
+    ['Order summary', 56, 100],
+    [intro, 56, 116],
+    ['Filter cartridge', 56, 140],
+    ['45.00', 300, 140],
+    ['Pressure gauge, stainless steel', 56, 156],
+    ['60.00', 300, 156],
+    ['All prices exclude VAT at the standard rate.', 56, 190],
+    footer,
+  ]);
+  const neu = page([
+    ['Order summary', 56, 100],
+    [intro, 56, 116],
+    footer,
+    ['Pressure gauge, stainless steel', 56, 140],
+    ['All prices exclude VAT at the standard rate.', 56, 174],
+    ['65.00', 300, 140],
+  ]);
+  const r = compareDocs(buildDocModel(old), buildDocModel(neu));
+  assert.ok(r.newDoc.tokens.some((t) => t.late && t.text === '65.00'));
+  // Not "45.00 → 65.00" in the deleted row's place: the label beside the
+  // new amount, "Pressure gauge", stood beside 60.00.
+  assert.deepEqual(listed(r).sort(), ['Deleted “Filter cartridge 45.00”', 'Number changed: 60.00 → 65.00 (+8.3%)']);
 });
 
 // ------------------------------------------------------ account numbers ---

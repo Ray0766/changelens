@@ -1612,6 +1612,31 @@ function inPlaceTokens(ctx: Ctx, hunks: Hunk[], keep: Set<Hunk>, oldToNew: numbe
     if (list) list.push(h);
     else inss.set(B[h.b0].page, [h]);
   }
+  // The matched words that stand level with T[s, e) on its page, by their
+  // token in B: the row that a late value stands in, on either side.
+  const byPage = new Map<Token[], Map<number, number[]>>();
+  const onPage = (T: Token[], page: number) => {
+    let m = byPage.get(T);
+    if (!m) {
+      byPage.set(T, (m = new Map()));
+      T.forEach((t, k) => {
+        const list = m!.get(t.page);
+        if (list) list.push(k);
+        else m!.set(t.page, [k]);
+      });
+    }
+    return m.get(page) ?? [];
+  };
+  const rowOf = (T: Token[], s: number, e: number, inB: (k: number) => number): Set<number> => {
+    const q = span(T, s, e);
+    const out = new Set<number>();
+    for (const k of onPage(T, q.page)) {
+      const b = k >= s && k < e ? -1 : inB(k);
+      const r = T[k].rects[0];
+      if (b >= 0 && Math.min(r.y + r.h, q.y + q.h) - Math.max(r.y, q.y) >= 0.5 * Math.min(r.h, q.h)) out.add(b);
+    }
+    return out;
+  };
   const joined = new Set<Hunk>();
   const replaced = new Map<Hunk, Hunk>();
   for (const d of dels) {
@@ -1621,7 +1646,18 @@ function inPlaceTokens(ctx: Ctx, hunks: Hunk[], keep: Set<Hunk>, oldToNew: numbe
       const lateOne = allLate(A, d.a0, d.a1) || allLate(B, ins.b0, ins.b1);
       if (joined.has(ins) || !(touched.has(d) || touched.has(ins) || lateOne)) continue;
       const q = span(B, ins.b0, ins.b1);
-      const level = Math.abs(q.y - p.y) <= TOL || (lateOne && Math.min(p.y + p.h, q.y + q.h) - Math.max(p.y, q.y) >= 0.5 * Math.min(p.h, q.h));
+      let level = Math.abs(q.y - p.y) <= TOL || (lateOne && Math.min(p.y + p.h, q.y + q.h) - Math.max(p.y, q.y) >= 0.5 * Math.min(p.h, q.h));
+      if (lateOne) {
+        // A late value is joined only with the old text of its own row: the
+        // matched words level with the two sides (a label) are the same
+        // words, or there are none on either side. A row deleted next to it
+        // is not its old value, even where the rows below moved up into its
+        // place; where the words of the row agree, the row may have moved.
+        const ra = rowOf(A, d.a0, d.a1, (k) => bOfA[k]);
+        const rb = rowOf(B, ins.b0, ins.b1, (k) => (aOfB[k] >= 0 ? k : -1));
+        const common = [...ra].filter((b) => rb.has(b)).length;
+        if (ra.size || rb.size) level = common > 0 && 2 * common >= Math.max(ra.size, rb.size);
+      }
       if (q.page !== page || !level || Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0) <= 0) continue;
       joined.add(ins);
       replaced.set(d, { a0: d.a0, a1: d.a1, b0: ins.b0, b1: ins.b1 });
