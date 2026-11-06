@@ -213,8 +213,7 @@ interface Reordered {
  *    stream reach across its whole width (a cell of the same table or a word
  *    of the same paragraph, not another column); or
  *  - into a table row whose first cell is on its baseline, where another row
- *    of the same table, starting at the same x, has a cell under or over it
- *    (see rowCell); or else
+ *    of the same table has a cell under or over it (see rowCell); or else
  *  - between two lines drawn one after the other before the footer, one
  *    under the other, that it fits between and overlaps horizontally.
  * Anything else stays where the stream has it: a right column, a sidebar
@@ -368,13 +367,15 @@ function sharedBaseline(late: LineBox, before: number[], boxes: (LineBox | null)
  * does not reach across it (the first row under a short heading, a row next
  * to one whose value was deleted). The late line shares the baseline of a
  * line (the row) that it stands beside, nothing drawn before the footer is
- * printed where it stands, and another row of the same table within four
- * lines above or below it, starting at the same x, has a cell over or under
- * it: a run set apart from the run before it by a column gap (1.5 em or
- * more) that overlaps the late line by half the narrower width. A column of
- * running text drawn last has no such cell beside it: the runs of a
- * paragraph are a word space apart. Of several rows on the baseline, the
- * nearest to the late line.
+ * printed where it stands, and another row of the same table (see
+ * tableRows) has a cell over or under it: a run set apart from the run
+ * before it by a column gap (1.5 em or more) that overlaps the late line by
+ * half the narrower width. A column of running text drawn last has no such
+ * cell beside it: the runs of a paragraph are a word space apart. Nor does
+ * a note beside a list under a table: the table's rows are not the list's,
+ * so where the list stands on the page (how far under the table) does not
+ * decide whether the note is read in the list's rows. Of several rows on
+ * the baseline, the nearest to the late line.
  */
 function rowCell(late: LineBox, before: number[], boxes: (LineBox | null)[]): number {
   const width = late.x1 - late.x0;
@@ -398,16 +399,40 @@ function rowCell(late: LineBox, before: number[], boxes: (LineBox | null)[]): nu
     if (e.zone || Math.abs(e.baseline - late.baseline) > 0.35 * size || overlapX(e, late) > 0) continue;
     const gap = late.x0 >= e.x1 ? late.x0 - e.x1 : e.x0 - late.x1;
     if (gap >= bestGap) continue;
-    const row = before.some((j) => {
-      const f = boxes[j]!;
-      const d = Math.abs(f.baseline - late.baseline);
-      return j !== k && !f.zone && Math.abs(f.x0 - e.x0) <= 0.5 * size && d > 0.5 * size && d <= 4.5 * size && cellOver(f);
-    });
-    if (!row) continue;
+    if (!tableRows(k, before, boxes).some((j) => cellOver(boxes[j]!))) continue;
     best = k;
     bestGap = gap;
   }
   return best;
+}
+
+/**
+ * The other rows of the table that line `k` (drawn before the footer) is a
+ * row of: lines drawn before the footer, outside the margins, that start at
+ * its x (within 0.5 em), are set in its size, and follow it one under the
+ * other on regular baselines: each step from one to the next within 0.2 em
+ * of the step from line `k` to the nearer of the lines just above and below
+ * it. A paragraph gap, a heading or the space between a table and the list
+ * under it ends the table.
+ */
+function tableRows(k: number, before: number[], boxes: (LineBox | null)[]): number[] {
+  const e = boxes[k]!;
+  const col = before
+    .filter((j) => {
+      const f = boxes[j]!;
+      return !f.zone && Math.abs(f.x0 - e.x0) <= 0.5 * e.size && Math.abs(f.size - e.size) <= 0.15 * Math.max(f.size, e.size);
+    })
+    .sort((a, b) => boxes[a]!.baseline - boxes[b]!.baseline);
+  const at = col.indexOf(k);
+  const bl = (n: number) => boxes[col[n]]!.baseline;
+  const steps = [at > 0 ? bl(at) - bl(at - 1) : Infinity, at + 1 < col.length ? bl(at + 1) - bl(at) : Infinity];
+  const pitch = Math.min(...steps);
+  if (!(pitch > 0.5 * e.size) || pitch === Infinity) return [];
+  const regular = (step: number) => Math.abs(step - pitch) <= 0.2 * e.size;
+  const rows: number[] = [];
+  for (let n = at - 1; n >= 0 && regular(bl(n + 1) - bl(n)); n--) rows.push(col[n]);
+  for (let n = at + 1; n < col.length && regular(bl(n) - bl(n - 1)); n++) rows.push(col[n]);
+  return rows;
 }
 
 /**
