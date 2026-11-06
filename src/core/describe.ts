@@ -112,6 +112,7 @@ function describeKind(lang: Lang, c: Change): string {
   if (c.consequence === 'renumber' && c.kind !== 'replace') return t(lang, 'renumberedRedline', { text: truncate(c.kind === 'delete' ? c.old.text : c.new.text, short) });
   if (c.consequence === 'repeatedLine')
     return t(lang, c.kind === 'insert' ? 'repeatedLineAdded' : 'repeatedLineRemoved', { text: truncate(c.kind === 'insert' ? c.new.text : c.old.text, short) });
+  if (c.consequence === 'closingRule') return t(lang, c.new.rects.length ? 'closingRuleAdded' : 'closingRuleRemoved', { text: truncate(c.new.rects.length ? c.new.text : c.old.text, 32) });
   switch (c.kind) {
     case 'insert':
       if (c.duplicateOf !== undefined) return t(lang, 'duplicateOf', { page: pageLabel(lang, [c.duplicateOf]) });
@@ -288,7 +289,8 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
     out.push({ level: 'info', text: t(lang, 'noticeImagePaired', { pairs: images.map((l) => pairLabel(lang, l.oldPage, l.newPage)).join(lang === 'zh' ? '、' : ', ') }), action: 'pair' });
   if (r.ignored?.furniture) out.push({ level: 'info', text: t(lang, 'noticeFurniture', { n: r.ignored.furniture }), action: 'furniture' });
   if (r.ignored?.renumbered) out.push({ level: 'info', text: t(lang, 'noticeRenumberedItems', { n: r.ignored.renumbered }), action: 'minor' });
-  if (r.ignored?.repeatedLines) out.push({ level: 'info', text: t(lang, 'noticeRepeatedLines', { n: r.ignored.repeatedLines }), action: 'minor' });
+  if (r.ignored?.repeatedLines)
+    out.push({ level: 'info', text: r.ignored.closingRules ? t(lang, 'noticeRepeatedLinesRules', { n: r.ignored.repeatedLines, m: r.ignored.closingRules }) : t(lang, 'noticeRepeatedLines', { n: r.ignored.repeatedLines }), action: 'minor' });
   if (r.ignored?.minorShifts) out.push({ level: 'info', text: t(lang, 'noticeMinor', { n: r.ignored.minorShifts, pt: SHIFT_PT }), action: 'minor' });
   if (r.ignored?.caseOnly) out.push({ level: 'info', text: t(lang, 'noticeCase', { n: r.ignored.caseOnly }) });
   if (r.options.ignorePunctuation) out.push({ level: 'info', text: t(lang, 'noticePunct') });

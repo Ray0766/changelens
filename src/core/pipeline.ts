@@ -339,10 +339,15 @@ export async function addVisualChanges(
   result.ignored.furniture = textFurniture + marks.length;
   await graphicsOfUnpairedPages(result, pairs, render, large);
   const visual = [...dedupeGraphics(found.filter((c) => !c.minor)), ...pageChanges];
-  const shifts = found.filter((c) => c.minor);
-  result.minor = [...result.minor.filter((c) => c.consequence), ...shifts].sort((a, b) => a.order - b.order);
+  // Rules that close a table at a page foot, which came or went with a
+  // header row repeated at the next page top (see compareRasters): counted
+  // with those rows, and shown on request.
+  const closingRules = found.filter((c) => c.consequence === 'closingRule');
+  const shifts = found.filter((c) => c.minor && !c.consequence);
+  result.minor = [...result.minor.filter((c) => c.consequence && c.consequence !== 'closingRule'), ...closingRules, ...shifts].sort((a, b) => a.order - b.order);
   result.minor.forEach((c, k) => (c.id = 'm' + (k + 1)));
   result.ignored.minorShifts = shifts.length;
+  result.ignored.closingRules = closingRules.length;
   for (const side of ['old', 'new'] as const) {
     if (skipped[side].size && result.coverage?.[side]) result.coverage[side].visualSkipped = [...skipped[side]].sort((x, y) => x - y);
   }

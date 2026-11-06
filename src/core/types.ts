@@ -281,9 +281,11 @@ export interface Change {
   /**
    * Not an edit but a consequence of one: list items renumbered after an
    * insertion, or a line repeated at the top of a page (a table's header
-   * row) that came or went because a page break moved.
+   * row) that came or went because a page break moved, or the rule that
+   * closes the table at the foot of the page before it ('closingRule', a
+   * graphic: the side that has the rule has its place).
    */
-  consequence?: 'renumber' | 'repeatedLine';
+  consequence?: 'renumber' | 'repeatedLine' | 'closingRule';
   /** Inserted content that repeats text found elsewhere in the new version (0-based page). */
   duplicateOf?: number;
   /** (Moves) Number of edits inside the moved text; each is listed as its own change. */
@@ -343,6 +345,8 @@ export interface CompareResult {
     renumbered: number;
     /** Lines repeated at the top of a page that came or went with a moved page break (see `consequence`). */
     repeatedLines?: number;
+    /** Rules closing a table at the foot of the page before such a line, which came or went with it (see `consequence`). */
+    closingRules?: number;
   };
   /** Minor layout shifts, kept apart from `changes` (shown on request). */
   minor: Change[];

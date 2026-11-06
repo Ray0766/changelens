@@ -9,7 +9,7 @@
  * the matched words above and below it as anchors). Text itself is masked
  * out, and small anti-aliasing differences are tolerated.
  */
-import type { Change, CompareResult, DocModel, Rect, TextRun, Token } from './types.ts';
+import type { Change, CompareResult, DocModel, Line, Rect, TextRun, Token } from './types.ts';
 import { expand, intersects, union } from './geometry.ts';
 import { joinTokens } from './tokenize.ts';
 
@@ -2596,6 +2596,7 @@ function appearanceChanges(
   graphicIn: (side: 'old' | 'new', r: Rect) => boolean = () => false,
   differs: (X: Prepared, x: number, y: number) => boolean = () => false,
   fillAround: (side: 'old' | 'new', r: Rect, along?: boolean) => number[] | null = () => null,
+  closes: (a: Token, b: Token, line: { line: 'strike' | 'underline'; added: boolean; rows: [number, number] }) => boolean = () => false,
 ): Change[] {
   const TA = result.oldDoc.tokens;
   const TB = result.newDoc.tokens;
@@ -3224,6 +3225,13 @@ function appearanceChanges(
       byToken.set(t.b.i, next);
       queue.push(next);
     }
+  }
+  // The rule that closes a table fragment at a moved page break, found
+  // under the words of its last row (see closingRules): part of that
+  // consequence, not a line under them.
+  for (let k = hits.length - 1; k >= 0; k--) {
+    const l = hits[k].line;
+    if (l && closes(hits[k].a, hits[k].b, l)) hits.splice(k, 1);
   }
   hits.sort((u, v) => u.p - v.p);
   // Text of a group: every token from the first hit to the last, so a word
@@ -4579,6 +4587,238 @@ export function compareRasters(
 }
 
 /**
+ * The rule that closes a table fragment at the foot of a page, in the
+ * version whose next page starts with the table's header row repeated only
+ * because a page break moved (consequence 'repeatedLine', see
+ * closingRules). The rule comes and goes with that break, as the header
+ * row does: it is shown with it (consequence 'closingRule'), counted in the
+ * same notice.
+ */
+interface ClosingRule {
+  side: 'old' | 'new';
+  /** The page of the row and rule in `side`, and the page of the same row in the other version. */
+  page: number;
+  other: number;
+  /** The lines of the fragment's last row in `side`. */
+  lines: Set<number>;
+  /** The rule, in points and in pixel rows of `side`'s raster (with a row of blur on each side). */
+  rect: Rect;
+  rows: [number, number];
+  /** Its darkness summed down each column, along it (median, pixels). */
+  weight: number;
+  /** The row's text. */
+  text: string;
+  /** Where it lies in the new version's order (see Change.order). */
+  order: number;
+  /** The change it is shown with, made on its first fold (see compareAligned). */
+  change?: Change;
+}
+
+/** The document token facing each token of either version (-1 where none), per result. */
+const matesOf = new WeakMap<CompareResult, { old: Int32Array; new: Int32Array }>();
+function mates(result: CompareResult): { old: Int32Array; new: Int32Array } {
+  let v = matesOf.get(result);
+  if (v) return v;
+  const old = new Int32Array(result.oldDoc.tokens.length).fill(-1);
+  const nw = new Int32Array(result.newDoc.tokens.length).fill(-1);
+  for (let p = 0; p < result.matches.length; p += 2) {
+    old[result.matches[p]] = result.matches[p + 1];
+    nw[result.matches[p + 1]] = result.matches[p];
+  }
+  matesOf.set(result, (v = { old, new: nw }));
+  return v;
+}
+
+/**
+ * A horizontal rule along pixel columns x0–x1 of `P`, searched for between
+ * pixel rows y0 and y1: the first run of rows in which 95 % of the columns
+ * or more are dark (a row and its neighbours summing to half a dark pixel
+ * or more: a thin line drawn between two pixel rows), at most `thick` rows
+ * high. Its rows, its extent along them (followed past x0–x1 while the
+ * columns stay dark) and its weight and hue (see ruleLook); null where no
+ * run of rows is found, or the first is thicker (a fill, a band).
+ */
+function ruleIn(P: Prepared, x0: number, x1: number, y0: number, y1: number, thick: number): { rows: [number, number]; ext: [number, number]; weight: number; hue: number[] } | null {
+  const W = P.r.width;
+  const H = P.r.height;
+  const dark = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= H ? 0 : (255 - P.lum[y * W + x]) / 255);
+  const col = (x: number, y: number) => dark(x, y - 1) + dark(x, y) + dark(x, y + 1) >= 0.5;
+  const a = Math.max(0, Math.round(x0));
+  const b = Math.min(W - 1, Math.round(x1));
+  if (b - a < 8) return null;
+  const full = (y: number) => {
+    let n = 0;
+    for (let x = a; x <= b; x++) if (col(x, y)) n++;
+    return n >= 0.95 * (b - a + 1);
+  };
+  let top = -1;
+  for (let y = Math.max(1, Math.round(y0)); y <= Math.min(H - 2, Math.round(y1)); y++)
+    if (full(y)) {
+      top = y;
+      break;
+    }
+  if (top < 0) return null;
+  let bottom = top;
+  while (bottom + 1 < H - 1 && full(bottom + 1)) bottom++;
+  if (bottom - top + 1 > thick) return null;
+  const mid = (top + bottom) >> 1;
+  let xa = a;
+  let xb = b;
+  while (xa > 0 && col(xa - 1, mid)) xa--;
+  while (xb < W - 1 && col(xb + 1, mid)) xb++;
+  const { weight, hue } = ruleLook(P, xa, xb, top - 1, bottom + 1);
+  return { rows: [top - 1, bottom + 1], ext: [xa, xb], weight, hue };
+}
+
+/**
+ * The look of a rule along pixel columns x0–x1 and rows y0–y1 of `P`: its
+ * weight, the darkness summed down each column (median over the columns,
+ * so that a glyph's descender reaching into a few of them does not count),
+ * and its hue (each channel's difference from the luminance, weighted by
+ * darkness: black and grey are 0, 0, 0).
+ */
+function ruleLook(P: Prepared, x0: number, x1: number, y0: number, y1: number): { weight: number; hue: number[] } {
+  const W = P.r.width;
+  const sums: number[] = [];
+  const hue = [0, 0, 0];
+  let w = 0;
+  for (let x = Math.max(0, x0); x <= Math.min(W - 1, x1); x++) {
+    let sum = 0;
+    for (let y = Math.max(0, y0); y <= Math.min(P.r.height - 1, y1); y++) {
+      const i = y * W + x;
+      const v = 255 - P.lum[i];
+      sum += v / 255;
+      if (v < 40) continue;
+      const p = rgb(P.r, i);
+      for (let k = 0; k < 3; k++) hue[k] += (p[k] - P.lum[i]) * v;
+      w += v;
+    }
+    sums.push(sum);
+  }
+  sums.sort((u, v) => u - v);
+  return { weight: sums.length ? sums[sums.length >> 1] : 0, hue: w ? hue.map((v) => v / w) : [0, 0, 0] };
+}
+
+/**
+ * Rules that close a table fragment at a page break that moved, on the
+ * page pair compared (see ClosingRule). Where a header row repeated at the
+ * top of page p + 1 of one version came or went only because the page
+ * break moved (consequence 'repeatedLine'), the row that follows the header
+ * there goes on in the other version on the page compared, right below the
+ * line that this version has last on page p: the fragment's last row. Only
+ * what lies below the rule may come between that row and the header in the
+ * reading order (a footnote at the page foot), and no line of text lies
+ * right below the row. The rule right under the row, across it (95 % of its
+ * width or more), is that fragment's closing rule when:
+ * - the other version has no line at the same place under the row;
+ * - it closes the same table further down that page with a rule of the
+ *   same extent (within 2 pt at each end), weight (within a quarter: a thin
+ *   line's anti-aliased darkness varies with its sub-pixel place) and hue:
+ *   the table's end, or the fragment's end at its own page break.
+ * A rule recoloured, thickened or doubled, or drawn where the other version
+ * closes the table with none, so stays a change; and one at a page foot
+ * where no page break moved is not looked at.
+ */
+function closingRules(result: CompareResult, oldPage: number, newPage: number, A: Prepared, B: Prepared): ClosingRule[] {
+  const out: ClosingRule[] = [];
+  const headers = result.minor.filter((c) => c.consequence === 'repeatedLine');
+  if (!headers.length) return out;
+  for (const side of ['old', 'new'] as const) {
+    const [page, other] = side === 'old' ? [oldPage, newPage] : [newPage, oldPage];
+    const [doc, odoc] = side === 'old' ? [result.oldDoc, result.newDoc] : [result.newDoc, result.oldDoc];
+    const [P, Q] = side === 'old' ? [A, B] : [B, A];
+    const mate = mates(result)[side];
+    for (const c of headers) {
+      const h = c[side];
+      if (h.start === undefined || h.end === undefined || h.pages[0] !== page + 1) continue;
+      // The row that follows the header (the table going on), and the line
+      // right above that row in the other version, on the page compared: the
+      // fragment's last row there, which this version has on this page.
+      let k = h.end;
+      while (k < doc.tokens.length && doc.tokens[k].furniture) k++;
+      if (k >= doc.tokens.length || doc.tokens[k].page !== page + 1) continue;
+      const next = doc.lines[doc.tokens[k].line];
+      const nextFacing = doc.tokens.slice(next.start, next.end).map((t) => mate[t.i]).filter((q) => q >= 0);
+      if (!nextFacing.length || nextFacing.some((q) => odoc.tokens[q].page !== other)) continue;
+      const onext = odoc.lines[odoc.tokens[nextFacing[0]].line].rect;
+      const obody = odoc.lines.filter((l) => l.page === other && l.end > l.start && !l.furniture);
+      let olast: Line | null = null;
+      for (const l of obody) if (l.rect.y + l.rect.h <= onext.y + 0.5 && (!olast || l.rect.y + l.rect.h > olast.rect.y + olast.rect.h)) olast = l;
+      if (!olast) continue;
+      const otherMate = mates(result)[side === 'old' ? 'new' : 'old'];
+      const back = odoc.tokens.slice(olast.start, olast.end).filter((t) => t.kind !== 'punct');
+      const facing = back.map((t) => otherMate[t.i]).filter((q) => q >= 0);
+      if (!back.length || facing.length < 0.5 * back.length || facing.some((q) => doc.tokens[q].page !== page)) continue;
+      // That row here, with the other cells set on its line; no text of the
+      // table below it: what comes before the header in the reading order
+      // lies below the rule (a footnote at the page foot).
+      const body = doc.lines.filter((l) => l.page === page && l.end > l.start && !l.furniture);
+      const own = new Set(facing.map((q) => doc.tokens[q].line));
+      const band = union([...own].map((id) => doc.lines[id].rect));
+      const row = body.filter((l) => own.has(l.id) || (l.rect.y + l.rect.h / 2 >= band.y && l.rect.y + l.rect.h / 2 <= band.y + band.h));
+      const rowRect = union(row.map((l) => l.rect));
+      const bottom = rowRect.y + rowRect.h;
+      const lh = Math.max(...row.map((l) => l.rect.h));
+      const end = Math.max(...row.map((l) => l.end));
+      let foot = true;
+      for (let q = end; q < h.start && foot; q++) {
+        const t = doc.tokens[q];
+        if (!t.furniture && (t.page !== page || t.rects[0].y < bottom + 0.3 * lh)) foot = false;
+      }
+      if (!foot || body.some((l) => !row.includes(l) && l.rect.y + l.rect.h / 2 > rowRect.y + rowRect.h / 2 && l.rect.y < bottom + 0.3 * lh)) continue;
+      const words = row.flatMap((l) => doc.tokens.slice(l.start, l.end)).filter((t) => t.kind !== 'punct' && mate[t.i] >= 0);
+      if (!words.length) continue;
+      // The rule, right under the row: within 0.6 of a line below it, and
+      // above the next line of the page (a footnote, a footer).
+      const s = P.r.scale;
+      const below = doc.lines.filter((l) => l.page === page && l.end > l.start && l.rect.y >= bottom - 0.5).map((l) => l.rect.y);
+      const limit = Math.min(bottom + 0.6 * lh, ...below);
+      const rule = ruleIn(P, rowRect.x * s, (rowRect.x + rowRect.w) * s, (bottom - 0.3 * lh) * s, limit * s - 1, Math.round(3 * s) + 2);
+      if (!rule) continue;
+      // Where the other version has the row: the same words, displaced alike.
+      const t0 = words[0];
+      const u0 = odoc.tokens[mate[t0.i]];
+      const dx = u0.rects[0].x - t0.rects[0].x;
+      const dy = u0.rects[0].y - t0.rects[0].y;
+      const so = Q.r.scale;
+      const ox = (x: number) => (x / s + dx) * so;
+      const oy = (y: number) => (y / s + dy) * so;
+      // No line there in the other version: under a third of the columns dark.
+      const W = Q.r.width;
+      const darkO = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= Q.r.height ? 0 : (255 - Q.lum[y * W + x]) / 255);
+      const [ca, cb] = [Math.round(ox(rule.ext[0])), Math.round(ox(rule.ext[1]))];
+      let line = false;
+      for (let y = Math.floor(oy(rule.rows[0])) - 1; y <= Math.ceil(oy(rule.rows[1])) + 1 && !line; y++) {
+        let n = 0;
+        for (let x = ca; x <= cb; x++) if (darkO(x, y - 1) + darkO(x, y) + darkO(x, y + 1) >= 0.5) n++;
+        line = n >= 0.3 * (cb - ca + 1);
+      }
+      if (line) continue;
+      // The same table closed further down in the other version, alike.
+      const ref = ruleIn(Q, ca, cb, Math.ceil(oy(rule.rows[1])) + 2, Q.r.height - 2, rule.rows[1] - rule.rows[0] + 3);
+      if (!ref || Math.abs(ref.ext[0] - ca) > 2 * so || Math.abs(ref.ext[1] - cb) > 2 * so) continue;
+      const wa = rule.weight / s;
+      const wb = ref.weight / so;
+      if (Math.abs(wa - wb) > 0.25 * Math.max(wa, wb) || Math.hypot(rule.hue[0] - ref.hue[0], rule.hue[1] - ref.hue[1], rule.hue[2] - ref.hue[2]) > 30) continue;
+      out.push({
+        side,
+        page,
+        other,
+        lines: new Set(row.map((l) => l.id)),
+        rect: { x: rule.ext[0] / s, y: rule.rows[0] / s, w: (rule.ext[1] - rule.ext[0] + 1) / s, h: (rule.rows[1] - rule.rows[0] + 1) / s },
+        rows: rule.rows,
+        weight: rule.weight,
+        text: joinTokens(row.flatMap((l) => doc.tokens.slice(l.start, l.end))),
+        // Right before the header row it came or went with (on the old side,
+        // which the new version's order does not place).
+        order: side === 'new' ? newPage * 100000 + rule.rows[0] / s : c.order - 0.01,
+      });
+    }
+  }
+  return out;
+}
+
+/**
  * Nothing but a line is drawn in region `r` of page `P` (points), the line
  * along pixel rows y0–y1: in every other pixel row of the region, past a
  * row of blur on each side of the line, under a tenth of the region's
@@ -4628,6 +4868,75 @@ function compareAligned(
   }
   const ownF = fwd.filter((a) => a.own);
   const ownB = bwd.filter((a) => a.own);
+  // The rules that close a table fragment at a page break that moved (see
+  // closingRules): shown with that consequence, made on the first fold.
+  const closing = options.turned || identity ? [] : closingRules(result, oldPage, newPage, A, B);
+  const shownWith = (R: ClosingRule): Change => {
+    if (R.change) return R.change;
+    const place = { pages: [R.page], rects: [{ page: R.page, rect: R.rect }], text: R.text };
+    const none = { pages: [], rects: [], text: '' };
+    R.change = { id: '', kind: 'graphic', category: 'visual', minor: true, consequence: 'closingRule', old: R.side === 'old' ? place : none, new: R.side === 'new' ? place : none, size: 0, cjk: false, contextBefore: '', contextAfter: '', order: R.order };
+    return R.change;
+  };
+  // A line of the word's own besides such a rule, in either version (an
+  // underline drawn just above the rule, whose rows the rule's may join):
+  // what the word in one version gains over the other, summed down each of
+  // its columns from its lower part to the rule's last row, goes beyond the
+  // rule's weight (by 0.3 of a dark pixel) in the version that has the rule,
+  // or reaches 0.3 in the other. The other version is sampled where its word
+  // puts each pixel (see boxDarkness), so the glyphs cancel out; the median
+  // of the columns is taken.
+  const ownLine = (R: ClosingRule, t: Token, u: Token) => {
+    const [S, O] = R.side === 'old' ? [A, B] : [B, A];
+    const s = S.r.scale;
+    const so = O.r.scale;
+    const r = t.rects[0];
+    const q = u.rects[0];
+    const dark = (P: Prepared, x: number, y: number) => (x < 0 || y < 0 || x >= P.r.width || y >= P.r.height ? 0 : (255 - P.lum[y * P.r.width + x]) / 255);
+    const at = (x: number, y: number) => {
+      const fx = ((x + 0.5) / s - r.x + q.x) * so - 0.5;
+      const fy = ((y + 0.5) / s - r.y + q.y) * so - 0.5;
+      const [i, j] = [Math.floor(fx), Math.floor(fy)];
+      const [u0, v0] = [fx - i, fy - j];
+      return (1 - u0) * (1 - v0) * dark(O, i, j) + u0 * (1 - v0) * dark(O, i + 1, j) + (1 - u0) * v0 * dark(O, i, j + 1) + u0 * v0 * dark(O, i + 1, j + 1);
+    };
+    const gains: number[] = [];
+    const losses: number[] = [];
+    for (let x = Math.round(r.x * s); x < Math.round((r.x + r.w) * s); x++) {
+      let g = 0;
+      let l = 0;
+      for (let y = Math.floor((r.y + 0.7 * r.h) * s); y <= R.rows[1] + 1; y++) {
+        const d = dark(S, x, y) - at(x, y);
+        if (d > 0) g += d;
+        else l -= d;
+      }
+      gains.push(g);
+      losses.push(l);
+    }
+    const median = (v: number[]) => v.sort((a, b) => a - b)[v.length >> 1] ?? 0;
+    return median(gains) > R.weight + 0.3 || median(losses) > 0.3;
+  };
+  // An underline found on a word of the fragment's last row that is that
+  // rule (its rows meet the rule's), and no line of the word's own: part of
+  // the consequence, not a change (see appearanceChanges).
+  const closes = (a: Token, b: Token, line: { line: 'strike' | 'underline'; added: boolean; rows: [number, number] }) => {
+    if (line.line !== 'underline') return false;
+    const side = line.added ? 'new' : 'old';
+    const [t, u] = line.added ? [b, a] : [a, b];
+    const R = closing.find((x) => x.side === side && x.lines.has(t.line));
+    if (!R || line.rows[1] < R.rows[0] - 1 || line.rows[0] > R.rows[1] + 1 || ownLine(R, t, u)) return false;
+    shownWith(R);
+    return true;
+  };
+  // A difference region that is such a rule: within it, give or take a cell
+  // (the regions are whole cells) and 6 pt at the ends, with nothing else
+  // drawn there (see lineOnly).
+  const closesAt = (R: ClosingRule, r: Rect) => {
+    const P = R.side === 'old' ? A : B;
+    const c = CELL / P.r.scale;
+    if (r.y < R.rect.y - c - 1 || r.y + r.h > R.rect.y + R.rect.h + c + 1 || r.x < R.rect.x - 6 || r.x + r.w > R.rect.x + R.rect.w + 6) return false;
+    return lineOnly(P, r, R.rows[0], R.rows[1]);
+  };
   // The running header rows of a page compared with its counterpart (see
   // furnitureRows) are compared at the same place even where the text
   // next to them came from, or went to, another page.
@@ -4825,7 +5134,7 @@ function compareAligned(
       }
       return null;
     };
-    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, slant, !options.turned, graphicAt, graphicIn, differs, fillAround));
+    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, slant, !options.turned, graphicAt, graphicIn, differs, fillAround, closes));
     // Words under the letters of a watermark that both versions have at the
     // same place relative to them (a twin, see slant), dark enough to hide
     // part of a glyph: its ink mixes with their glyphs in both, so a strike
@@ -5015,6 +5324,13 @@ function compareAligned(
         if (!dry) twice[side].rects.push({ page, rect: r });
         return false;
       }
+      // The rule that closes a table fragment at a moved page break (see
+      // closingRules): shown with that consequence.
+      const closed = closing.find((R) => R.side === side && closesAt(R, r));
+      if (closed) {
+        if (!dry) shownWith(closed);
+        return false;
+      }
       // The line of an underline or a strike found on this side (see
       // appearanceChanges), where it lies outside the text's mask (beyond
       // the glyphs, between the words): a thin region at its rows, along its
@@ -5087,6 +5403,15 @@ function compareAligned(
     const raw = side === 'old' ? fwdDiff.real : bwdDiff.real;
     const angledShapes = [...along[side], ...rows[side].flatMap((x) => x.angled ?? [])];
     const parts = (r: Rect) => {
+      // A region that took in a closing rule (see closingRules) and
+      // something else near it (a footnote's separator below it): the rule
+      // and the rest are judged apart.
+      const R = real ? closing.find((x) => x.side === side && intersects(r, x.rect) && !closesAt(x, r)) : undefined;
+      if (R) {
+        const own = raw.filter((q) => coveredShare(q, [r]) >= 0.99);
+        const at = own.filter((q) => closesAt(R, q));
+        if (at.length && at.length < own.length) return [union(at), ...cluster(own.filter((q) => !closesAt(R, q)), src.r.width / src.r.scale)];
+      }
       if (!real || !inks[side].length || !angledShapes.some((f) => intersects(f.box, r))) return [r];
       const own = cluster(raw.filter((q) => coveredShare(q, [r]) >= 0.99), src.r.width / src.r.scale, 18, false);
       return own.length > 1 ? own : [r];
@@ -5195,7 +5520,7 @@ function compareAligned(
     changes.push(minor);
   }
 
-  changes.push(...appearance, ...furniture);
+  changes.push(...appearance, ...furniture, ...closing.flatMap((R) => (R.change ? [R.change] : [])));
   for (const c of changes) foundOn.set(c, `${oldPage}:${newPage}`);
   return changes;
 }
