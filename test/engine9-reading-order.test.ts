@@ -185,6 +185,27 @@ test('T1: a value re-typed in a wider font, running into the next word, is a wor
   assert.deepEqual(listed(c), ['Number changed: 2,480.00 → 2,840.00 (+15%)', 'Deleted “early”']);
 });
 
+test('T1: a note written on the running header’s baseline of one page keeps its own line; the header stays a header', async () => {
+  // fpdf2, three pages with the header "title … Revision 4" on one
+  // baseline; PyMuPDF writes "RECEIVED 3 Nov 2026" between its two parts on
+  // p. 1 only (after the footer), and p. 2 has a real edit.
+  const r = await probe('stamp');
+  assert.deepEqual(listed(r), ['Added “RECEIVED 3 Nov 2026”', 'Changed “six” → “ten”']);
+  assert.equal(r.ignored.furniture, 0);
+  const headers = r.newDoc.lines.filter((l) => l.zone === 'top' && l.text.startsWith('SYNTHETIC probe T1 - Supply agreement'));
+  assert.deepEqual(
+    headers.map((l) => [l.page, l.furniture]),
+    [
+      [0, true],
+      [1, true],
+      [2, true],
+    ],
+  );
+  // Control: the datasheet's revision re-typed on the header of every page
+  // stays merged there (see the round-5 datasheet test): its header reads
+  // "Rev. C" on both pages, two header differences, not four.
+});
+
 // ------------------------------------------------------- narrowness -------
 
 /** A page of runs given as [text, x, baseline] in stream order (11 pt, 0.5 em per character; lines by geometry). */

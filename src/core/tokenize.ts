@@ -179,6 +179,13 @@ interface Reordered {
   lines: RawLine[];
   /** Lines drawn after the footer that were placed by their position. */
   placed: number;
+  /**
+   * Header or footer lines (in the top or bottom margin) that late text was
+   * merged into, by signature (see rawSignature): buildDocModel undoes such
+   * a merge where it would make the running header differ from the other
+   * pages'.
+   */
+  zoneMerges: string[];
 }
 
 /**
@@ -219,10 +226,11 @@ interface Reordered {
  * appended; those left beside or above that text are not marked, as nothing
  * tells them from a column drawn last. Pages without such a footer, and
  * pages in reading order, are unchanged. Lines left out (blank or turned)
- * keep their place in the stream.
+ * keep their place in the stream. With `zoneMerges` false, nothing is
+ * merged into a line in the top or bottom margin.
  */
-function restoreReadingOrder(lines: RawLine[], width: number, height: number): Reordered {
-  const none: Reordered = { lines, placed: 0 };
+function restoreReadingOrder(lines: RawLine[], width: number, height: number, zoneMerges = true): Reordered {
+  const none: Reordered = { lines, placed: 0, zoneMerges: [] };
   if (lines.some((l) => l.runs.some((r) => r.field))) return none;
   const boxes = lines.map((l) => (l.runs.some((r) => r.angle !== 0) ? null : lineBox(l, { x: 0, y: 0, w: width, h: height })));
   let footer = -1;
@@ -260,6 +268,7 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number): R
     if (!late || late.zone === 'bottom') continue;
     let target = sharedBaseline(late, before, boxes);
     if (target < 0) target = rowCell(late, before, boxes);
+    if (target >= 0 && !zoneMerges && boxes[target]!.zone) target = -1;
     const gap = target < 0 ? gapAbove(late, before, boxes) : -1;
     if (target >= 0) add(into, target, k);
     else if (gap >= 0) add(after, gap, k);
@@ -271,13 +280,55 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number): R
   }
   if (!moved.size && !kept.size) return none;
   const out: RawLine[] = [];
+  const merged: string[] = [];
   lines.forEach((line, k) => {
     if (moved.has(k)) return;
     const extra = into.get(k)?.flatMap((j) => lines[j].runs);
-    out.push(extra ? { page: line.page, runs: mergeRuns(line.runs, extra), retyped: new Set(extra) } : kept.has(k) ? { ...line, late: true } : line);
+    if (extra) {
+      const m: RawLine = { page: line.page, runs: mergeRuns(line.runs, extra), retyped: new Set(extra) };
+      if (boxes[k]!.zone) merged.push(rawSignature(m, width, height) ?? '');
+      out.push(m);
+    } else out.push(kept.has(k) ? { ...line, late: true } : line);
     for (const j of (after.get(k) ?? []).sort((a, b) => boxes[a]!.top - boxes[b]!.top)) out.push({ ...lines[j], retyped: new Set(lines[j].runs) });
   });
-  return { lines: out, placed: moved.size };
+  return { lines: out, placed: moved.size, zoneMerges: merged };
+}
+
+/**
+ * Zone and digit-insensitive text of an upright raw line in the top or
+ * bottom margin (null elsewhere), as furniture.ts signs a line: running
+ * headers and footers that repeat page after page share it.
+ */
+function rawSignature(line: RawLine, width: number, height: number): string | null {
+  if (line.runs.some((r) => r.angle !== 0)) return null;
+  const b = lineBox(line, { x: 0, y: 0, w: width, h: height });
+  if (!b?.zone) return null;
+  const text = line.runs
+    .map((r) => r.str)
+    .join('')
+    .toLowerCase()
+    .replace(/\d+/g, '#')
+    .replace(/\s+/g, '');
+  return text ? `${b.zone}:${text}` : null;
+}
+
+/**
+ * Each page's lines in reading order (see restoreReadingOrder). Late text
+ * merged into a running header or footer stays merged only where the merged
+ * line repeats on another page (a revision re-typed on every page), or the
+ * document has one page: a note written on the header's baseline of one
+ * page would make that page's header differ from the others', and the
+ * whole header would be compared as text. On such a page the late text
+ * keeps its own line.
+ */
+function readingOrder(doc: DocText): Reordered[] {
+  const raw = doc.pages.map((page) => groupLines(page.index, page.runs.map(upright)));
+  const orders = doc.pages.map((page, k) => restoreReadingOrder(raw[k], page.width, page.height));
+  if (doc.pages.length < 2 || !orders.some((o) => o.zoneMerges.length)) return orders;
+  const sigs = orders.map((o, k) => new Set(o.lines.map((l) => rawSignature(l, doc.pages[k].width, doc.pages[k].height))));
+  return orders.map((o, k) =>
+    o.zoneMerges.every((sig) => sigs.some((other, q) => q !== k && sig !== '' && other.has(sig))) ? o : restoreReadingOrder(raw[k], doc.pages[k].width, doc.pages[k].height, false),
+  );
 }
 
 /**
@@ -729,8 +780,9 @@ export function buildDocModel(doc: DocText): DocModel {
   let blockId = -1;
 
   const outOfOrder = new Map<number, { placed: number }>();
-  for (const page of doc.pages) {
-    const order = restoreReadingOrder(groupLines(page.index, page.runs.map(upright)), page.width, page.height);
+  const orders = readingOrder(doc);
+  for (const [pageNo, page] of doc.pages.entries()) {
+    const order = orders[pageNo];
     const raw = order.lines;
     if (order.placed) outOfOrder.set(page.index, { placed: order.placed });
     let prev: { rect: Rect; size: number; angle: number; last: Tok } | null = null;
