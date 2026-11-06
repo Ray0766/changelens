@@ -2547,6 +2547,8 @@ function extent(A: Box, B: Box, C: number, n: number, k: number, e: number, vali
  * all-clear: they are counted in a notice (see partlyCompared).
  */
 const partly = new WeakMap<CompareResult, Map<number, Map<number, string>>>();
+/** The rows of the line of an underline or strike change (see appearanceChanges), in points of the page that has it. */
+const lineRows = new WeakMap<Change, [number, number]>();
 function notePartly(result: CompareResult, page: number, t: Token): void {
   let pages = partly.get(result);
   if (!pages) partly.set(result, (pages = new Map()));
@@ -3254,6 +3256,9 @@ function appearanceChanges(
     // convincing on its own.
     if (group.length && (group.length >= 2 || group[0].colour || group[0].line || group[0].bold)) {
       const newRects = group.map((h) => h.b.rects[0]);
+      const line = group[0].line;
+      const scale = line?.added ? B.r.scale : A.r.scale;
+      const rows: [number, number] | null = line ? [Math.min(...group.map((h) => h.line!.rows[0])) / scale, (Math.max(...group.map((h) => h.line!.rows[1])) + 1) / scale] : null;
       out.push({
         id: '',
         kind: 'graphic',
@@ -3267,6 +3272,7 @@ function appearanceChanges(
         contextAfter: '',
         order: newPage * 100000 + newRects[0].y,
       });
+      if (rows) lineRows.set(out[out.length - 1], rows);
     }
     group = [];
   };
@@ -4572,6 +4578,28 @@ export function compareRasters(
   return out;
 }
 
+/**
+ * Nothing but a line is drawn in region `r` of page `P` (points), the line
+ * along pixel rows y0–y1: in every other pixel row of the region, past a
+ * row of blur on each side of the line, under a tenth of the region's
+ * columns hold dark ink outside the text's mask (a second rule a few points
+ * below it is a graphic of its own).
+ */
+function lineOnly(P: Prepared, r: Rect, y0: number, y1: number): boolean {
+  const s = P.r.scale;
+  const [x0, x1] = [Math.max(0, Math.floor(r.x * s)), Math.min(P.r.width, Math.ceil((r.x + r.w) * s))];
+  for (let y = Math.max(0, Math.floor(r.y * s)); y < Math.min(P.r.height, Math.ceil((r.y + r.h) * s)); y++) {
+    if (y >= y0 - 1 && y <= y1 + 1) continue;
+    let n = 0;
+    for (let x = x0; x < x1; x++) {
+      const i = y * P.r.width + x;
+      if (P.mask[i] !== GLYPH && P.mask[i] !== PAD && P.lum[i] <= DARK) n++;
+    }
+    if (n >= Math.max(3, 0.1 * (x1 - x0))) return false;
+  }
+  return true;
+}
+
 /** Compare one old page with one new page drawn in the same orientation (see compareRasters). */
 function compareAligned(
   result: CompareResult,
@@ -4985,6 +5013,26 @@ function compareAligned(
       );
       if (twice) {
         if (!dry) twice[side].rects.push({ page, rect: r });
+        return false;
+      }
+      // The line of an underline or a strike found on this side (see
+      // appearanceChanges), where it lies outside the text's mask (beyond
+      // the glyphs, between the words): a thin region at its rows, along its
+      // words (up to 12 pt past them: a rule drawn on to the margin is more
+      // than the line), with nothing else drawn in it (see lineOnly). Shown
+      // as part of that change, so that one line gives one item.
+      const lined = appearance.find((c) => {
+        const rows = lineRows.get(c);
+        if (!rows || c.format?.decoration?.added !== (side === 'new') || r.h > rows[1] - rows[0] + (2 * CELL) / src.r.scale + 2) return false;
+        if (r.y > rows[1] + 1 || r.y + r.h < rows[0] - 1) return false;
+        const along = c[side].rects.filter((q) => q.page === page).map((q) => q.rect);
+        if (!along.length) return false;
+        const u = union(along);
+        const s = src.r.scale;
+        return r.x >= u.x - 12 && r.x + r.w <= u.x + u.w + 12 && lineOnly(src, r, Math.round(rows[0] * s), Math.round(rows[1] * s) - 1);
+      });
+      if (lined) {
+        if (!dry && !lined[side].rects.some((q) => q.page === page && coveredShare(r, [q.rect]) >= 0.6)) lined[side].rects.push({ page, rect: r });
         return false;
       }
       // The fill and rules of a table row whose text is a change of its own
