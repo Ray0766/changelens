@@ -576,7 +576,11 @@ function textChange(ctx: Ctx, h: Hunk): Change {
   const words = (ts: Token[]) => ts.filter((t) => t.kind !== 'punct');
   const all = [...words(delToks), ...words(insToks)];
   const cjk = all.length > 0 && all.filter((t) => t.kind === 'cjk').length / all.length > 0.5;
-  const [cb, ca] = context(B.length ? B : A, B.length ? h.b0 : h.a0, B.length ? h.b1 : h.a1);
+  // The context comes from the new version, except around text drawn after
+  // a page's footer that found no place (Token.late), whose neighbours in
+  // the stream are not those on the page: there the old version's.
+  const lateNew = insToks.length > 0 && insToks.every((t) => t.late) && delToks.length > 0;
+  const [cb, ca] = lateNew ? context(A, h.a0, h.a1) : context(B.length ? B : A, B.length ? h.b0 : h.a0, B.length ? h.b1 : h.a1);
   const change: Change = {
     id: '',
     kind,
@@ -640,7 +644,7 @@ function textChange(ctx: Ctx, h: Hunk): Change {
     newSide.text = to;
     // The unit is now shown as part of the figure, so the context around it
     // starts after it: "1.50% → 1.05%" then "of the …", not "% of the …".
-    if (pre || post) [change.contextBefore, change.contextAfter] = context(B, h.b0 - preN, h.b1 + postN);
+    if (pre || post) [change.contextBefore, change.contextAfter] = lateNew ? context(A, h.a0 - preN, h.a1 + postN) : context(B, h.b0 - preN, h.b1 + postN);
     // A value (for the percentage and sign check) only when each side is one
     // figure: several figures run together would give a meaningless number.
     // Two list labels ("(3)" → "(4)", "3." → "4." at the start of a line)
@@ -1535,7 +1539,11 @@ function inPlaceTokens(ctx: Ctx, hunks: Hunk[], keep: Set<Hunk>, oldToNew: numbe
       pairs.push(i, j);
     }
   }
-  if (!pairs.length) return { rest: hunks, pairs, edits: new Set() };
+  // Text drawn after a page's footer that found no place (Token.late, see
+  // restoreReadingOrder in tokenize.ts) may be a value re-typed in place.
+  const allLate = (T: Token[], s: number, e: number) => e > s && T.slice(s, e).every((t) => t.late);
+  const late = hunks.some((h) => allLate(A, h.a0, h.a1) || allLate(B, h.b0, h.b1));
+  if (!pairs.length && !late) return { rest: hunks, pairs, edits: new Set() };
   // What is left of each hunk: its unmatched runs on each side.
   const runs = (s: number, e: number, paired: Set<number>) => {
     const out: [number, number][] = [];
@@ -1568,13 +1576,33 @@ function inPlaceTokens(ctx: Ctx, hunks: Hunk[], keep: Set<Hunk>, oldToNew: numbe
       touched.add(part);
     }
   }
+  // Late text drawn as several lines is one insertion (or deletion) per line.
+  const perLine = (T: Token[], h: Hunk, side: 'a' | 'b'): Hunk[] => {
+    const [s, e] = side === 'a' ? [h.a0, h.a1] : [h.b0, h.b1];
+    if (!allLate(T, s, e) || T[s].line === T[e - 1].line) return [h];
+    const out: Hunk[] = [];
+    for (let k = s; k < e; ) {
+      let j = k + 1;
+      while (j < e && T[j].line === T[k].line) j++;
+      out.push(side === 'a' ? { a0: k, a1: j, b0: h.b0, b1: h.b0 } : { a0: h.a0, a1: h.a0, b0: k, b1: j });
+      k = j;
+    }
+    return out;
+  };
+  if (late) {
+    const split = rest.flatMap((h) => (h.b0 === h.b1 ? perLine(A, h, 'a') : h.a0 === h.a1 ? perLine(B, h, 'b') : [h]));
+    rest.length = 0;
+    rest.push(...split);
+  }
   // A deletion and an insertion on one line each, at the same place of
-  // paired pages, one of them left by the pairing: an edit in place.
+  // paired pages, one of them left by the pairing, or one of them late
+  // text: an edit in place. A late value re-typed in another font or size
+  // stands on the same line where the two boxes share most of their height.
   const oneLine = (T: Token[], s: number, e: number) => e > s && T[s].line === T[e - 1].line;
   const span = (T: Token[], s: number, e: number) => {
     const r0 = T[s].rects[0];
     const r1 = T[e - 1].rects[T[e - 1].rects.length - 1];
-    return { page: T[s].page, y: r0.y, x0: r0.x, x1: r1.x + r1.w };
+    return { page: T[s].page, y: r0.y, h: r0.h, x0: r0.x, x1: r1.x + r1.w };
   };
   const dels = rest.filter((h) => h.b0 === h.b1 && oneLine(A, h.a0, h.a1));
   const inss = new Map<number, Hunk[]>();
@@ -1590,9 +1618,11 @@ function inPlaceTokens(ctx: Ctx, hunks: Hunk[], keep: Set<Hunk>, oldToNew: numbe
     const p = span(A, d.a0, d.a1);
     const page = oldToNew[p.page];
     for (const ins of inss.get(page) ?? []) {
-      if (joined.has(ins) || !(touched.has(d) || touched.has(ins))) continue;
+      const lateOne = allLate(A, d.a0, d.a1) || allLate(B, ins.b0, ins.b1);
+      if (joined.has(ins) || !(touched.has(d) || touched.has(ins) || lateOne)) continue;
       const q = span(B, ins.b0, ins.b1);
-      if (q.page !== page || Math.abs(q.y - p.y) > TOL || Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0) <= 0) continue;
+      const level = Math.abs(q.y - p.y) <= TOL || (lateOne && Math.min(p.y + p.h, q.y + q.h) - Math.max(p.y, q.y) >= 0.5 * Math.min(p.h, q.h));
+      if (q.page !== page || !level || Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0) <= 0) continue;
       joined.add(ins);
       replaced.set(d, { a0: d.a0, a1: d.a1, b0: ins.b0, b1: ins.b1 });
       break;

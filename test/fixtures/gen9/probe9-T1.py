@@ -20,6 +20,9 @@ PyMuPDF appends to the end of the page's content, after the footer.
                                              footer, and the first heading of p. 2 (set larger than the
                                              body) deleted: two edits, not one rewrite; -inorder.pdf is
                                              the same new version written in reading order (control)
+  probe9-T1-firstrow-before.pdf / -after.pdf the amount of a table's first row re-typed under a short
+                                             heading (no place found by position, joined in place);
+                                             control: the second row's amount only deleted
   probe9-T1-columns-before.pdf / -after.pdf  a two-column page whose right column is drawn after
                                              the footer, beside a full-width paragraph (in order in
                                              "before"): nothing is put back by position
@@ -231,6 +234,36 @@ def stranded_after(before, path):
     save(doc, path)
 
 
+# ------------------------------------------------------------------ first row
+
+def firstrow_before(path):
+    doc = pymupdf.open()
+    p = doc.new_page(width=A4[0], height=A4[1])
+    header(p, 1, 1, "Probe T1 first row")
+    text(p, 72, 100, "Fees", size=14, bold=True)
+    for k, (label, amount) in enumerate([("Annual inspection", "240.00"), ("Meter reading service", "18.50"), ("Out-of-hours call-out", "95.00")]):
+        text(p, 72, 120 + 14 * k, label)
+        text(p, 300, 120 + 14 * k, amount)
+    text(p, 72, 176, "All fees are SYNTHETIC and exclude VAT at the standard rate.")
+    footer(p, 1, 1)
+    save(doc, path)
+
+
+def firstrow_after(before, path):
+    doc = pymupdf.open(before)
+    p = doc[0]
+    first = find(p, "240.00")
+    second = find(p, "18.50")
+    redact(p, first[0])
+    # Control: the second row's amount only deleted, not re-typed.
+    redact(p, second[0])
+    p.apply_redactions(images=NO_IMG, graphics=NO_ART)
+    # The first row's amount re-typed in Helvetica 9 pt: no line above it reaches across it (the
+    # heading is short), so it is not put back by position, and is joined with the old amount by place.
+    p.insert_text(first[1] + (0, 0.5), "260.00", fontname="helv", fontsize=9)
+    save(doc, path)
+
+
 # ------------------------------------------------------------------ columns
 
 LEFT = [
@@ -314,6 +347,8 @@ def main():
     stranded_doc(o("stranded-before"))
     stranded_after(o("stranded-before"), o("stranded-after"))
     stranded_doc(o("stranded-inorder"), note_in_order=True, heading=False)
+    firstrow_before(o("firstrow-before"))
+    firstrow_after(o("firstrow-before"), o("firstrow-after"))
     columns(o("columns-before"), False)
     columns(o("columns-after"), True)
     turned_before(o("turned-before"))

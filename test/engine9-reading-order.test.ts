@@ -129,6 +129,21 @@ test('T1: a line drawn after the footer that finds no place is not paired with t
   assert.ok(!c.newDoc.tokens.some((t) => t.late));
 });
 
+test('T1: a value re-typed after the footer that finds no place by position is joined with the old value at its place', async () => {
+  // The amount of a table's first row, under a short heading (no line above
+  // it reaches across it), re-typed in Helvetica 9 pt; the second row's
+  // amount only deleted (control).
+  const r = await probe('firstrow');
+  assert.deepEqual(listed(r), ['Number changed: 240.00 → 260.00 (+8.3%)', 'Deleted “18.50”']);
+  const [c] = r.changes;
+  assert.deepEqual([c.old.rects[0].page, c.new.rects[0].page], [0, 0]);
+  assert.ok(Math.abs(c.old.rects[0].rect.x - c.new.rects[0].rect.x) < 1);
+  // Its context is where it stands on the page (from the old version), not the footer it follows in the file.
+  assert.equal(c.contextBefore, 'Annual inspection');
+  assert.deepEqual(r.newDoc.pages[0].outOfOrder, { placed: 0, kept: 1 });
+  assert.ok(notices('en', r).some((n) => n.text.startsWith('New version p. 1: 1 line of text is stored after the page footer, above text stored before it, and no place was found for it by position;')));
+});
+
 // ------------------------------------------------------- narrowness -------
 
 /** A page of runs given as [text, x, baseline] in stream order (11 pt, 0.5 em per character; lines by geometry). */
