@@ -152,7 +152,69 @@ What the numbers say, before any classification:
 - **The PyMuPDF cases account for most misses.** ChangeLens found 23 of 45 there, against 48 of 51 with Typst and 44 of 48 with fpdf2. These are the edits PDF editors make: redacted text with new text inserted, annotations, overlays, page operations and an incremental save. The datasheet with an overlay gave 1 of 8 and the redacted lease 3 of 7.
 - **One fpdf2 invoice gave 32 of the 78 extra items** (`holdout5-i-rechnung-eur`), most of them listed as "Number changed: 8 → 9", "9 → 10", and so on (`eval/results-holdout5-blind.txt`).
 
-Every miss and extra item is being classified by analyst agents, one per group of three cases, and each classification re-checked by an independent verifier. The causes will be added here and in `eval/results-holdout5-analysis.md`.
+**Causes.** Every miss and extra item was classified by one analyst agent per group of three cases, and each classification was re-checked by an independent verifier agent. Each verifier re-ran its cases from a git archive whose `src/` equals `f1053f3` and got items identical to the recorded ones. The six verifiers agreed with all 64 entries. A synthesis agent then summed the categories and grouped the causes. The counts add up: 29 misses (144 − 115) and 78 extra items.
+
+| Category (verified) | Misses | Extra items |
+|---|---|---|
+| Missed silently, within the documented scope | 2 | 0 |
+| Shown, but in a misleading form | 18 | 22 |
+| Correct report, not credited by the scorer or the truth file | 8 | 9 |
+| True consequence the truth names, which the engine should fold or count | 0 | 44 |
+| Not an edit (noise) | 0 | 3 |
+| Not checked and not disclosed, outside what the README claimed | 1 | 0 |
+| **All** | **29** | **78** |
+
+The causes, ordered by the number of items they affect:
+1. **Re-typed text after the footer (PyMuPDF)**: 18 misses and 20 extra items, in 5 of the 6 PyMuPDF cases.
+   - Text that PyMuPDF writes after redacting, and its HTML boxes, come after the page footer in the content stream, and ChangeLens keeps stream order.
+   - `compare.ts` `inPlaceTokens` joins a deletion and an insertion at the same place only for hunks that a same-key pairing already touched.
+   - So the reviewer gets "Deleted X" in place and the new value inside an "Added …" at the page end. Several values are merged ("1,975.00 15 March 2027 Retail"), and false rewrites cross pages ("Rewrote 86 words").
+   - 2 of the 18 misses are scoring only: the header "Rev. B → Rev. C", which the header count discloses.
+2. **Row numbers set close to the next cell**: 28 extra items in one fpdf2 invoice.
+   - The Pos. column stands 0.67 em before the next cell, and the row-number rule needs a gap of one em.
+   - So the +1 shift after an inserted row is listed row by row, each with a percentage.
+   - Round 4 had the same class of problem, blocked by a different rule.
+3. **Closing rules of table fragments at moved page breaks**: 10 extra items in the 37-page Typst report. Each rule is listed as an underline added or removed on the last row, and again as a graphic.
+4. **Six characters of context in Chinese and Japanese, and dates written with 年月日 not read as numbers**: 3 misses and 3 extra items. Round 4's `zh-en-supply-annex` #3 had the same cause, and it was not fixed before the freeze.
+5. **A rewrite split around an unchanged phrase, with context taken from the new side only**: 2 misses and 4 extra items.
+6. **Thin or light lines judged by luminance**: 3 misses and 1 extra item.
+   - 2 misses are silent and within the documented scope: a 0.4 pt black strike on a re-flowed row and a 0.73 pt #00ff00 underline.
+   - 1 is a red strike-out annotation listed as a colour change.
+   - The README claimed that strikes in black and red are found.
+7. **Moves across page breaks past a footnote, or past a running header printed only on later pages**: 4 extra items.
+8. **Background changes under unchanged text**: 4 extra items. They are flipped zebra shading, a false underline on an "L", and a false colour change under a re-tinted band.
+9. **Visual items carry no context and skip punctuation**: 1 miss and 1 extra item, scoring only.
+10. **Sideways moves checked per whole line only**: 1 miss and 1 extra item.
+    - The miss: an amount moved from the Débit to the Crédit column of an unchanged row. It is not listed and not disclosed.
+    - The extra item: a two-line stamp moved and gave one item per line (scoring).
+11. **DR/CR not read as a sign**: 1 miss and 1 extra item, scoring only. The word change DR → CR was listed.
+12. **A re-justified line fails the in-place test of an unchanged footnote**: 1 extra item, a false "Moved and edited".
+
+Some credited items mislead too, without changing a count:
+- "+44%" for −1.8 → −2.6 in a "Change (%)" column;
+- "+20%" on a day of the month;
+- "+97%" on the digits of an account number;
+- 1,500 → 2,000 for △1,500 → △2,000;
+- "+194%" across a sign change written with a trailing minus.
+
+The README now lists all of these under "Scope and limitations". Some function-level traces (logged values in `crossingBack`, `overlayInk` and `addedLine`, and one analyst's experimental patch) were made by the analysts only. The verifiers re-checked the facts they rest on (PDF.js text order, spans, fills, renders) but not those logged values.
+
+**Against the baselines.**
+- **Overall.** ChangeLens found more edits than the text line diff (115 against 98) and listed fewer extra items (78 against 112). It found fewer than the pixel page diff, which marks a region on some page for all 144 edits and on the right page for 132, with 59 extra regions.
+- **Per case.** ChangeLens found fewer than the pixel diff in 13 of 18 cases, and fewer than the text line diff in 2: the payslip and the datasheet with an overlay.
+- **Typst.** ChangeLens beats the text line diff on every count and has fewer extra items than the pixel diff (19 against 31). Its 3 misses there are all scoring only.
+- **fpdf2.**
+  - ChangeLens found 44 against 43 for the text line diff, but with 36 extra items against 7; 32 of them are in one invoice.
+  - Of its 4 misses, 2 are scoring only, 1 is the silent 0.4 pt strike and 1 is the Débit/Crédit move.
+- **PyMuPDF.** ChangeLens is weakest here: 23 of 45 found. The pixel diff found all 45 (39 on the right page) with 4 extra regions.
+
+**What this shows.** ChangeLens had not seen PDFs from Typst or fpdf2 before. On them it found 92 of 99 edits; 5 of the 7 misses were correct reports that the scorer did not credit. Most of its extra items there are consequences of re-flow and renumbering that it should fold or count: 44 of 55.
+
+On PDFs edited the way PDF editors edit them (PyMuPDF redaction, re-inserted text, annotations), it is not fit for review as it stands. It found 23 of 45 edits. Many of the rest are split into deletions and insertions elsewhere, and no notice warns about this. The pixel page diff did better on these cases on every count.
+
+No fix has been made: the engine is unchanged since `f1053f3`. If these cases are used for fixes, they are no longer held out, as with round 4.
+
+**Analysis file.** The per-item analysis, with evidence, causes in the code and fix ideas, is in [`eval/results-holdout5-analysis.md`](../eval/results-holdout5-analysis.md). The script `write-analysis.py` arranged it from the agents' structured output and checked the sums. It is agent-written working material; the paths in it point to scratch folders that are not kept.
 
 ### Review round 7 and fix round 8 (probes, not held out)
 
@@ -458,17 +520,18 @@ The browser app runs the same pipeline; it was not timed separately.
 
 - **The corpus is small and synthetic.**
   - Most cases were written by the same author as the engine and used for tuning.
-  - Four first runs exist:
+  - Five first runs exist:
     - four cases by the engine's author: 7 / 9 found, 5 extra;
     - twelve cases by two independent authors: 49 / 53 found, 9 extra;
     - twelve more by two other independent authors: 55 / 73 found, 38 extra, fewer found than the text line diff (57);
-    - eighteen by three other independent authors, with rules registered before the run: 104 / 119 found, 175 extra.
-  - All four sets have since been used for fixes, so the next claim needs new held-out cases.
+    - eighteen by three other independent authors, with rules registered before the run: 104 / 119 found, 175 extra;
+    - eighteen more by three other independent authors, with rules registered before the run: 115 / 144 found, 78 extra, fewer found and more extra than the pixel page diff (144, 59).
+  - The first four sets have since been used for fixes. Round 5 has not, so far; once it is, the next claim needs new held-out cases.
 - **The probes are not independent evidence.** The round-6 probes were written knowing the rules they attack, and the fixes were tested on them. They show that those cases work, not that over-suppression is gone.
 - **The round-3 analysis matters as much as the number.**
   - Most misses there were correct changes whose reported text was narrower than the truth snippet. The rule now credits them, but it was added after the run.
   - The real defects and noise it exposed were fixed only for the kinds of documents in that set.
-- **Producers.** Tested: Chromium, LibreOffice Writer, Calc and Impress (24.2, also from .docx/.xlsx/.pptx files), reportlab, and PDFs assembled with pypdf. Untested: Microsoft Office's own PDF export, InDesign, LaTeX, encrypted files, XFA forms, vertical CJK writing, and documents of more than about 150 pages. A scanned page (one round-4 case) is compared only as an image and named as a page without text; there is no OCR.
+- **Producers.** Tested: Chromium, LibreOffice Writer, Calc and Impress (24.2, also from .docx/.xlsx/.pptx files), reportlab, and PDFs assembled with pypdf. Tried in one blind round only: Typst 0.15, fpdf2 2.9 and PyMuPDF 2.1 (edits made with PyMuPDF are handled poorly). Untested: Microsoft Office's own PDF export, InDesign, LaTeX, encrypted files, XFA forms, vertical CJK writing, and documents of more than about 150 pages. A scanned page (one round-4 case) is compared only as an image and named as a page without text; there is no OCR.
   - Rotated pages and simple two-column layouts are only covered by synthetic tests and one round-3 case.
 - **Baselines.** The pixel baseline emulates diff-pdf's idea; it is not diff-pdf. Neither Acrobat nor Draftable was compared.
 - **Scope of the result.** Passing this corpus proves this corpus. It does not prove correct behaviour on arbitrary PDFs, and the tool's output is not a professional review.

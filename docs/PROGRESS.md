@@ -25,7 +25,17 @@ Short running notes for whoever continues (people or agents). Newest first.
   - default rules: 115 / 115 / 78; registered round-4 rules 111 / 111 / 79; strict 72 / 70 / 118;
   - baselines: text line diff 98 / 96 / 112, pixel page diff 144 / 132 / 59;
   - by producer, ChangeLens found 48 of 51 (Typst), 44 of 48 (fpdf2) and 23 of 45 (PyMuPDF).
-- **Next**: classify every miss and extra item, each re-checked by a second agent (`eval/results-holdout5-analysis.md`), then decide the fixes from the causes.
+- **Round 5 classified** (`eval/results-holdout5-analysis.md`): six analyst agents, six verifiers (all 64 entries agreed, counts add up), one synthesis.
+  - 29 misses: 18 shown in a misleading form (16 of them PyMuPDF re-typed text after the footer), 8 scoring only, 2 silent (0.4 pt black strike, 0.73 pt #00ff00 underline), 1 undisclosed (amount moved from Débit to Crédit).
+  - 78 extra items: 44 consequences (28 renumbered rows in one invoice, 10 table rules at moved page breaks, 4 moves across page breaks, 2 flipped stripes), 22 misleading pieces of real edits, 9 scoring only, 3 false.
+  - Twelve causes, ranked in EVALUATION ("Held-out round 5: first run"); the README limits now name each of them.
+- **Next, proposed** (not started; fixing with these cases would end round 5's status as held out):
+  1. PyMuPDF re-typed text: merge runs drawn after the footer into the body line they share a baseline with; widen the same-place join; add a notice for text out of reading order.
+  2. Row numbers closer than one em to the next cell; never a percentage on a row number.
+  3. Table closing rules at moved page breaks folded into the page-break count.
+  4. Thin and light lines measured by colour distance, not luminance; strike-out, underline and highlight annotations read from `getAnnotations`; a notice that a file has annotations.
+  5. CJK context by a character budget; 年月日 dates as numbers.
+  6. The smaller causes (split rewrites, moves past footnotes, zebra shading, per-cell sideways moves, DR/CR and trailing-minus signs, the justified-line footnote).
 
 ## 2026-11-04 (fix rounds 5 and 6, after blind round 4)
 
