@@ -44,3 +44,28 @@ test('T1: a side note drawn after the footer is not read into the rows of a list
   assert.deepEqual(listed(f), ['Number changed: 240.00 → 260.00 (+8.3%)', 'Deleted “18.50”']);
   assert.deepEqual(f.newDoc.pages[0].outOfOrder, { placed: 1 });
 });
+
+test('T1: footnote markers drawn after the footer are read on their lines in both versions', async () => {
+  // normalize.css / Tailwind markers (75 %, top: -0.5em) stand 3.7 to
+  // 4.5 pt above the baseline of 11 pt text, as Chromium rounds them: right
+  // at a baseline tolerance of 0.35 em. A paragraph inserted at the top
+  // moves every marker; the only other change is "March" -> "April".
+  const r = await pair('sup-before', 'sup-after');
+  assert.deepEqual(listed(r), ['Added a paragraph', 'Changed “March” → “April”']);
+  // Each marker that stands inside a line or at the end of a line whose
+  // neighbours reach past it is read on that line, in both versions.
+  for (const d of [r.oldDoc, r.newDoc]) {
+    const t = lineTexts(d);
+    assert.ok(t.some((l) => /in spring\. ?1 The flow/.test(l)), JSON.stringify(t));
+    assert.ok(t.some((l) => /^litres per minute\. ?2$/.test(l)), JSON.stringify(t));
+    assert.ok(t.some((l) => /worn seals ?3 and/.test(l)), JSON.stringify(t));
+    assert.ok(t.some((l) => /^out of service\. ?5$/.test(l)), JSON.stringify(t));
+  }
+  assert.deepEqual(r.oldDoc.pages[0].outOfOrder, r.newDoc.pages[0].outOfOrder);
+  // Control: the same pages with the footer declared last, so that the
+  // markers are drawn in reading order: the same two changes, nothing placed.
+  const c = await pair('supend-before', 'supend-after');
+  assert.deepEqual(listed(c), ['Added a paragraph', 'Changed “March” → “April”']);
+  assert.equal(c.oldDoc.pages[0].outOfOrder, undefined);
+  assert.equal(c.newDoc.pages[0].outOfOrder, undefined);
+});

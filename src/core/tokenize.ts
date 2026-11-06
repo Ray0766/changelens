@@ -207,11 +207,12 @@ interface Reordered {
  *    in the bottom margin after a paragraph gap, and the next column and
  *    the real footer come after it.)
  * A line drawn after that footer, outside the bottom margin, is placed
- *  - into a line drawn before the footer whose baseline it shares, at its x,
- *    where it does not overprint that line's glyphs, and either fills a gap
- *    inside the line, or the lines just before and after that line in the
- *    stream reach across its whole width (a cell of the same table or a word
- *    of the same paragraph, not another column); or
+ *  - into a line drawn before the footer that it stands on (its baseline,
+ *    or for smaller text its height: see onLine), at its x, where it does
+ *    not overprint that line's glyphs, and either fills a gap inside the
+ *    line, or the lines just before and after that line in the stream reach
+ *    across its whole width (a cell of the same table or a word of the same
+ *    paragraph, not another column); or
  *  - into a table row whose first cell is on its baseline, where another row
  *    of the same table has a cell under or over it (see rowCell); or else
  *  - between two lines drawn one after the other before the footer, one
@@ -332,10 +333,25 @@ function readingOrder(doc: DocText): Reordered[] {
 }
 
 /**
+ * Whether a late line stands on line `e`: on its baseline (within 0.35 em),
+ * or, for text set smaller than the line (a footnote marker, a superscript
+ * or subscript, a value re-typed in a smaller size), with at least half its
+ * height inside the line's. A raised marker stands 0.33 to 0.5 em above the
+ * baseline (vertical-align: super; normalize.css and Tailwind's `top:
+ * -0.5em` at 75 %), right where any baseline tolerance would lie, and the
+ * layout rounds the same marker to either side of it from one version to
+ * the next; by its height it is on its line in both.
+ */
+function onLine(late: LineBox, e: LineBox): boolean {
+  if (Math.abs(e.baseline - late.baseline) <= 0.35 * Math.max(e.size, late.size)) return true;
+  return late.size <= 0.85 * e.size && Math.min(e.bottom, late.bottom) - Math.max(e.top, late.top) >= 0.5 * (late.bottom - late.top);
+}
+
+/**
  * The line drawn before the footer that a late line belongs to (-1 if
- * none): the same baseline, no glyphs overprinted, and either inside the
- * line's span or within the width of the lines just before and after it in
- * the stream.
+ * none): on that line (see onLine; of several, the nearest baseline), no
+ * glyphs overprinted, and either inside the line's span or within the width
+ * of the lines just before and after it in the stream.
  */
 function sharedBaseline(late: LineBox, before: number[], boxes: (LineBox | null)[]): number {
   let best = -1;
@@ -344,7 +360,7 @@ function sharedBaseline(late: LineBox, before: number[], boxes: (LineBox | null)
     const e = boxes[before[n]]!;
     const size = Math.max(e.size, late.size);
     const d = Math.abs(e.baseline - late.baseline);
-    if (d > 0.35 * size || d >= bestD) continue;
+    if (d >= bestD || !onLine(late, e)) continue;
     if (e.inked.some((r) => overlapX(runSpan(r), late) > 0.25 * Math.min(e.size, late.size))) continue;
     const inside = late.x0 >= e.x0 && late.x1 <= e.x1;
     if (!inside) {
@@ -365,8 +381,8 @@ function sharedBaseline(late: LineBox, before: number[], boxes: (LineBox | null)
  * The table row drawn before the footer that a late line is a cell of (-1
  * if none): a value re-typed beside its label, where the row above or below
  * does not reach across it (the first row under a short heading, a row next
- * to one whose value was deleted). The late line shares the baseline of a
- * line (the row) that it stands beside, nothing drawn before the footer is
+ * to one whose value was deleted). The late line stands on a line (the row,
+ * see onLine) that it stands beside, nothing drawn before the footer is
  * printed where it stands, and another row of the same table (see
  * tableRows) has a cell over or under it: a run set apart from the run
  * before it by a column gap (1.5 em or more) that overlaps the late line by
@@ -395,8 +411,7 @@ function rowCell(late: LineBox, before: number[], boxes: (LineBox | null)[]): nu
   let bestGap = Infinity;
   for (const k of before) {
     const e = boxes[k]!;
-    const size = Math.max(e.size, late.size);
-    if (e.zone || Math.abs(e.baseline - late.baseline) > 0.35 * size || overlapX(e, late) > 0) continue;
+    if (e.zone || !onLine(late, e) || overlapX(e, late) > 0) continue;
     const gap = late.x0 >= e.x1 ? late.x0 - e.x1 : e.x0 - late.x1;
     if (gap >= bestGap) continue;
     if (!tableRows(k, before, boxes).some((j) => cellOver(boxes[j]!))) continue;
