@@ -13,7 +13,7 @@ import type {
   Token,
 } from './types.ts';
 import { defaultOptions } from './types.ts';
-import { baseKey, joinTokens, syncHyphenation } from './tokenize.ts';
+import { baseKey, isWideToken, joinTokens, syncHyphenation } from './tokenize.ts';
 import { cleanupSemantic, intern, matchSequences, opsFromMatches, type DiffOp, type MatchInfo, type Span } from './diff.ts';
 import { mergeLineRects } from './geometry.ts';
 import { SUFFIX, decimalMark, isNumericPhrase, parseNumber } from './numbers.ts';
@@ -534,18 +534,50 @@ function wholeBlocks(blocks: Map<number, [number, number]>, toks: Token[], s: nu
   return n;
 }
 
-function context(toks: Token[], s: number, e: number): [string, string] {
+/**
+ * How much context an excerpt shows on each side of a change: six words.
+ * A Chinese or Japanese character (or full-width mark) is one token, as
+ * the comparison goes character by character, but a word there is two or
+ * three characters: it counts as a third of a word, so the context shows
+ * up to 18 characters, enough for the phrase around a changed figure
+ * ("人民币壹万柒仟[陆→柒]佰叁拾柒元肆角整"). Latin text keeps six words.
+ */
+const CONTEXT_BUDGET = 18;
+const contextCost = (t: Token) => (isWideToken(t) ? 1 : 3);
+/** The full stop, exclamation and question marks that end a Chinese or Japanese sentence. */
+const SENTENCE_END = /^[。！？]$/;
+
+/**
+ * The context around toks[s, e): within its paragraph, or within `within`
+ * (the tokens of a header or footer line). It stops at the end of a Chinese
+ * or Japanese sentence once it holds a word or character, so that it shows
+ * the sentence the change is in, not the tail of the one before it; a
+ * change that starts or ends a sentence shows the neighbouring one.
+ */
+function context(toks: Token[], s: number, e: number, within?: [number, number]): [string, string] {
+  const [lo, hi] = within ?? [0, toks.length];
   const before: Token[] = [];
-  const anchorB = toks[s - 1];
-  for (let k = s - 1; k >= 0 && before.length < 6; k--) {
-    if (anchorB && toks[k].block !== anchorB.block) break;
-    before.unshift(toks[k]);
+  const anchorB = within ? undefined : toks[s - 1];
+  let used = 0;
+  for (let k = s - 1; k >= lo; k--) {
+    const t = toks[k];
+    if (anchorB && t.block !== anchorB.block) break;
+    if (SENTENCE_END.test(t.text) && before.some((b) => b.kind !== 'punct')) break;
+    used += contextCost(t);
+    if (used > CONTEXT_BUDGET) break;
+    before.unshift(t);
   }
   const after: Token[] = [];
-  const anchorA = toks[e];
-  for (let k = e; k < toks.length && after.length < 6; k++) {
-    if (anchorA && toks[k].block !== anchorA.block) break;
-    after.push(toks[k]);
+  const anchorA = within ? undefined : toks[e];
+  used = 0;
+  for (let k = e; k < hi; k++) {
+    const t = toks[k];
+    if (anchorA && t.block !== anchorA.block) break;
+    used += contextCost(t);
+    if (used > CONTEXT_BUDGET) break;
+    const end = SENTENCE_END.test(t.text) && after.some((a) => a.kind !== 'punct');
+    after.push(t);
+    if (end) break;
   }
   return [joinTokens(before), joinTokens(after)];
 }
@@ -1942,7 +1974,7 @@ function runningFieldValues(
     const line = doc.lines[T[s].line];
     const first = T[s].i;
     const last = T[e - 1].i;
-    return [joinTokens(doc.tokens.slice(Math.max(line.start, first - 6), first)), joinTokens(doc.tokens.slice(last + 1, Math.min(line.end, last + 7)))];
+    return context(doc.tokens, first, last + 1, [line.start, line.end]);
   };
   /** The index in T where a value on that page, at that height, would come. */
   const insertAt = (T: Token[], page: number, y: number) => {

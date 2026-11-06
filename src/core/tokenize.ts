@@ -536,7 +536,8 @@ export function joinTokens(tokens: Token[]): string {
   return s;
 }
 
-function isWideToken(t: Token): boolean {
+/** A Chinese or Japanese character, or a full-width mark. */
+export function isWideToken(t: Token): boolean {
   return t.kind === 'cjk' || (t.kind === 'punct' && isWide(t.text.codePointAt(0)!));
 }
 
