@@ -71,15 +71,15 @@ test('T1: re-typed values appended after the footer are listed once, in place, a
   );
   assert.equal(note?.level, 'info');
   assert.deepEqual(r.coverage.new.outOfOrder, [
-    { page: 0, count: 5 },
-    { page: 1, count: 1 },
+    { page: 0, placed: 5, kept: 0 },
+    { page: 1, placed: 1, kept: 0 },
   ]);
   assert.equal(r.coverage.old.outOfOrder, undefined);
   // The JSON export gives the pages 1-based.
   const j = buildJson({ result: r, lang: 'en', oldName: 'a.pdf', newName: 'b.pdf' }) as { coverage: { new: { outOfOrder?: unknown } } };
   assert.deepEqual(j.coverage.new.outOfOrder, [
-    { page: 1, count: 5 },
-    { page: 2, count: 1 },
+    { page: 1, placed: 5, kept: 0 },
+    { page: 2, placed: 1, kept: 0 },
   ]);
   // In Chinese too.
   assert.ok(notices('zh', r).some((n) => n.text.startsWith('新版第 1–2 页有 6 行文字存放在页脚之后')));
@@ -97,9 +97,16 @@ test('T1 controls: a right column drawn after the footer, and a note added below
   // after the footer, its lines on the baselines of the left column's.
   const r = await probe('columns');
   assert.deepEqual(listed(r), []);
-  assert.equal(r.newDoc.pages[0].outOfOrder, undefined);
+  assert.deepEqual(r.newDoc.pages[0].outOfOrder, { placed: 0, kept: 6 });
   const lines = lineTexts(r.newDoc, 0);
   assert.equal(lines.indexOf('The hydrant flushing season'), lines.indexOf('SYNTHETIC probe, fictitious parties and figures · Page 1 of 1') + 1);
+  // It is said that the column was compared where the stream has it.
+  assert.deepEqual(
+    notices('en', r).map((n) => n.text),
+    [
+      'New version p. 1: 6 lines of text are stored after the page footer, above text stored before them, and no place was found for them by position; they are compared in the order the file stores them, so an edit there may be listed as a deletion in place and an insertion at the end of the page.',
+    ],
+  );
   // A note added below the last line of p. 1 (not between two lines) and
   // the first heading of p. 2 deleted: two edits, not one rewrite.
   const b = await probe('break');
@@ -159,6 +166,7 @@ test('T1 narrowness: only lines drawn after a footer drawn after the body, onto 
     ['Right column line two', 320, 114],
   ]);
   assert.deepEqual(order(side).at(-1), 'Right column line two');
+  assert.deepEqual(buildDocModel(side).pages[0].outOfOrder, { placed: 0, kept: 1 });
   // The same value in a table row whose neighbours reach across it: put back.
   const row = page([
     ['Annual inspection, per visit, plus VAT 240.00', 56, 100],
@@ -168,7 +176,7 @@ test('T1 narrowness: only lines drawn after a footer drawn after the body, onto 
     ['18.50', 240, 114],
   ]);
   assert.deepEqual(order(row), ['Annual inspection, per visit, plus VAT 240.00', 'Meter reading service, monthly 18.50', 'Out-of-hours call-out, per visit 95.00', 'Synthetic sample · Page 1 of 1']);
-  assert.equal(buildDocModel(row).pages[0].outOfOrder, 1);
+  assert.deepEqual(buildDocModel(row).pages[0].outOfOrder, { placed: 1, kept: 0 });
   // A line that overprints the glyphs of the line on its baseline (a stamp or watermark set as text): unchanged.
   const over = page([['Meter reading service, monthly, plus VAT', 56, 114], ['Annual inspection', 56, 128], footer, ['COPY', 100, 114]]);
   assert.equal(order(over).at(-1), 'COPY');

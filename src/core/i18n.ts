@@ -210,6 +210,7 @@ const en = {
   noticeFieldsUnread: '{side} {pages}: {n} form {n:field|fields} could not be compared as text (password or unreadable {n:value|values}); {n:it is|they are} compared as images only.',
   noticeFieldsUnreadable: '{side} {pages}: the form fields could not be read; their values are compared as images only.',
   noticeOutOfOrder: '{side} {pages}: {n} {n:line of text is|lines of text are} stored after the page footer, out of reading order, as PDF editors store re-typed text; ChangeLens placed {n:it|them} by {n:its|their} position on the page and compared {n:it|them} there.',
+  noticeOutOfOrderKept: '{side} {pages}: {n} {n:line of text is|lines of text are} stored after the page footer, above text stored before {n:it|them}, and no place was found for {n:it|them} by position; {n:it is|they are} compared in the order the file stores {n:it|them}, so an edit there may be listed as a deletion in place and an insertion at the end of the page.',
   renumberedRedline: 'List number shown as a tracked change: “{text}”',
   noticeRenumberedItems: '{n} list {n:number|numbers} changed only because numbered items were added, removed or moved; {n:it is|they are} not listed.',
 };
@@ -425,6 +426,7 @@ const zh: Record<MessageKey, string> = {
   noticeFieldsUnread: '{side}{pages}有 {n} 个表单字段无法作为文字比较（密码或无法读取的值），只按图像比较。',
   noticeFieldsUnreadable: '{side}{pages}的表单字段无法读取，字段值只按图像比较。',
   noticeOutOfOrder: '{side}{pages}有 {n} 行文字存放在页脚之后，不在阅读顺序中（PDF 编辑器改写的文字常这样存放）；ChangeLens 已按其在页面上的位置放回并在该处比较。',
+  noticeOutOfOrderKept: '{side}{pages}有 {n} 行文字存放在页脚之后、位于其前文字的上方，无法按位置放回；它们按文件中的存放顺序比较，因此其中的修改可能显示为原处删除加页末新增。',
   renumberedRedline: '列表编号以修订标记显示：「{text}」',
   noticeRenumberedItems: '另有 {n} 处列表编号仅因增加、删除或移动了带编号的条目而自动变化，未列入清单。',
 };

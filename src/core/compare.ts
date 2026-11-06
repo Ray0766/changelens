@@ -3653,9 +3653,9 @@ function coverageOf(doc: DocModel): Coverage {
   const unreadable: { page: number; count: number }[] = [];
   const privateUse: { page: number; count: number }[] = [];
   const fieldsUnread: { page: number; count: number }[] = [];
-  const outOfOrder: { page: number; count: number }[] = [];
+  const outOfOrder: { page: number; placed: number; kept: number }[] = [];
   for (const pg of doc.pages) {
-    if (pg.outOfOrder) outOfOrder.push({ page: pg.index, count: pg.outOfOrder });
+    if (pg.outOfOrder) outOfOrder.push({ page: pg.index, ...pg.outOfOrder });
     const toks = byPage.get(pg.index) ?? [];
     if (toks.length === 0) textless.push(pg.index);
     // Glyphs without any mapping, or mapped to U+FFFD (many glyphs to one

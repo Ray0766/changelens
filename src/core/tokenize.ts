@@ -176,6 +176,8 @@ interface Reordered {
   lines: RawLine[];
   /** Lines drawn after the footer that were placed by their position. */
   placed: number;
+  /** Lines drawn after the footer, outside the margins and above text drawn before it, that found no place. */
+  kept: number;
 }
 
 /**
@@ -205,12 +207,13 @@ interface Reordered {
  * neighbours reach across it, a page number drawn last lies in the bottom
  * margin, and on a page whose footer comes first nothing follows the footer.
  * Late lines left there outside the bottom margin are marked (Token.late),
- * as their place in the reading order is not known. Pages without such a
+ * as their place in the reading order is not known; those in the body
+ * area, above text drawn before the footer, are counted for a notice. Pages without such a
  * footer, and pages in reading order, are unchanged. Lines left out (blank
  * or turned) keep their place in the stream.
  */
 function restoreReadingOrder(lines: RawLine[], width: number, height: number): Reordered {
-  const none: Reordered = { lines, placed: 0 };
+  const none: Reordered = { lines, placed: 0, kept: 0 };
   if (lines.some((l) => l.runs.some((r) => r.field))) return none;
   const boxes = lines.map((l) => (l.runs.some((r) => r.angle !== 0) ? null : lineBox(l, { x: 0, y: 0, w: width, h: height })));
   let footer = -1;
@@ -241,6 +244,7 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number): R
   };
   const moved = new Set<number>();
   const kept = new Set<number>();
+  let stranded = 0;
   for (let k = footer + 1; k < lines.length; k++) {
     const late = boxes[k];
     if (!late || late.zone === 'bottom') continue;
@@ -250,6 +254,7 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number): R
     else if (gap >= 0) add(after, gap, k);
     else {
       kept.add(k);
+      if (!late.zone && late.top < lowest) stranded++;
       continue;
     }
     moved.add(k);
@@ -262,7 +267,7 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number): R
     out.push(extra ? { page: line.page, runs: mergeRuns(line.runs, extra.flatMap((j) => lines[j].runs)) } : kept.has(k) ? { ...line, late: true } : line);
     for (const j of (after.get(k) ?? []).sort((a, b) => boxes[a]!.top - boxes[b]!.top)) out.push(lines[j]);
   });
-  return { lines: out, placed: moved.size };
+  return { lines: out, placed: moved.size, kept: stranded };
 }
 
 /**
@@ -658,11 +663,11 @@ export function buildDocModel(doc: DocText): DocModel {
   const lines: Line[] = [];
   let blockId = -1;
 
-  const outOfOrder = new Map<number, number>();
+  const outOfOrder = new Map<number, { placed: number; kept: number }>();
   for (const page of doc.pages) {
     const order = restoreReadingOrder(groupLines(page.index, page.runs.map(upright)), page.width, page.height);
     const raw = order.lines;
-    if (order.placed) outOfOrder.set(page.index, order.placed);
+    if (order.placed || order.kept) outOfOrder.set(page.index, { placed: order.placed, kept: order.kept });
     let prev: { rect: Rect; size: number; angle: number; last: Tok } | null = null;
     for (const rl of raw) {
       const chars = lineChars(rl);

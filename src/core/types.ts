@@ -95,8 +95,8 @@ export interface Coverage {
   partlyCompared?: { page: number; count: number; words: string[] }[];
   /** Pages with form fields whose values could not be compared as text (count -1: the page's form fields could not be read). */
   fieldsUnread?: { page: number; count: number }[];
-  /** Pages with lines of text drawn after the footer, out of reading order, that were placed by their position. */
-  outOfOrder?: { page: number; count: number }[];
+  /** Pages with lines of text drawn after the footer, out of reading order: placed by their position, or kept at the end of the page. */
+  outOfOrder?: { page: number; placed: number; kept: number }[];
 }
 
 export interface DocText {
@@ -173,8 +173,10 @@ export interface DocModel {
    * not comparable with a page of the other version that has another angle.
    *
    * outOfOrder: lines of text drawn after the page's footer, out of reading
-   * order (as PDF editors append re-typed text), that were placed by their
-   * position on the page (see restoreReadingOrder in tokenize.ts).
+   * order (as PDF editors append re-typed text): how many were placed by
+   * their position on the page, and how many, in the body area above text
+   * drawn before the footer, found no place and are compared in the order
+   * the file stores them (see restoreReadingOrder in tokenize.ts).
    */
   pages: {
     index: number;
@@ -183,7 +185,7 @@ export interface DocModel {
     unmapped: number;
     textAngle?: number;
     fieldsUnread?: number;
-    outOfOrder?: number;
+    outOfOrder?: { placed: number; kept: number };
   }[];
   /** All tokens, including furniture, in reading order. */
   tokens: Token[];
