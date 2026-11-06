@@ -6059,7 +6059,7 @@ function compareAligned(
     const m = map(r);
     if (!mine && !(markupDrawn[o].length > 0 && coveredShare(m, markupDrawn[o]) >= 0.6)) return false;
     const [X, Y] = side === 'old' ? [A, B] : [B, A];
-    return mine ? drawnByMarkup(X, r, Y, m, markupOn[side]) : drawnByMarkup(Y, m, X, r, markupOn[o]);
+    return mine ? drawnByMarkup(X, r, Y, m, markupOn[side], markupOn[o]) : drawnByMarkup(Y, m, X, r, markupOn[o], markupOn[side]);
   };
 
   // Regions explained by text changes on the same page. Text that moved
@@ -6632,19 +6632,76 @@ function overDrawn(p: number[], q: number[], c: readonly number[]): boolean {
 }
 
 /**
+ * How a highlight annotation `h` of `X` tints what lies under it, about
+ * the region `rx`: its colour /C and the opacity α it is drawn with, from
+ * the lighter half of its pixels (by luminance) within its quadrilaterals
+ * and 12 pt of the region, the paper under its tint (text and graphics are
+ * darker): α = (255 − tint) / (255 − C) on average over the channels in
+ * which /C is not light (below 250). Over the paper a highlight drawn in
+ * multiply blend at that opacity gives the same tint as one in normal
+ * blend. Opaque (α = 1) where too few pixels show it, which predicts the
+ * darkest pixels a highlight can give. `f`: the factor by which it
+ * multiplies each channel, 1 − α + α·C/255.
+ */
+function highlightTint(X: Prepared, rx: Rect, h: Markup): { quads: Rect[]; c: number[]; alpha: number; f: number[] } {
+  const c = markupColour(h);
+  const s = X.r.scale;
+  const near = expand(rx, 12);
+  const px: number[][] = [];
+  for (const q of h.quads) {
+    const x0 = Math.max(0, Math.ceil(Math.max(q.x, near.x) * s));
+    const x1 = Math.min(X.r.width, Math.floor(Math.min(q.x + q.w, near.x + near.w) * s));
+    const y0 = Math.max(0, Math.ceil(Math.max(q.y, near.y) * s));
+    const y1 = Math.min(X.r.height, Math.floor(Math.min(q.y + q.h, near.y + near.h) * s));
+    for (let y = y0; y < y1; y++)
+      for (let x = x0; x < x1; x++) {
+        const i = (y * X.r.width + x) * 4;
+        px.push([X.r.data[i], X.r.data[i + 1], X.r.data[i + 2]]);
+      }
+  }
+  const ks = [0, 1, 2].filter((k) => c[k] < 250);
+  let alpha = 1;
+  if (px.length >= 24 && ks.length) {
+    const lum = (u: number[]) => 0.299 * u[0] + 0.587 * u[1] + 0.114 * u[2];
+    const light = px.sort((u, v) => lum(v) - lum(u)).slice(0, px.length >> 1);
+    const tint = [0, 1, 2].map((k) => light.map((p) => p[k]).sort((u, v) => u - v)[light.length >> 1]);
+    alpha = Math.max(0, Math.min(1, ks.reduce((sum, k) => sum + (255 - tint[k]) / (255 - c[k]), 0) / ks.length));
+  }
+  return { quads: h.quads, c, alpha, f: c.map((v) => 1 - alpha + (alpha * v) / 255) };
+}
+
+/**
  * Whether what differs in the region `rx` of `X` from `ry` of `Y` (the same
  * place in the other version) is what markup annotations of `X` (`list`)
  * draw there: in 97 % of the pixels that differ by more than 24 levels, the
- * pixel of `X` is an annotation's colour drawn over that of `Y` (see
- * overDrawn), or multiplied with it (the blend mode of highlights). A
- * graphic of the page's own that changed under a highlight (a dot
- * recoloured) is not.
+ * pixel of `X` is
+ * - under a highlight, the pixel of `Y` multiplied by the highlight's
+ *   factor at its measured opacity (see highlightTint), within 24 levels
+ *   per channel: the blend mode in which highlights are drawn, which never
+ *   makes a pixel lighter. Where a highlight of `Y` (`others`, one whose
+ *   colour changed) lies there too, `Y`'s pixel is first divided by its
+ *   factor (a channel it takes down below a fifth, the blue of a yellow
+ *   one, is told only by `X`'s factor over the paper). Within a pixel of a
+ *   quadrilateral's edge, and in the 3 pt beyond it (a highlight's rounded
+ *   ends), the highlight covers the pixel in part: on the course from
+ *   `Y`'s pixel to that product, within 40 levels;
+ * - under a strike-out, an underline or a squiggly line (opaque lines in
+ *   normal blend), the annotation's colour drawn over the pixel of `Y`, in
+ *   part (see overDrawn).
+ * A graphic of the page's own that changed under a highlight (a dot
+ * recoloured, red to amber or to the highlight's own yellow) is not: its
+ * pixels are lighter than the old ones, or of another hue than the tint
+ * over them.
  */
-function drawnByMarkup(X: Prepared, rx: Rect, Y: Prepared, ry: Rect, list: Markup[]): boolean {
-  const colours = list.filter((m) => m.quads.some((q) => intersects(expand(q, 3), rx))).map(markupColour);
-  if (!colours.length) return false;
+function drawnByMarkup(X: Prepared, rx: Rect, Y: Prepared, ry: Rect, list: Markup[], others: Markup[]): boolean {
+  const on = list.filter((m) => m.quads.some((q) => intersects(expand(q, 3), rx)));
+  if (!on.length) return false;
+  const lines = on.filter((m) => m.kind !== 'highlight').map(markupColour);
+  const lit = on.filter((m) => m.kind === 'highlight').map((m) => highlightTint(X, rx, m));
+  const under = others.filter((m) => m.kind === 'highlight' && m.quads.some((q) => intersects(expand(q, 3), ry))).map((m) => highlightTint(Y, ry, m));
   const s = X.r.scale;
   const so = Y.r.scale;
+  const inside = (quads: Rect[], fx: number, fy: number, pad: number) => quads.some((q) => fx >= q.x - pad && fx <= q.x + q.w + pad && fy >= q.y - pad && fy <= q.y + q.h + pad);
   let n = 0;
   let ok = 0;
   for (let y = Math.max(0, Math.floor(rx.y * s)); y < Math.min(X.r.height, Math.ceil((rx.y + rx.h) * s)); y++)
@@ -6658,7 +6715,29 @@ function drawnByMarkup(X: Prepared, rx: Rect, Y: Prepared, ry: Rect, list: Marku
       const q = [Y.r.data[j], Y.r.data[j + 1], Y.r.data[j + 2]];
       if (Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Math.abs(p[2] - q[2])) <= 24) continue;
       n++;
-      if (colours.some((c) => overDrawn(p, q, c) || [0, 1, 2].every((k) => Math.abs(p[k] - (q[k] * c[k]) / 255) <= 24))) ok++;
+      if (lines.some((c) => overDrawn(p, q, c))) {
+        ok++;
+        continue;
+      }
+      if (!lit.length) continue;
+      const [fx, fy] = [(x + 0.5) / s, (y + 0.5) / s];
+      const [gx, gy] = [(xo + 0.5) / so, (yo + 0.5) / so];
+      // `Y`'s pixel without its own highlight (null: a channel it does not tell).
+      const was: (number | null)[] = q.slice();
+      for (const u of under)
+        if (inside(u.quads, gx, gy, 0)) for (let k = 0; k < 3; k++) was[k] = was[k] === null || u.f[k] < 0.2 ? null : Math.min(255, was[k]! / u.f[k]);
+      const fits = lit.some((h) => {
+        if (!inside(h.quads, fx, fy, 3)) return false;
+        const whole = inside(h.quads.map((r) => expand(r, -1 / s)), fx, fy, 0);
+        const to = was.map((v, k) => (v === null ? null : v * h.f[k]));
+        if (was.some((v, k) => v !== null && p[k] > v + 24)) return false;
+        if (to.some((v, k) => v === null && p[k] > 255 * h.f[k] + 24)) return false;
+        if (whole) return to.every((v, k) => v === null || Math.abs(p[k] - v) <= 24);
+        const a = was.map((v, k) => v ?? p[k]);
+        const b = to.map((v, k) => v ?? p[k]);
+        return overDrawn(p, a, b);
+      });
+      if (fits) ok++;
     }
   return ok >= 0.97 * n;
 }
