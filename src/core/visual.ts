@@ -66,7 +66,15 @@ export function tooLargeToCompare(widthPt: number, heightPt: number): boolean {
   return renderScale(widthPt, heightPt, Infinity) < MIN_VISUAL_SCALE;
 }
 
-function luminance(r: Raster): Uint8Array {
+/**
+ * Each pixel's luminance, composited on white. `low`: also filled with each
+ * pixel's lowest channel, composited on white: its distance from the paper
+ * in its strongest channel (Chebyshev), as a level like luminance. Grey
+ * and black give their luminance there; a saturated colour is as far from
+ * the paper as black (pure green is 0 there, 150 as luminance), so that a
+ * thin line in a light, saturated colour weighs as much as a black one.
+ */
+function luminance(r: Raster, low?: Uint8Array): Uint8Array {
   const n = r.width * r.height;
   const out = new Uint8Array(n);
   const d = r.data;
@@ -75,25 +83,7 @@ function luminance(r: Raster): Uint8Array {
     const a = d[j + 3] / 255;
     const l = 0.299 * d[j] + 0.587 * d[j + 1] + 0.114 * d[j + 2];
     out[i] = Math.round(l * a + 255 * (1 - a));
-  }
-  return out;
-}
-
-/**
- * Each pixel's lowest channel, composited on white: its distance from the
- * paper in its strongest channel (Chebyshev), as a level like luminance.
- * Grey and black give their luminance; a saturated colour is as far from
- * the paper as black (pure green is 0 here, 150 as luminance), so that a
- * thin line in a light, saturated colour weighs as much as a black one.
- */
-function lowest(r: Raster): Uint8Array {
-  const n = r.width * r.height;
-  const out = new Uint8Array(n);
-  const d = r.data;
-  for (let i = 0, j = 0; i < n; i++, j += 4) {
-    const a = d[j + 3] / 255;
-    const l = Math.min(d[j], d[j + 1], d[j + 2]);
-    out[i] = Math.round(l * a + 255 * (1 - a));
+    if (low) low[i] = Math.round(Math.min(d[j], d[j + 1], d[j + 2]) * a + 255 * (1 - a));
   }
   return out;
 }
@@ -293,7 +283,7 @@ function textMask(doc: DocModel, page: number, r: Raster, lum: Uint8Array, angle
 interface Prepared {
   r: Raster;
   lum: Uint8Array;
-  /** Each pixel's lowest channel (see lowest): how lines through or under words are measured. */
+  /** Each pixel's lowest channel (see luminance): how lines through or under words are measured. */
   low: Uint8Array;
   mask: Uint8Array;
   /** Blurred colour planes. */
@@ -305,13 +295,14 @@ interface Prepared {
 }
 
 function prepare(doc: DocModel, page: number, r: Raster): Prepared {
-  const lum = luminance(r);
+  const low = new Uint8Array(r.width * r.height);
+  const lum = luminance(r, low);
   const p = planes(r).map((c) => blur(c, r.width, r.height));
   const runs = (doc.runs[page] ?? []).filter((run) => slantedRun(run) && run.str.trim());
   return {
     r,
     lum,
-    low: lowest(r),
+    low,
     mask: textMask(doc, page, r, lum),
     planes: p,
     range: p.map((c) => minMax(c, r.width, r.height)),
@@ -1655,7 +1646,7 @@ type Box = { d: Float32Array; cols: number; rows: number; top: number; x0: numbe
  * version only after a re-flow by a row), each cell's darkness is taken
  * against the lightest cell's, so that the fill adds no darkness to any
  * row. Not on a fill half as dark as black or more (a yellow highlight,
- * far from the paper in its lowest channel, see lowest): taken against
+ * far from the paper in its lowest channel, see luminance): taken against
  * it, the strip where two of its quads overlap would read as a line. The
  * whole box is darker there, too thick to be a line.
  */
@@ -1847,7 +1838,7 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       // is that of the glyphs, and of a line drawn over it: compared, with
       // its darkness taken against the fill's lightness `lf` (a pixel of
       // the fill is as light as paper), in its lowest channel as the box's
-      // darkness is (see lowest).
+      // darkness is (see luminance).
       const fill = cov.behind && cov.clear;
       const [r0, g0, b0] = cov.colours[0];
       const lf = Math.min(r0, g0, b0) / 255;
@@ -2295,7 +2286,7 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
  * itself, and a tenth of a line at least. A line through or under a word
  * has the paper (or the glyphs, unchanged) on both sides; the edge of a
  * fill or a band does not. Measured on the pages' lowest channel (see
- * lowest), where a light, saturated fill (a yellow highlight) is as far
+ * luminance), where a light, saturated fill (a yellow highlight) is as far
  * from the paper as a line in that colour, and against each box's own
  * background (see offFill).
  */
@@ -2835,7 +2826,7 @@ export function partlyCompared(result: CompareResult): { page: number; words: st
  * text moved against, not a line drawn over the words. The line's darkness
  * is that of the columns of the word's box it darkens least (the gaps
  * between the glyphs), and past the line it must reach 0.6 of that in 85 %
- * of the columns, on the pages' lowest channel (see lowest).
+ * of the columns, on the pages' lowest channel (see luminance).
  */
 function runsOn(X: Prepared, lines: DocModel['lines'], t: Token, rows: [number, number]): boolean {
   const l = lines.find((x) => x.id === t.line);
@@ -3377,10 +3368,12 @@ function appearanceChanges(
     // around it other than a fill behind the text (a table's stripes that
     // a re-flow by a row flipped, taken off the word's darkness; a fill's
     // edge in the box is no line, see goesOn).
-    const filled = (side: 'old' | 'new') => !!fillAround(side, (side === 'old' ? a : b).rects[0]);
-    const behind = (c: Cover | null, side: 'old' | 'new') => !c || (c.clear && filled(side));
-    const quiet = !ca && !cb && !(t && (t[0] || t[1])) && (!g || (g !== 'skip' && behind(g[0], 'old') && behind(g[1], 'new'))) && (!graphicAt(a, b) || filled('old') || filled('new'));
-    if (faint && !closes(a, b, faint)) faints.set(b.i, { a, b, p, line: faint, alone: quiet });
+    if (faint && !closes(a, b, faint)) {
+      const filled = (side: 'old' | 'new') => !!fillAround(side, (side === 'old' ? a : b).rects[0]);
+      const behind = (c: Cover | null, side: 'old' | 'new') => !c || (c.clear && filled(side));
+      const quiet = !ca && !cb && !(t && (t[0] || t[1])) && (!g || (g !== 'skip' && behind(g[0], 'old') && behind(g[1], 'new'))) && (!graphicAt(a, b) || filled('old') || filled('new'));
+      faints.set(b.i, { a, b, p, line: faint, alone: quiet });
+    }
     if (g === 'skip') {
       notePartly(result, newPage, b);
       continue;
