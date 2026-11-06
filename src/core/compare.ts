@@ -3511,16 +3511,16 @@ function extractRenumbering(changes: Change[], oldDoc: DocModel, newDoc: DocMode
     take(x.c);
     accepted.set(x.a.tok, x.b.tok);
   }
-  // The row number at the head of a moved table row ("26" at the foot of
-  // p. 1 → "27" at the top of p. 2, below a row inserted above it): a
-  // consequence like any renumbered row number, when its shift equals the
-  // net number of rows added above it (see net). The move then reads
+  // The row numbers of moved table rows ("26" at the foot of p. 1 → "27"
+  // at the top of p. 2, below a row inserted above it): consequences like
+  // any renumbered row number, each when its shift equals the net number of
+  // rows added above it (see net). A move whose only edits they are reads
   // "Moved", not "Moved and edited". A row number the shift does not
   // explain stays an edit inside the move.
   for (const c of changes) {
     if (c.kind !== 'replace' || !c.numeric || c.consequence || !single(c)) continue;
     const m = moveOf(c);
-    if (!m || c.old.start !== m.old.start || c.new.start !== m.new.start) continue;
+    if (!m) continue;
     const a = oldLabels.at.get(c.old.start!);
     const b = newLabels.at.get(c.new.start!);
     if (!a || !b || a.label.style !== 'cell' || b.label.style !== 'cell') continue;

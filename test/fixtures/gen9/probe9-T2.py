@@ -26,6 +26,8 @@ holdout5-i-rechnung-eur: a right-aligned "Pos." column 10 mm wide, so that fpdf2
   probe9-T2-crossingx-after            the same, but the crossing row numbered "31" by hand
   probe9-T2-crossinge-after            the same as -crossing-after, and the crossing row's text edited
                                        ("(geeicht)" added)
+  probe9-T2-crossing2-after            two rows inserted as Pos. 5 and 6: two rows cross to p. 2
+  probe9-T2-crossing2x-after           the same, and the second crossing row numbered "40" by hand
 """
 import os
 import sys
@@ -246,6 +248,14 @@ def main(out):
     invoice(p("crossingx-after"), cross, nums, running=True, y0=106)
     edited = [(a, d + " (geeicht)" if i == k else d, qq, u, pr) for i, (a, d, qq, u, pr) in enumerate(cross)]
     invoice(p("crossinge-after"), edited, running=True, y0=106)
+    # Two rows inserted as Pos. 5 and 6: rows 25 and 26 cross to p. 2 together, as 27 and 28.
+    second = ("31-0460", "Pipettenspitzen 5000 µl, steril", 2, "Pkg.", 44.90)
+    two = full[:4] + [INSERTED, second] + full[4:]
+    invoice(p("crossing2-after"), two, running=True, y0=106)
+    # The same, and the second of the two crossing rows (new Pos. 28) numbered "40" by hand.
+    nums = [str(i + 1) for i in range(len(two))]
+    nums[k + 1] = "40"
+    invoice(p("crossing2x-after"), two, nums, running=True, y0=106)
 
 
 if __name__ == "__main__":

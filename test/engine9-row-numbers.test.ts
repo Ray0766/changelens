@@ -108,6 +108,21 @@ test('T2: a row that crosses a page break below an inserted row reads "Moved", i
   assert.ok(items.every((d) => !/^Number changed: \d+ → \d+ \(/.test(d)), JSON.stringify(items));
 });
 
+test('T2: two rows that cross a page break together read "Moved", each new number counted', async () => {
+  // Two rows inserted as Pos. 5 and 6: rows 25 and 26 move to the top of p. 2 as 27 and 28.
+  const r = await probe('crossing-before', 'crossing2-after');
+  assert.deepEqual(listed(r), ['Added 2 paragraphs', 'Moved 2 paragraphs', 'Number changed: 3.318,55 → 3.562,35 (+7.3%)']);
+  assert.deepEqual(minor(r), shifted(5, 30, 2));
+  const back = await probe('crossing2-after', 'crossing-before');
+  assert.deepEqual(listed(back), ['Deleted 2 paragraphs', 'Moved 2 paragraphs', 'Number changed: 3.562,35 → 3.318,55 (-6.8%)']);
+  assert.equal(back.ignored.renumbered, 26);
+  // Control: the second crossing row numbered "40" by hand stays an edit inside the move.
+  const hand = await probe('crossing-before', 'crossing2x-after');
+  assert.deepEqual(listed(hand).slice(0, 3), ['Added 2 paragraphs', 'Moved and edited 2 paragraphs', 'Number changed: 26 → 40']);
+  assert.equal(hand.changes[2].inMove, hand.changes[1].id);
+  assert.ok(minor(hand).includes('25 → 27'), JSON.stringify(minor(hand)));
+});
+
 test('T2: holdout5-i-rechnung-eur: the renumbered positions are counted, not listed', async () => {
   const before = await load(`${cases}holdout5-i-rechnung-eur/before.pdf`);
   const after = await load(`${cases}holdout5-i-rechnung-eur/after.pdf`);
