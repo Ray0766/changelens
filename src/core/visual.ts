@@ -2103,11 +2103,17 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
   // crossed, the glyphs crossed), and nearly every column that `a` leaves
   // light within two rows of it (the gaps between the glyphs, their
   // counters and side bearings) gained a quarter of a line or more, from
-  // the box's first quarter to its last. Glyph strokes drawn at another
-  // sub-pixel position gain next to strokes that `a` has there, not across
-  // the gaps. Not where `a` gained as much in the columns that `b` leaves
-  // light there: glyphs still a pixel apart gain where the other version's
-  // have gaps, both ways; a line leaves no column light at its rows.
+  // the box's first quarter to its last (or, where the glyphs give the very
+  // same pixels in both versions, from the first such column to the last,
+  // where the glyphs fill the box's ends at those rows: the "c" and the "m"
+  // of "cm" over an underline; elsewhere the gaps between the glyphs of a
+  // short word, "all", gain at their feet where the glyphs were drawn at
+  // another sub-pixel position, which the row below loses). Glyph strokes
+  // drawn at another sub-pixel position gain next to strokes that `a` has
+  // there, not across the gaps. Not where `a` gained as much in the columns
+  // that `b` leaves light there: glyphs still a pixel apart gain where the
+  // other version's have gaps, both ways; a line leaves no column light at
+  // its rows.
   const thin = (k: number) => {
     if (win(pb, k, 1) - win(pa, k, 1) < 0.2 && !crossed(k)) return false;
     let open = 0;
@@ -2116,6 +2122,8 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
     let hi = -1;
     let gaps = 0;
     let back = 0;
+    let first = -1;
+    let last = -1;
     for (let c = 0; c < C; c++) {
       if (valid) {
         let ok = true;
@@ -2135,12 +2143,14 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       }
       if (!lightA) continue;
       open++;
+      if (first < 0) first = c;
+      last = c;
       if (gain < 0.25) continue;
       up++;
       lo = Math.min(lo, c);
       hi = Math.max(hi, c);
     }
-    return open >= Math.max(4, 0.25 * C) && up >= 0.85 * open && lo <= 0.25 * C && hi >= 0.75 * C && !(gaps >= 4 && back >= 0.3 * gaps);
+    return open >= Math.max(4, 0.25 * C) && up >= 0.85 * open && lo <= (still ? Math.max(0.25 * C, first) : 0.25 * C) && hi >= (still ? Math.min(0.75 * C, last) : 0.75 * C) && !(gaps >= 4 && back >= 0.3 * gaps);
   };
   // The first line found by `test` (see line and thin), checked as below;
   // undefined where no row passes the test.
@@ -2157,8 +2167,14 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       // The edge of a fill that `b` has and `a` not (a highlight on the line
       // below, whose top reaches into the word's box) is no line: its ink
       // goes on past the rows found (see goesOn). Where an overlay was found
-      // there, it is measured against that fill instead.
-      if (!valid && goesOn(a, b, A, B, C, k, e)) return null;
+      // there, it is measured against that fill instead. A fainter line is
+      // looked for further down (the lower of a double underline, whose
+      // upper line has the lower one below it).
+      if (!valid && goesOn(a, b, A, B, C, k, e)) {
+        if (!faint) return null;
+        k = e;
+        continue;
+      }
       // Unchanged elsewhere: the rest of the profile matches.
       let diff = 0;
       let total = 0;
@@ -2865,19 +2881,30 @@ export function partlyCompared(result: CompareResult): { page: number; words: st
  * text moved against, not a line drawn over the words. The line's darkness
  * is that of the columns of the word's box it darkens least (the gaps
  * between the glyphs), and past the line it must reach 0.6 of that in 85 %
- * of the columns, on the pages' lowest channel (see luminance).
+ * of the columns, on the pages' lowest channel (see luminance; by
+ * luminance on a light, saturated fill, see onTint). In each column the
+ * line is measured against what lies just above and below it, the lighter
+ * of the two: a fill that the row has on both sides of the line (a filled
+ * cell, a stripe that runs on past the text) is no line there, a rule
+ * between two filled rows, or a fill that ends at the line's rows, is.
  */
 function runsOn(X: Prepared, lines: DocModel['lines'], t: Token, rows: [number, number]): boolean {
   const l = lines.find((x) => x.id === t.line);
   if (!l) return false;
   const s = X.r.scale;
   const W = X.r.width;
+  const H = X.r.height;
+  const r = t.rects[0];
+  const plane = onTint(X, r) ? X.lum : X.low;
+  const y0 = Math.max(0, rows[0] - 1);
+  const y1 = Math.min(H - 1, rows[1] + 1);
+  const at = (x: number, y: number) => (y < 0 || y >= H ? 0 : (255 - plane[y * W + x]) / 255);
   const sum = (x: number) => {
     let v = 0;
-    for (let y = Math.max(0, rows[0] - 1); y <= Math.min(X.r.height - 1, rows[1] + 1); y++) v += (255 - X.low[y * W + x]) / 255;
-    return v;
+    for (let y = y0; y <= y1; y++) v += at(x, y);
+    const around = Math.min(at(x, y0 - 2), at(x, y1 + 2));
+    return Math.max(0, v - around * (y1 - y0 + 1));
   };
-  const r = t.rects[0];
   const under: number[] = [];
   for (let x = Math.max(0, Math.round(r.x * s)); x < Math.min(W, Math.round((r.x + r.w) * s)); x++) under.push(sum(x));
   if (!under.length) return false;

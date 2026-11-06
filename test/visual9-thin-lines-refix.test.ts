@@ -45,6 +45,8 @@ const probe = (a: string, b: string) => run(fixtures + `probe9-V2-refix-${a}.pdf
 const list = (cs: Change[]) => cs.map((c) => describeChange('en', c));
 const lines = (r: CompareResult) => list(r.changes.filter((c) => c.format?.decoration));
 const counted = (r: CompareResult) => (r.coverage?.new.partlyCompared ?? []).reduce((n, u) => n + u.count, 0);
+const DELETED = 'Deleted “HT-1030 Garden fork, four tines each 6 26.40”';
+const ROW = 'Anvil loppers 70 cm, ratchet';
 
 test('V2-thin refix: strikes and underlines on a highlighter’s yellow, green or cyan fill are found, moved or not', { skip }, async () => {
   // Before: "No differences found" for the black 1 pt strike on yellow and
@@ -61,4 +63,21 @@ test('V2-thin refix: strikes and underlines on a highlighter’s yellow, green o
   const ctrl = await probe('hl-before', 'hl-shift-before');
   assert.deepEqual(list(ctrl.changes), []);
   assert.equal(counted(ctrl), 0);
+});
+
+test('V2-thin refix: a thin underline in a filled table cell is listed, not taken for a table rule', { skip }, async () => {
+  // fpdf2's 0.34 pt underline on a row filled #fff2cc (as every row is).
+  // Before: "No differences found" (the fill runs on past the text, and
+  // was taken for a rule along the row); on grey 208 it was only counted.
+  for (const fill of ['yel', 'g208']) {
+    const r = await probe(`fill-${fill}-before`, `fill-${fill}-U`);
+    assert.deepEqual(list(r.changes), [`Underlined: “${ROW}”`], fill);
+    assert.equal(counted(r), 0, fill);
+    const moved = await probe(`fill-${fill}-before`, `fill-${fill}-reflow-U`);
+    assert.deepEqual(list(moved.changes), [DELETED, `Underlined: “${ROW}”`], fill);
+    // Control: the re-flow alone.
+    const ctrl = await probe(`fill-${fill}-before`, `fill-${fill}-reflow`);
+    assert.deepEqual(list(ctrl.changes), [DELETED], fill);
+    assert.equal(counted(ctrl), 0, fill);
+  }
 });
