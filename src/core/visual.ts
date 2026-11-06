@@ -1423,6 +1423,122 @@ function ink(
 }
 
 /**
+ * Whether the colour `bg` behind a word goes on to both sides of it, in its
+ * middle rows from 1 to 5 pt beyond its box (half or more of the pixels on
+ * each side, glyphs left out): a band along the line, not a highlight that
+ * ends at the word.
+ */
+function sideways(X: Prepared, rect: Rect, bg: number[]): boolean {
+  const { r } = X;
+  const s = r.scale;
+  const lb = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2];
+  const share = (x0: number, x1: number) => {
+    let n = 0;
+    let of = 0;
+    for (let y = Math.max(0, Math.floor((rect.y + 0.25 * rect.h) * s)); y < Math.min(r.height, Math.ceil((rect.y + 0.75 * rect.h) * s)); y++)
+      for (let x = Math.max(0, Math.round(x0 * s)); x < Math.min(r.width, Math.round(x1 * s)); x++) {
+        const p = rgb(r, y * r.width + x);
+        if (0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2] < lb - 24) continue;
+        n++;
+        if (Math.abs(p[0] - bg[0]) <= 12 && Math.abs(p[1] - bg[1]) <= 12 && Math.abs(p[2] - bg[2]) <= 12) of++;
+      }
+    return n ? of / n : 0;
+  };
+  return share(rect.x - 5, rect.x - 1) >= 0.5 && share(rect.x + rect.w + 1, rect.x + rect.w + 5) >= 0.5;
+}
+
+/**
+ * Whether the colour `bg` lies in the rows next to a word on the other
+ * side, `X` (in the band from a quarter of the word's height to twice it,
+ * above or below, a third or more of the pixels within 12 levels of it,
+ * glyphs left out): a pattern of stripes there that the word moved into.
+ */
+function aroundOther(X: Prepared, rect: Rect, bg: number[]): boolean {
+  const { r } = X;
+  const s = r.scale;
+  const lb = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2];
+  const share = (y0: number, y1: number) => {
+    let n = 0;
+    let of = 0;
+    for (let y = Math.max(0, Math.floor(y0 * s)); y < Math.min(r.height, Math.ceil(y1 * s)); y++)
+      for (let x = Math.max(0, Math.round(rect.x * s)); x < Math.min(r.width, Math.round((rect.x + rect.w) * s)); x++) {
+        const p = rgb(r, y * r.width + x);
+        if (0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2] < lb - 24) continue;
+        n++;
+        if (Math.abs(p[0] - bg[0]) <= 12 && Math.abs(p[1] - bg[1]) <= 12 && Math.abs(p[2] - bg[2]) <= 12) of++;
+      }
+    return n ? of / n : 0;
+  };
+  return share(rect.y - 2 * rect.h, rect.y - 0.25 * rect.h) >= 1 / 3 || share(rect.y + 1.25 * rect.h, rect.y + 3 * rect.h) >= 1 / 3;
+}
+
+/**
+ * The share of a word's box drawn in a colour that neither its glyphs nor
+ * the background behind them explain: farther than 48 levels from every
+ * blend of the two (their anti-aliased edges, glyphs on a fill), as the ink
+ * of an image or a stamp drawn over the word in a colour of its own is
+ * (blue lettering over black text). The glyphs' colour is that of the
+ * pixel farthest from the background (white glyphs on a dark band too).
+ */
+function foreignShare(side: Prepared, rect: Rect, bg: number[]): number {
+  const { r } = side;
+  const s = r.scale;
+  const x0 = Math.max(0, Math.round(rect.x * s));
+  const x1 = Math.min(r.width, Math.round((rect.x + rect.w) * s));
+  const y0 = Math.max(0, Math.floor(rect.y * s));
+  const y1 = Math.min(r.height, Math.ceil((rect.y + rect.h) * s));
+  let g = [0, 0, 0];
+  let gg = 0;
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const p = rgb(r, y * r.width + x).map((v, c) => v - bg[c]);
+      const d = p[0] * p[0] + p[1] * p[1] + p[2] * p[2];
+      if (d > gg) [g, gg] = [p, d];
+    }
+  let n = 0;
+  let foreign = 0;
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const p = rgb(r, y * r.width + x).map((v, c) => v - bg[c]);
+      const t = gg ? Math.max(0, Math.min(1, (p[0] * g[0] + p[1] * g[1] + p[2] * g[2]) / gg)) : 0;
+      n++;
+      if (Math.hypot(p[0] - t * g[0], p[1] - t * g[1], p[2] - t * g[2]) > 48) foreign++;
+    }
+  return n ? foreign / n : 0;
+}
+
+/**
+ * Whether `bg`, a pale background found behind a word (see ink), is the
+ * word's own: the colour of nearly all of its box between the glyphs (four
+ * in five of the pixels no more than 24 levels darker than it, within 12
+ * levels in each channel), that does not go on above or below the word (in
+ * the band a quarter to a half of its height away, fewer than half of such
+ * pixels are of it: the glyphs of the lines next to it are left out). A highlight drawn close around the word is so; a
+ * panel, a shaded row or a gradient that the word lies in is not, nor a
+ * fill's edge across the word.
+ */
+function ownBackground(side: Prepared, rect: Rect, bg: number[]): boolean {
+  const { r } = side;
+  const s = r.scale;
+  const near = (p: number[]) => Math.abs(p[0] - bg[0]) <= 12 && Math.abs(p[1] - bg[1]) <= 12 && Math.abs(p[2] - bg[2]) <= 12;
+  const lb = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2];
+  const share = (y0: number, y1: number, light: boolean) => {
+    let n = 0;
+    let of = 0;
+    for (let y = Math.floor(y0 * s); y < Math.ceil(y1 * s); y++)
+      for (let x = Math.max(0, Math.round(rect.x * s)); x < Math.min(r.width, Math.round((rect.x + rect.w) * s)); x++) {
+        const p = y < 0 || y >= r.height ? [255, 255, 255] : rgb(r, y * r.width + x);
+        if (light && 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2] < lb - 24) continue;
+        n++;
+        if (near(p)) of++;
+      }
+    return n ? of / n : 0;
+  };
+  if (share(rect.y, rect.y + rect.h, true) < 0.8) return false;
+  return share(rect.y - 0.5 * rect.h, rect.y - 0.25 * rect.h, true) < 0.5 || share(rect.y + 1.25 * rect.h, rect.y + 1.5 * rect.h, true) < 0.5;
+}
+
+/**
  * Darkness of a word's glyphs (as ink's `total` and `n`) where a fill or a
  * tint lies behind them: each pixel's against what lies behind it, as a
  * share of that lightness, `behind(x, y)` (the fill's luminance, or 0 for
@@ -1825,7 +1941,10 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
   };
   const line = (k: number) => {
     const added = win(pb, k, 1) - win(pa, k, 1);
-    if (share(B, k, 1) < 0.85) return false;
+    // Where too few columns can be compared across the three rows (NaN),
+    // the line's own row must show it.
+    const across = share(B, k, 1);
+    if (!(across >= 0.85) && !(Number.isNaN(across) && share(B, k, 0) >= 0.85)) return false;
     if (added < (opts.weak ? 0.25 : 0.45)) return !opts.weak && still && added >= 0.2 && filled(k);
     const g = gained(k);
     // A short word whose glyph fills the line's rows (an "a" between struck
@@ -1909,7 +2028,13 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       const tell = opts.cjk ? ext : extent(A, B, C, n, k, e, valid, true);
       if (tell !== null && tell < 0.5) return null;
       if (ext !== null && ext >= 0.75) narrow = false;
-      if (tell === null && opts.cjk) {
+      // So must a figure or a short word whose stroke fills the line's rows
+      // (the bar of a "4") where an overlay is passed: measured against a
+      // fill behind it in one version (a stripe a re-flow moved away), the
+      // rest of its box matches as closely as on paper, and its bar drawn
+      // over two rows in one version and one in the other passes for a
+      // line.
+      if (tell === null && (opts.cjk || valid)) {
         let gain = 0;
         let m = 0;
         for (let c = 0; c < C; c++) {
@@ -2104,7 +2229,12 @@ function lineAlone(a: Prepared, ra: Rect, b: Prepared, rb: Rect): FoundLine | nu
  * gained), up to a gap of three pixel columns. A stamp's border drawn
  * across the text goes on so; a strike drawn with a line tool ends a point
  * or so past its word (at a space, within the text's mask), however near
- * another mark was added.
+ * another mark was added. A stroke also keeps its colour and its course: a
+ * mark that starts within a point or two of the strike's end, in another
+ * colour (a red arrow after a black strike), or level where the line rises
+ * across the word, is another graphic, and the line is the word's (see
+ * StrokeHue; the course is the line's rise per column across the box,
+ * against the rise followed out of it).
  */
 function crosses(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number, e: number, differs: (X: Prepared, x: number, y: number) => boolean): boolean {
   const s = b.r.scale;
@@ -2119,6 +2249,23 @@ function crosses(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number,
   };
   const j0 = Math.max(0, k - 3);
   const j1 = Math.min(B.rows - 1, e + 3);
+  // The line's own colour and course in the box: its pixels that gained
+  // over paper in `a`, and the centre of the rows that gained in each column.
+  const inside = new StrokeHue();
+  const centres: [number, number][] = [];
+  for (let c = 0; c < C; c++) {
+    let first = -1;
+    let last = -1;
+    for (let j = j0; j <= j1; j++) {
+      const was = A.d[j * A.cols + c];
+      if (B.d[j * B.cols + c] - was < 0.5) continue;
+      if (first < 0) first = j;
+      last = j;
+      if (was < 0.2) inside.add(b.r, B.ys[j] * W + B.x0 + c);
+    }
+    if (first >= 0) centres.push([B.x0 + c, (B.ys[first] + B.ys[last]) / 2]);
+  }
+  const riseIn = rise(centres);
   for (const dir of [1, -1]) {
     // The line's rows at the box's end: the column nearest it, of the last
     // four, with rows that gained.
@@ -2140,6 +2287,8 @@ function crosses(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number,
     let length = 0;
     let gained = 0;
     let reached = false;
+    const outside = new StrokeHue();
+    const course: [number, number][] = [];
     for (let step = 1; step <= 150 * s; step++) {
       const px = x + dir * step;
       if (px < 0 || px >= W) break;
@@ -2151,8 +2300,10 @@ function crosses(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number,
         if (v < 0.25) continue;
         if (dlo < 0) dlo = y;
         dhi = y;
-        if (v - darkA(px, y) < 0.2) continue;
+        const was = darkA(px, y);
+        if (v - was < 0.2) continue;
         up = true;
+        if (was < 0.2 && y >= 0 && y < b.r.height) outside.add(b.r, y * W + px);
         const m = b.mask[y * W + px];
         if (m !== GLYPH && m !== PAD && differs(b, px, y)) reached = true;
       }
@@ -2164,11 +2315,61 @@ function crosses(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number,
       length = step;
       if (up) gained++;
       // Within glyphs dark in both, the course is kept.
-      if (dhi - dlo + 1 <= thick + 2) [lo, hi] = [dlo, dhi];
+      if (dhi - dlo + 1 <= thick + 2) {
+        [lo, hi] = [dlo, dhi];
+        course.push([px, (dlo + dhi) / 2]);
+      }
     }
-    if (reached && length >= 12 * s && gained >= 0.5 * length) return true;
+    if (!(reached && length >= 12 * s && gained >= 0.5 * length)) continue;
+    if (inside.differs(outside)) continue;
+    // Its course: where the line rises across the box (by two pixels or
+    // more over the length followed), the stroke goes on rising the same
+    // way, not level or falling. (Measured across a short word, through
+    // glyphs, the rise in the box can be half the border's.)
+    const riseOut = rise(course);
+    if (riseIn !== null && riseOut !== null && Math.abs(riseIn) * length >= 2 && (riseOut * riseIn <= 0 || Math.abs(riseOut) < 0.25 * Math.abs(riseIn))) continue;
+    return true;
   }
   return false;
+}
+
+/**
+ * The rise per pixel column of a line through points (column, row): the
+ * least-squares slope, or null for fewer than four columns.
+ */
+function rise(points: [number, number][]): number | null {
+  if (points.length < 4) return null;
+  let mx = 0;
+  let my = 0;
+  for (const [x, y] of points) [mx, my] = [mx + x, my + y];
+  [mx, my] = [mx / points.length, my / points.length];
+  let sxy = 0;
+  let sxx = 0;
+  for (const [x, y] of points) [sxy, sxx] = [sxy + (x - mx) * (y - my), sxx + (x - mx) * (x - mx)];
+  return sxx ? sxy / sxx : null;
+}
+
+/**
+ * The colour of a stroke, from its pixels: each channel's difference from
+ * the luminance per unit of darkness, which anti-aliasing and transparency
+ * over paper leave as they are (a red line drawn half-transparent is the
+ * same red; black and grey are 0, 0, 0). `differs`: two strokes, each with
+ * a few pixels' worth of darkness, are of other colours (by more than a
+ * quarter of the scale in a channel: black against red, blue or green).
+ */
+class StrokeHue {
+  private off = [0, 0, 0];
+  private dark = 0;
+  add(r: Raster, i: number): void {
+    const p = rgb(r, i);
+    const l = 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2];
+    for (let c = 0; c < 3; c++) this.off[c] += p[c] - l;
+    this.dark += (255 - l) / 255;
+  }
+  differs(o: StrokeHue): boolean {
+    if (this.dark < 2 || o.dark < 2) return false;
+    return this.off.some((v, c) => Math.abs(v / this.dark - o.off[c] / o.dark) > 64);
+  }
 }
 
 /** The darkness of a token's glyph ink: the darkest pixel of its box (1 when it is nearly paper). */
@@ -2216,6 +2417,34 @@ function samePixels(ra: Rect, sa: number, rb: Rect, sb: number): boolean {
   const fx = (rb.x - ra.x) * sa;
   const fy = (rb.y - ra.y) * sa;
   return Math.abs(fx - Math.round(fx)) <= 0.02 && Math.abs(fy - Math.round(fy)) <= 0.02 && Math.abs(ra.w - rb.w) * sa <= 0.02 && Math.abs(ra.h - rb.h) * sa <= 0.02;
+}
+
+/**
+ * Whether a word's surroundings show the very same pixels in both
+ * versions: its box padded by 15 % of its height (by 35 % below it, where
+ * an underline runs), at the same place relative to the pixel grid (see
+ * samePixels), each channel within 8 levels. Nothing was then drawn over
+ * or under the word, struck through it or recoloured there.
+ */
+function sameInk(A: Prepared, ra: Rect, B: Prepared, rb: Rect): boolean {
+  const s = A.r.scale;
+  if (!samePixels(ra, s, rb, B.r.scale)) return false;
+  const dx = Math.round((rb.x - ra.x) * s);
+  const dy = Math.round((rb.y - ra.y) * s);
+  const pad = 0.15 * ra.h;
+  const x0 = Math.max(0, -dx, Math.floor((ra.x - pad) * s));
+  const x1 = Math.min(A.r.width, B.r.width - dx, Math.ceil((ra.x + ra.w + pad) * s));
+  const y0 = Math.max(0, -dy, Math.floor((ra.y - pad) * s));
+  const y1 = Math.min(A.r.height, B.r.height - dy, Math.ceil((ra.y + ra.h + 0.35 * ra.h) * s));
+  if (x1 <= x0 || y1 <= y0) return false;
+  const [da, db] = [A.r.data, B.r.data];
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const p = (y * A.r.width + x) * 4;
+      const q = ((y + dy) * B.r.width + x + dx) * 4;
+      if (Math.abs(da[p] - db[q]) > 8 || Math.abs(da[p + 1] - db[q + 1]) > 8 || Math.abs(da[p + 2] - db[q + 2]) > 8) return false;
+    }
+  return true;
 }
 
 /**
@@ -2343,7 +2572,11 @@ export function partlyCompared(result: CompareResult): { page: number; words: st
  * (a stamp drawn across the text, whose border crosses it within the text's
  * mask). `graphicIn`: such a region on that page takes in the place.
  * `differs`: the graphics comparison found differences at a pixel of a
- * page (see crosses).
+ * page (see crosses). `fillAround`: the colour of such a region on that
+ * page that takes in the place, where it is mostly of one colour (a fill, a
+ * tint), else null; `along`: also of one that reaches within 3 pt of the
+ * place, or lies on the same rows (a band behind a line that goes on past
+ * its words).
  */
 function appearanceChanges(
   result: CompareResult,
@@ -2360,6 +2593,7 @@ function appearanceChanges(
   graphicAt: (a: Token, b: Token) => boolean = () => false,
   graphicIn: (side: 'old' | 'new', r: Rect) => boolean = () => false,
   differs: (X: Prepared, x: number, y: number) => boolean = () => false,
+  fillAround: (side: 'old' | 'new', r: Rect, along?: boolean) => number[] | null = () => null,
 ): Change[] {
   const TA = result.oldDoc.tokens;
   const TB = result.newDoc.tokens;
@@ -2675,6 +2909,30 @@ function appearanceChanges(
     return found;
   };
   type Hit = { a: Token; b: Token; colour: boolean; line?: { line: 'strike' | 'underline'; added: boolean; rows: [number, number] }; ink?: Ink; p: number; bold?: boolean };
+  // A word that a form field's widget draws over again in one version only
+  // (a form flattened with its widgets kept, see TextRun.overdrawn): drawn
+  // twice, its glyphs' edges are darker, as if drawn a little heavier.
+  const overdrawn = (doc: DocModel, page: number, t: Token) => (doc.runs[page] ?? []).some((r) => r.overdrawn && coveredShare(t.rects[0], [r]) >= 0.5);
+  const twice = (a: Token, b: Token) => overdrawn(result.oldDoc, oldPage, a) !== overdrawn(result.newDoc, newPage, b);
+  // A word of a form field value set in an automatic size, drawn at another
+  // size (the viewer fitted the edited value to its box, which the text
+  // comparison lists as that edit, not as formatting; its box is a tenth
+  // taller, shorter, wider or narrower): its glyphs' ink follows their
+  // size, so their weight is not compared.
+  const stampWord = (doc: DocModel, t: Token) => {
+    const r = t.rects[0];
+    const [x, y] = [r.x + r.w / 2, r.y + r.h / 2];
+    return (doc.runs[t.page] ?? []).some((u) => slantedRun(u) && Math.abs(u.fontSize - t.size) <= 0.5 && u.str.includes(t.text) && x >= u.x && x <= u.x + u.w && y >= u.y && y <= u.y + u.h);
+  };
+  const sameDarkness = (A: Prepared, ka: Rect, B: Prepared, kb: Rect) => {
+    const [u, v] = [ink(A, ka).total, ink(B, kb).total];
+    return Math.abs(u - v) <= 0.1 * Math.max(u, v, 1);
+  };
+  const refitted = (a: Token, b: Token) => {
+    if (!a.autoSize || !b.autoSize) return false;
+    const [u, v] = [a.rects[0], b.rects[0]];
+    return Math.abs(u.h - v.h) > 0.1 * Math.max(u.h, v.h) || Math.abs(u.w - v.w) > 0.1 * Math.max(u.w, v.w);
+  };
   // The words compared, by token index (new side): how to look for a
   // fainter line on each (see below).
   const tried = new Map<number, { a: Token; b: Token; p: number; weak: (added: boolean) => FoundLine | null }>();
@@ -2737,7 +2995,18 @@ function appearanceChanges(
     // again where none was found: a stamp drawn across the word changes the
     // rows that must stay as they were, and a slanted border of its own is
     // no line.
-    const again = !turned && !line && g && g !== 'skip' && (g[0] || g[1]) && !(ca && g[0]) && !(cb && g[1]);
+    // Not where that graphic's colours are the background both versions
+    // show around the word (a header band that changed only at its ends,
+    // the word's white glyphs on it re-sampled after a re-flow): it did not
+    // change at the word.
+    const sharedBg = (c: Cover | null) => {
+      if (!c) return true;
+      const [pa, pb] = pitch(a, b);
+      const [ba, bb] = [ink(A, pa).bg, ink(B, pb).bg];
+      const at = (u: number[], v: number[]) => Math.max(Math.abs(u[0] - v[0]), Math.abs(u[1] - v[1]), Math.abs(u[2] - v[2])) <= 16;
+      return c.colours.every((k) => at(k, ba) && at(k, bb));
+    };
+    const again = !turned && !line && g && g !== 'skip' && (g[0] || g[1]) && !(ca && g[0]) && !(cb && g[1]) && !(sharedBg(g[0]) && sharedBg(g[1]));
     // Behind the word (a fill, a tint), the overlay leaves the glyphs where
     // they were: the word's box is not tried shifted (see addedLine) again.
     if (again) line = lines(ca ?? g[0], cb ?? g[1], g[0]?.behind || g[1]?.behind ? { ...opts, drift: false } : opts);
@@ -2770,16 +3039,64 @@ function appearanceChanges(
       const ia = ink(A, ka);
       const ib = ink(B, kb);
       if (ia.n < 6 || ib.n < 6) continue;
+      const gap = (u: number[], v: number[]) => Math.max(Math.abs(u[0] - v[0]), Math.abs(u[1] - v[1]), Math.abs(u[2] - v[2]));
+      // The background turned from paper to the colour of a graphic that
+      // changed around the word on that side (a panel given a tint, the
+      // word in its middle with nothing else differing next to it): that
+      // graphic, listed of its own. Not a colour of its own (a highlight).
+      const filled = (side: 'old' | 'new', bg: number[], other: number[], r: Rect) => {
+        if (!other.every((v) => v >= 240)) return false;
+        const f = fillAround(side, r);
+        return !!f && gap(f, bg) <= 16;
+      };
+      // A pale background of the word's own on either side (a highlight
+      // drawn within a point or so of the glyphs, inside the text's mask,
+      // where the graphics comparison does not look: #d9d9d9, Office's
+      // light blue #deebf7) tells a change of more than 12 levels (see
+      // ownBackground), where the other version's is not the word's own,
+      // or is a band that goes on to both sides of the word where this one
+      // does not (a highlight in a shaded row; not a row's band re-tinted).
+      // Not where the other version has that colour in the
+      // rows next to the word (stripes of a table re-flowed by a row), nor
+      // where it is the colour of a graphic listed at the word or on its
+      // rows (a band behind the line, a page given a tint that ends at the
+      // line). Elsewhere, the background behind a word that moved can
+      // change by the 40 levels of a pale panel or gradient it lies in.
+      const along = (side: 'old' | 'new', r: Rect, bg: number[]) => {
+        const f = fillAround(side, r, true);
+        return !!f && gap(f, bg) <= 16;
+      };
+      const paleOn = (X: Prepared, kx: Rect, bx: number[], Y: Prepared, ky: Rect, by: number[], side: 'old' | 'new') =>
+        ownBackground(X, kx, bx) &&
+        (!ownBackground(Y, ky, by) || (!sideways(X, kx, bx) && sideways(Y, ky, by))) &&
+        !aroundOther(Y, ky, bx) &&
+        !along(side, kx, bx);
+      const pale = gap(ia.bg, ib.bg) > 12 && (paleOn(A, ka, ia.bg, B, kb, ib.bg, 'old') || paleOn(B, kb, ib.bg, A, ka, ia.bg, 'new'));
       const colour =
         Math.hypot(ia.chroma[0] - ib.chroma[0], ia.chroma[1] - ib.chroma[1], ia.chroma[2] - ib.chroma[2]) > 30 ||
-        Math.max(Math.abs(ia.bg[0] - ib.bg[0]), Math.abs(ia.bg[1] - ib.bg[1]), Math.abs(ia.bg[2] - ib.bg[2])) > 40;
+        ((gap(ia.bg, ib.bg) > 40 || pale) && !filled('old', ia.bg, ib.bg, ka) && !filled('new', ib.bg, ia.bg, kb));
       const change = Math.abs(ia.total - ib.total) / Math.max(ia.total, ib.total, 1);
-      const weight = change > 0.3;
+      const weight = change > 0.3 && !refitted(a, b);
       // The same glyphs drawn heavier (or lighter) at the very same pixels,
       // with nothing else drawn near them: shown even on a single word. Not
-      // on a page turned back, whose glyphs were drawn on another pixel grid.
-      const bold = exact && !colour && change > 0.1 && (ib.total > ia.total ? heavier(A, ka, B, kb) : heavier(B, kb, A, ka));
+      // on a page turned back, whose glyphs were drawn on another pixel grid,
+      // nor where a widget draws the word again in one version only.
+      const bold = exact && !colour && change > 0.1 && !twice(a, b) && (ib.total > ia.total ? heavier(A, ka, B, kb) : heavier(B, kb, A, ka));
       if (colour || weight || bold) hits.push({ a, b, colour, ink: ib, p, bold });
+      // An image or a stamp drawn over the word in a colour of its own, in
+      // both versions alike (not a graphic that changed): a strike or a
+      // colour under its ink is fainter there or mixed with it, and was not
+      // found. Compared in part, unless the word shows the very same pixels
+      // in both versions (see sameInk). Not a word of a stamp written as
+      // text at a slant, over the words under it.
+      else if (
+        (Math.hypot(...ia.chroma) > 8 || Math.hypot(...ib.chroma) > 8) &&
+        !stampWord(result.newDoc, b) &&
+        foreignShare(A, ka, ia.bg) >= 0.1 &&
+        foreignShare(B, kb, ib.bg) >= 0.1 &&
+        !(exact && sameInk(A, a.rects[0], B, b.rects[0]))
+      )
+        notePartly(result, newPage, b);
       continue;
     }
     // Next to an overlay, the weight is measured outside all of its ink
@@ -2798,12 +3115,21 @@ function appearanceChanges(
     const ia = ink(A, ka, sa.hidden, sa.own);
     const ib = ink(B, kb, sb.hidden, sb.own);
     const outside = ta.n >= Math.max(6, 0.5 * ia.n) && tb.n >= Math.max(6, 0.5 * ib.n);
-    let weight = outside && Math.abs(ta.total - tb.total) / Math.max(ta.total, tb.total, 1) > 0.3;
+    let weight = outside && Math.abs(ta.total - tb.total) / Math.max(ta.total, tb.total, 1) > 0.3 && !refitted(a, b);
     // Where every overlay lies behind the glyphs (a fill, a tint), they all
     // show: the weight is measured on all of them, each pixel's darkness
     // against the fill or the paper behind it (a word made bold, or turned
     // grey, in a row that was given a fill).
-    const behindAll = [...oa, ...ob].every((c) => c.clear && (c.behind || c.kept));
+    // Letters drawn on one side only or set at a slant (a watermark, a
+    // stamp written as text) lie behind the glyphs where the glyph cores
+    // under them are as in the other version (see Cover.kept), or where the
+    // page draws them before the word (see lettersBehind): one of their
+    // letters covers half the word's box whether it lies in front or
+    // behind, and a translucent watermark in front of the words lightens
+    // their cores, which against its colour would pass for a lighter weight.
+    const inFront = (c: Cover) =>
+      c === ca || c === t?.[0] ? !lettersBehind(result.oldDoc, a) : c === cb || c === t?.[1] ? !lettersBehind(result.newDoc, b) : false;
+    const behindAll = [...oa, ...ob].every((c) => c.clear && (c.kept || (c.behind && !inFront(c))));
     let heavy = false;
     if (!outside && behindAll) {
       const behind = (own: Cover[]) => {
@@ -2817,7 +3143,7 @@ function appearanceChanges(
       const wa = glyphWeight(A, ka, sa.hidden, ba);
       const wb = glyphWeight(B, kb, sb.hidden, bb);
       const change = Math.abs(wa.total - wb.total) / Math.max(wa.total, wb.total, 1);
-      weight = wa.n >= 6 && wb.n >= 6 && change > 0.3;
+      weight = wa.n >= 6 && wb.n >= 6 && change > 0.3 && !refitted(a, b);
       // The same glyphs drawn heavier at the same pixels (see heavier), each
       // pixel's darkness against the fill behind it: shown on a single word
       // too, as without a fill (a status word made bold in a row that was
@@ -2825,7 +3151,7 @@ function appearanceChanges(
       // half the word's box or more): text drawn over the word (a stamp, a
       // watermark's letters, whose glyph cores are kept) lies over part of
       // its glyphs, and where it moved, the glyphs there look heavier.
-      heavy = exact && !ca && !cb && !t?.[0] && !t?.[1] && [...oa, ...ob].every((c) => c.behind) && wa.n >= 6 && wb.n >= 6 && change > 0.1 && (wb.total > wa.total ? heavier(A, ka, B, kb, ba, bb) : heavier(B, kb, A, ka, bb, ba));
+      heavy = exact && !ca && !cb && !t?.[0] && !t?.[1] && [...oa, ...ob].every((c) => c.behind) && wa.n >= 6 && wb.n >= 6 && change > 0.1 && !twice(a, b) && (wb.total > wa.total ? heavier(A, ka, B, kb, ba, bb) : heavier(B, kb, A, ka, bb, ba));
     }
     const shift = [ib.chroma[0] - ia.chroma[0], ib.chroma[1] - ia.chroma[1], ib.chroma[2] - ia.chroma[2]];
     let colour = ia.n >= 6 && ib.n >= 6 && beyondOverlays(shift, oa, ia.touched, ob, ib.touched) > 30;
@@ -2835,22 +3161,43 @@ function appearanceChanges(
     // The word's background, compared as without an overlay, is the
     // overlay's where it is the colour of one that reaches out to the edges
     // of the word's surroundings on that side (a fill, a tint, a stamp,
-    // listed as a graphic of its own), or the paper. One that lies around
-    // the word only is not (a highlight, put on a running header, whose
-    // graphics are not listed, or inside a panel whose tint changed too).
+    // listed as a graphic of its own), laid over what the other version has
+    // there (a translucent stamp over a shaded row), or the paper. One that
+    // lies around the word only is not (a highlight, put on a running
+    // header, whose graphics are not listed, or inside a panel whose tint
+    // changed too). Its colour must be the overlay's within the tolerance
+    // the overlay was found with, and no other colour of the side's
+    // overlays may lie nearer: a highlight in a hue close to the tint of a
+    // panel or a row added with it (#bdd7ee on #deebf7) is not that tint.
     if (!colour) {
       const [fa, fb] = [ink(A, ka), ink(B, kb)];
-      const near = (u: number[], v: number[]) => Math.max(Math.abs(u[0] - v[0]), Math.abs(u[1] - v[1]), Math.abs(u[2] - v[2])) <= 40;
-      const owned = (bg: number[], other: number[], own: Cover[]) =>
-        bg.every((v) => v >= 240) || near(bg, other) || own.some((c) => c.wide.some((k) => near(k, bg)));
-      colour = !owned(fa.bg, fb.bg, oa) || !owned(fb.bg, fa.bg, ob);
+      const gap = (u: number[], v: number[]) => Math.max(Math.abs(u[0] - v[0]), Math.abs(u[1] - v[1]), Math.abs(u[2] - v[2]));
+      const px = (u: number[]) => Uint8Array.from(u, (v) => Math.round(v));
+      const ownedBy = (bg: number[], other: number[], own: Cover[]) => {
+        const wide = own.flatMap((c) => c.wide);
+        const rest = own.flatMap((c) => c.colours).filter((x) => !wide.some((k) => gap(k.colour, x) === 0));
+        return wide.some((k) => laidOver(px(bg), 0, px(other), 0, k.colour, Math.max(k.tol, 8)) && rest.every((x) => gap(x, bg) >= gap(k.colour, bg)));
+      };
+      const owned = (bg: number[], other: number[], own: Cover[]) => bg.every((v) => v >= 240) || gap(bg, other) <= 40 || ownedBy(bg, other, own);
+      // An opaque overlay over the glyphs on one side, laid over what the
+      // other side has there, accounts for both backgrounds (a watermark's
+      // letter drawn over a header band both versions shade): that side's
+      // is the overlay's, the other's what it hides. (Not one behind the
+      // glyphs, a tint: it hides no other background.)
+      const front = (own: Cover[]) => own.filter((c) => !c.clear);
+      colour = !(ownedBy(fb.bg, fa.bg, front(ob)) || ownedBy(fa.bg, fb.bg, front(oa)) || (owned(fa.bg, fb.bg, oa) && owned(fb.bg, fa.bg, ob)));
     }
     const bold = heavy && !colour;
     if (colour || weight || bold) hits.push({ a, b, colour, ink: ib, p, bold });
     // Most of its glyphs lie in the overlay's states (its weight was not
     // judged), too few are left to tell their colour, or its change of
-    // colour was put down to the overlay: compared in part.
-    else if (!(outside || behindAll) || ia.n < 6 || ib.n < 6 || putDown) notePartly(result, newPage, b);
+    // colour was put down to the overlay: compared in part. Not where every
+    // overlay is a graphic that changed next to the word (no text drawn
+    // over it) and the word's box as a whole is as dark in both versions,
+    // within a tenth: what changed did not reach into the box, and its
+    // weight is the same (a table's row rules and stripes moved a pixel or
+    // two by a cell padding, grey like the glyphs' anti-aliased edges).
+    else if ((!(outside || behindAll) && !(!ca && !cb && !t?.[0] && !t?.[1] && sameDarkness(A, ka, B, kb))) || ia.n < 6 || ib.n < 6 || putDown) notePartly(result, newPage, b);
   }
   // A line found through or under a word goes on at the same height across
   // the next words of the line where it is fainter there (a tracked
@@ -3064,8 +3411,8 @@ interface Cover {
   behind: boolean;
   /** The glyphs' cores under the overlay (if any) are as in the other version: it lies behind them (a fill, a tint), not over them. */
   kept: boolean;
-  /** Its colours whose ink reaches out to the edges of the word's surroundings (a fill, a tint, a stamp), not those around the word only or inside another of its colours (a highlight, also in a tinted panel); all of them for a watermark's letters (`beyond` false). */
-  wide: number[][];
+  /** Its colours whose ink reaches out to the edges of the word's surroundings (a fill, a tint, a stamp), not those around the word only or inside another of its colours (a highlight, also in a tinted panel); all of them for a watermark's letters (`beyond` false). Each with how far a pixel of it may be from it (see overlayColours). */
+  wide: { colour: number[]; tol: number }[];
   /** Much of what differs next to the word is neither this overlay's ink nor the other side's (`by`, the same word's cover there). */
   unexplained: (by: Cover) => boolean;
 }
@@ -3427,11 +3774,14 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
     }
   // Which of its colours reach the edges of the word's surroundings (a
   // fill, a tint, a stamp), and do not lie inside another of them, which
-  // goes on above and below them (a highlight in a tinted panel).
+  // goes on above and below them (a highlight in a tinted panel) for a
+  // point and a half or more: not a frame's stroke (a form field's border
+  // around its fill).
   let rim = 0;
   const rimInk = inks.map(() => 0);
   const top = inks.map(() => h);
   const bottom = inks.map(() => -1);
+  const rowsOf = inks.map(() => new Uint8Array(h));
   for (let k = 0; k < n; k++) {
     if (state[k] !== INK) continue;
     const i = k % w;
@@ -3441,12 +3791,19 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
     if (c < 0) continue;
     top[c] = Math.min(top[c], j);
     bottom[c] = Math.max(bottom[c], j);
+    rowsOf[c][j] = 1;
     if (i === 0 || j === 0 || i === w - 1 || j === h - 1) rimInk[c]++;
   }
   for (let k = 0; k < n; k++) if (k % w === 0 || k < w || k % w === w - 1 || k >= n - w) rim++;
-  const inside = (c: number) => inks.some((_, o) => o !== c && top[o] < top[c] && bottom[o] > bottom[c]);
+  const deep = Math.max(2, Math.round(1.5 * sx));
+  const goesOn = (o: number, from: number, to: number) => {
+    let rows = 0;
+    for (let j = Math.max(0, from); j < Math.min(h, to); j++) rows += rowsOf[o][j];
+    return rows >= deep;
+  };
+  const inside = (c: number) => inks.some((_, o) => o !== c && top[o] < top[c] && bottom[o] > bottom[c] && goesOn(o, 0, top[c]) && goesOn(o, bottom[c] + 1, h));
   return {
-    wide: inks.filter((_, c) => !beyond || (rimInk[c] > 0.02 * rim && !inside(c))).map((c) => c.colour),
+    wide: inks.filter((_, c) => !beyond || (rimInk[c] > 0.02 * rim && !inside(c))),
     behind: boxed > 0 && inked >= 0.5 * boxed,
     kept: kept >= 0.8 * cores,
     at,
@@ -4028,6 +4385,43 @@ function wordAngle(doc: DocModel, t: Token, of: (run: TextRun) => boolean = () =
 }
 
 /**
+ * Whether the letters of text laid over a word (a watermark set at a slant
+ * whose band crosses the word's box, or a stamp written in a type half as
+ * large again whose box holds its centre) all come before the word's own run
+ * in the order the page draws its text (PDF.js reads it in that order): its
+ * glyphs are drawn over them. False where no such letters lie there, or the
+ * word's run is not known (a form field's value, whose runs are not in that
+ * order).
+ */
+function lettersBehind(doc: DocModel, t: Token): boolean {
+  if (t.field) return false;
+  const runs = doc.runs[t.page] ?? [];
+  const r = t.rects[0];
+  const x = r.x + r.w / 2;
+  const y = r.y + r.h / 2;
+  const holds = (u: TextRun) => x >= u.x - 0.5 && x <= u.x + u.w + 0.5 && y >= u.y - 0.5 && y <= u.y + u.h + 0.5;
+  const big = (u: TextRun) => u.fontSize > 1.5 * t.size;
+  let own = -1;
+  for (let k = 0; k < runs.length; k++) {
+    const u = runs[k];
+    if (!u.str.trim() || slantedRun(u) || big(u) || !holds(u)) continue;
+    if (own < 0 || u.w * u.h < runs[own].w * runs[own].h) own = k;
+  }
+  if (own < 0) return false;
+  const points: [number, number][] = [[x, y], [r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]];
+  let any = false;
+  for (let k = 0; k < runs.length; k++) {
+    const u = runs[k];
+    if (k === own || !u.str.trim()) continue;
+    const band = slantedRun(u) ? slantBand(u, 0) : null;
+    if (band ? !points.some(([px, py]) => band.inside(px, py)) : !(big(u) && holds(u))) continue;
+    if (k > own) return false;
+    any = true;
+  }
+  return any;
+}
+
+/**
  * The words matched on the pair turned by a quarter or a half turn, but no
  * turn maps one page onto the other (see pageTurn): the page size did not
  * turn with them, and they do not fit one. The graphics cannot be laid over
@@ -4379,12 +4773,39 @@ function compareAligned(
       const i = Math.floor(y / CELL) * d.cols + Math.floor(x / CELL);
       return d.cells[i] >= 3;
     };
-    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, slant, !options.turned, graphicAt, graphicIn, differs));
+    // The colour of such a region that takes in a place, from its pixels
+    // outside the text's mask, where 60 % of them or more are of it.
+    const fillAround = (side: 'old' | 'new', at: Rect, along = false): number[] | null => {
+      const P = side === 'old' ? A : B;
+      const s = P.r.scale;
+      const reach = expand(at, 0.15 * at.h + 3);
+      const rows = (q: Rect) => Math.min(q.y + q.h, at.y + at.h) - Math.max(q.y, at.y) >= 0.5 * at.h;
+      for (const q of side === 'old' ? oldRects : newRects) {
+        if (coveredShare(at, [q]) < 0.9 && !(along && (intersects(q, reach) || rows(q)))) continue;
+        const x0 = Math.max(0, Math.floor(q.x * s));
+        const y0 = Math.max(0, Math.floor(q.y * s));
+        const x1 = Math.min(P.r.width, Math.ceil((q.x + q.w) * s));
+        const y1 = Math.min(P.r.height, Math.ceil((q.y + q.h) * s));
+        const step = Math.max(1, Math.round(Math.sqrt(((x1 - x0) * (y1 - y0)) / 4000)));
+        const px: number[] = [];
+        for (let y = y0; y < y1; y += step) for (let x = x0; x < x1; x += step) if (!P.mask[y * P.r.width + x]) px.push((y * P.r.width + x) * 4);
+        if (px.length < 20) continue;
+        const d = P.r.data;
+        const med = [0, 1, 2].map((c) => px.map((p) => d[p + c]).sort((u, v) => u - v)[px.length >> 1]);
+        const alike = px.filter((p) => [0, 1, 2].every((c) => Math.abs(d[p + c] - med[c]) <= THRESH)).length;
+        if (alike >= 0.6 * px.length) return med;
+      }
+      return null;
+    };
+    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, slant, !options.turned, graphicAt, graphicIn, differs, fillAround));
     // Words under the letters of a watermark that both versions have at the
     // same place relative to them (a twin, see slant), dark enough to hide
     // part of a glyph: its ink mixes with their glyphs in both, so a strike
     // drawn under it is fainter and a colour is diluted. Where nothing was
-    // found on them, they were compared in part (see notePartly).
+    // found on them, they were compared in part (see notePartly), unless
+    // they show the very same pixels in both versions (see sameInk): then
+    // nothing was struck, underlined or recoloured under it (a document
+    // compared with an unchanged copy, an edit elsewhere on the page).
     const twinNew = slantNew.filter((f) => f.twin && 255 - Math.min(...f.colour) >= 40);
     if (twinNew.length) {
       const shown = appearance.flatMap((c) => c.new.rects.filter((q) => q.page === newPage).map((q) => q.rect));
@@ -4394,6 +4815,7 @@ function compareAligned(
         if (a.page !== oldPage || b.page !== newPage || a.kind === 'punct' || a.rects.length !== 1 || b.rects.length !== 1 || inFormat(b)) continue;
         const lb = twinNew.filter((f) => !moved(f.run, f.twin, b, a));
         if (!lb.length || covered(b.rects[0], over(b.rects[0], lb)) < OVERLAY_SHARE || shown.some((r) => intersects(r, b.rects[0]))) continue;
+        if (!options.turned && sameInk(A, a.rects[0], B, b.rects[0])) continue;
         notePartly(result, newPage, b);
       }
     }
@@ -4404,7 +4826,7 @@ function compareAligned(
     if (result.options.ignoreFurniture && result.oldToNew[oldPage] === newPage) {
       const pairs = furniturePairs(result, oldPage, newPage);
       if (pairs.length)
-        for (const c of appearanceChanges({ ...result, matches: Int32Array.from(pairs) }, oldPage, newPage, A, B, () => false, near, () => false, cover, slant, !options.turned, graphicAt, graphicIn, differs)) {
+        for (const c of appearanceChanges({ ...result, matches: Int32Array.from(pairs) }, oldPage, newPage, A, B, () => false, near, () => false, cover, slant, !options.turned, graphicAt, graphicIn, differs, fillAround)) {
           furnitureMarked.add(c);
           furniture.push(c);
         }
@@ -4515,12 +4937,16 @@ function compareAligned(
     if (!spots.length) return false;
     const here = fillOf(S, r, (k) => k !== GLYPH && k !== PAD);
     if (!here) return false;
-    const m = spots.find((m) => {
-      // Around the words, the fill is the most common colour; their
-      // anti-aliased edges reach into it.
-      const there = fillOf(O, expand(m, 3), (k) => k !== GLYPH, 0.5);
-      return !!there && there.every((v, k) => Math.abs(v - here[k]) <= THRESH);
-    });
+    const alike = (there: number[] | null) => !!there && there.every((v, k) => Math.abs(v - here[k]) <= THRESH);
+    const m = spots.find(
+      (m) =>
+        // Around the words, the fill is the most common colour; their
+        // anti-aliased edges reach into it. In a filled form field whose
+        // border runs close above and below the value, the border and the
+        // paper outside it can outnumber the fill there: then the padding
+        // right around the glyphs (where no rule runs) must show the fill.
+        alike(fillOf(O, expand(m, 3), (k) => k !== GLYPH, 0.5)) || alike(fillOf(O, expand(m, 3), (k) => k === PAD, 0.5)),
+    );
     if (!m) return false;
     // Words of this page's own in the region (a badge's "URGENT" deleted
     // there): the fill must be what lies behind them too.

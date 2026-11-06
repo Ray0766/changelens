@@ -50,8 +50,11 @@ Exit codes:
   2  Wrong arguments, a PDF could not be read, or an output file could not be
      written (or would overwrite an input).
   3  With --fail-on-change: no differences in what was compared, but some of it
-     was not compared: pages without a text layer, unreadable characters, or
-     graphics (--no-visual, or @napi-rs/canvas missing). The notes say what.
+     was not compared: pages without a text layer, unreadable characters, form
+     field values that could not be read as text, pages whose pairing is
+     uncertain, words under or next to a stamp, watermark or fill that were
+     compared only in part, or graphics (--no-visual, @napi-rs/canvas
+     missing, or a page too large to render). The notes say what.
 
 Examples:
   changelens contract-v1.pdf contract-v2.pdf -o review.html
