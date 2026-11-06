@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openPdf } from '../src/node/pdf.ts';
 import { renderPage, canRender } from '../src/node/render.ts';
-import { extractText } from '../src/pdf/extract.ts';
+import { extractText, pageAnnotations, type AnnotationData } from '../src/pdf/extract.ts';
 import { buildDocModel } from '../src/core/tokenize.ts';
 import { compareDocs } from '../src/core/compare.ts';
 import { addVisualChanges } from '../src/core/pipeline.ts';
@@ -99,4 +99,24 @@ test('V3-markup refix N3: a stamp is named alone only where the change lies with
   assert.deepEqual(list(await probe('note-before', 'note-changed')), ['Note changed (annotation): “Draft for internal review, SYNTHETIC” → “Reviewed 2 Nov 2026: plan accepted, SYN…”']);
   // Removed: from the version that has it.
   assert.deepEqual(list(await probe('comment', 'hl')), ['Stamp removed (annotation): “APPROVED”', 'Comment removed (annotation): “Ask for the calibration certificates. SYNTHETIC”']);
+});
+
+test('V3-markup refix N6: quadrilaterals off the page or far larger than it are not read as marks', () => {
+  const vt = [1, 0, 0, -1, 0, 842];
+  const page = { width: 595, height: 842 };
+  const word = { subtype: 'StrikeOut', annotationFlags: 4, rect: [50, 700, 100, 712], quadPoints: [50, 712, 100, 712, 50, 700, 100, 700], color: [255, 0, 0] };
+  const bad: AnnotationData[] = [
+    // ±1e30 (pypdf, no appearance): PDF.js draws the line out of sight.
+    { subtype: 'StrikeOut', annotationFlags: 4, rect: [-1e30, -1e30, 1e30, 1e30], quadPoints: [-1e30, 1e30, 1e30, 1e30, -1e30, -1e30, 1e30, -1e30], color: [255, 0, 0] },
+    // Off the page.
+    { subtype: 'Highlight', annotationFlags: 4, rect: [5000, 5000, 5100, 5010], quadPoints: [5000, 5010, 5100, 5010, 5000, 5000, 5100, 5000], color: [255, 255, 0] },
+  ];
+  const a = pageAnnotations([...bad, word], vt, page)!;
+  assert.deepEqual(a.counts, { StrikeOut: 2, Highlight: 1 });
+  assert.deepEqual(
+    a.markup.map((m) => m.quads),
+    [[{ x: 50, y: 130, w: 50, h: 12 }]],
+  );
+  // Before: every word of the page "Struck through (annotation)".
+  assert.equal(pageAnnotations(bad, vt, page)!.markup.length, 0);
 });

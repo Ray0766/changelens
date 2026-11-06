@@ -115,7 +115,7 @@ export async function extractPage(page: PDFPageProxy, index: number, formFonts: 
   // The other annotations it shows: text markup, stamps, notes (see pageAnnotations).
   let shown: PageAnnotations | null = null;
   try {
-    shown = pageAnnotations(annotations, viewport.transform);
+    shown = pageAnnotations(annotations, viewport.transform, { width: viewport.width, height: viewport.height });
     if (shown) await readStampTexts(page, annotations, shown);
   } catch {
     shown = null;
@@ -318,10 +318,14 @@ function boxOf(vt: number[], xs: number[], ys: number[]): Rect | null {
  * free-text notes and comments with their text. Annotations flagged
  * Hidden are not drawn, and are left out. A markup annotation is drawn
  * whether or not it has an appearance stream (PDF.js makes one from its
- * QuadPoints and colour), so it is read either way. Null when there is
- * none.
+ * QuadPoints and colour), so it is read either way. A quadrilateral off
+ * the page, or more than one and a half times its width or height (none
+ * marks words: a viewer draws it out of sight), is left out; `page`: the
+ * page's size in page space, where known. Null when there is none.
  */
-export function pageAnnotations(annotations: AnnotationData[], vt: number[]): PageAnnotations | null {
+export function pageAnnotations(annotations: AnnotationData[], vt: number[], page?: { width: number; height: number }): PageAnnotations | null {
+  const onPage = (b: Rect) =>
+    !page || (b.w <= 1.5 * page.width && b.h <= 1.5 * page.height && b.x < page.width && b.y < page.height && b.x + b.w > 0 && b.y + b.h > 0);
   const counts: Record<string, number> = {};
   const markup: Markup[] = [];
   const notes: AnnotationNote[] = [];
@@ -346,7 +350,7 @@ export function pageAnnotations(annotations: AnnotationData[], vt: number[]): Pa
         for (let i = 0; i + 8 <= q.length; i += 8) {
           // The corners in any order: their bounding box.
           const b = boxOf(vt, [q[i], q[i + 2], q[i + 4], q[i + 6]].map(Number), [q[i + 1], q[i + 3], q[i + 5], q[i + 7]].map(Number));
-          if (b) boxes.push(b);
+          if (b && onPage(b)) boxes.push(b);
         }
       if (!boxes.length || !rect) continue;
       if (markup.length >= MAX_MARKUP || quads + boxes.length > MAX_QUADS) {
