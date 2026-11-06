@@ -15,6 +15,7 @@ holdout5-i-rechnung-eur: a right-aligned "Pos." column 10 mm wide, so that fpdf2
   probe9-T2-leftcol-before / -after    the Pos. column left-aligned; a row inserted as Pos. 2
   probe9-T2-qty-before / -after        a first column headed "Menge" (quantities 1, 2, 3 …); a row
                                        inserted on top and every quantity raised by one (N09's case)
+  probe9-T2-stueck-before / -after     the same, headed "Stück"
   probe9-T2-days-before / -after       a first column headed "Tag" (1, 2, 3 …); every day moved on by
                                        one, nothing inserted
   probe9-T2-justified-before / -after  single lines that start with a count (1, 2, 3 …), set word by
@@ -196,6 +197,12 @@ def main(out):
     for name, rows in (("qty-before", qrows(q, 1)), ("qty-after", qrows([INSERTED] + q, 1))):
         pdf = new_doc()
         table(pdf, qcols, rows)
+        pdf.output(p(name))
+    # The same column headed "Stück".
+    scols = [("Stück",) + qcols[0][1:]] + qcols[1:]
+    for name, rows in (("stueck-before", qrows(q, 1)), ("stueck-after", qrows([INSERTED] + q, 1))):
+        pdf = new_doc()
+        table(pdf, scols, rows)
         pdf.output(p(name))
     # A first column of days headed "Tag": every day moved on by one, nothing inserted.
     dcols = [("Tag", 10, "R"), ("Art.-Nr.", 18, "L"), ("Lieferung", 72, "L"), ("Einh.", 15, "L"), ("Betrag €", 25, "R")]

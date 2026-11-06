@@ -216,3 +216,11 @@ test('T2: the rows renumbered after a row number typed by hand get no percentage
   assert.deepEqual(listed(r), ['Deleted “7 KX-4400 Klemmleiste 12-polig 6 5,75 34,50”', 'Number changed: 9 → 8', 'Number changed: 10 → 9', 'Number changed: 222,65 → 188,15 (-15%)']);
   assert.equal(r.ignored.renumbered, 0);
 });
+
+test('T2: a first column headed "Stück" is a column of quantities (control)', async () => {
+  // As the "Menge" control: a row added on top and every quantity raised by one; all listed, none counted.
+  const r = await probe('stueck-before', 'stueck-after');
+  const quantities = listed(r).filter((d) => /^Number changed: \d+ → \d+ /.test(d));
+  assert.deepEqual(quantities, ['Number changed: 2 → 3 (+50%)', 'Number changed: 3 → 4 (+33%)', 'Number changed: 4 → 5 (+25%)', 'Number changed: 5 → 6 (+20%)', 'Number changed: 6 → 7 (+17%)', 'Number changed: 7 → 8 (+14%)', 'Number changed: 8 → 9 (+13%)']);
+  assert.equal(r.ignored.renumbered, 0);
+});

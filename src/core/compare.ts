@@ -3327,8 +3327,8 @@ function numberedRun(s: Sibling, continued = false): Sibling[] | null {
 /** The label a run (see numberedRun) of s starts at. */
 const runStart = (s: Sibling, run: Sibling[]) => lastLevel(run[0] ?? s);
 
-/** Header words of a column of quantities ("Qty", "Menge", "数量"): its figures are amounts, never row numbers. */
-const QUANTITY_HEADER = /^(?:qty|qtys|quantity|quantities|menge|anzahl|stk|pcs|units?|qté|quantité|cantidad|cant|quantità|aantal|数量|件数|台数)$/i;
+/** Header words of a column of quantities ("Qty", "Menge", "Bestellmenge", "Stück", "Anz.", "数量"): its figures are amounts, never row numbers. */
+const QUANTITY_HEADER = /^(?:qty|qtys|quantity|quantities|\p{L}*menge|anzahl|anz|stk|stck|st|stück(?:zahl)?|stueck(?:zahl)?|pcs|units?|qté|quantité|cantidad|cant|quantità|aantal|数量|件数|台数)$/iu;
 
 /** The header cell above a run's first row number (the nearest line above that starts in its column) names a column of quantities. */
 const quantityColumn = (doc: DocModel, first: Sibling) => quantityHeaderAbove(doc, first.tok);
@@ -3346,7 +3346,7 @@ function quantityHeaderAbove(doc: DocModel, k: number): boolean {
     // Its first word (CJK characters are tokens of their own: 数|量).
     let e = l.start + 1;
     while (e < l.end && !doc.tokens[e].spaceBefore && doc.tokens[e].kind !== 'punct') e++;
-    return QUANTITY_HEADER.test(doc.tokens.slice(l.start, e).map((x) => x.text).join(''));
+    return QUANTITY_HEADER.test(doc.tokens.slice(l.start, e).map((x) => x.text).join('').normalize('NFKC'));
   }
   return false;
 }
