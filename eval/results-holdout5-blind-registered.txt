@@ -1,0 +1,60 @@
+Rescored the items recorded in eval/results-holdout5-blind-items.json.
+
+| Case | Truth | ChangeLens found / located / extra (separate) |
+|---|---|---|
+| holdout5-h-annual-technical-report | 9 | 9 / 9 / 12 (9) |
+| holdout5-h-bilingual-sla | 9 | 9 / 9 / 0 (9) |
+| holdout5-h-dienstleistungsvertrag | 9 | 5 / 5 / 2 (5) |
+| holdout5-h-pruefbericht | 8 | 6 / 6 / 4 (6) |
+| holdout5-h-rapport-annuel | 8 | 8 / 8 / 0 (8) |
+| holdout5-h-services-agreement | 8 | 7 / 7 / 2 (7) |
+| holdout5-i-nouhinsho-jpy | 8 | 8 / 8 / 0 (8) |
+| holdout5-i-payslip-cny | 8 | 7 / 7 / 1 (7) |
+| holdout5-i-pricelist-gbp | 8 | 7 / 7 / 2 (7) |
+| holdout5-i-rechnung-eur | 8 | 8 / 8 / 32 (8) |
+| holdout5-i-releve-chf | 8 | 7 / 7 / 0 (7) |
+| holdout5-i-statement-gbp | 8 | 7 / 7 / 1 (7) |
+| holdout5-j-audit-annotations | 8 | 4 / 4 / 5 (4) |
+| holdout5-j-datasheet-overlay | 8 | 1 / 1 / 5 (1) |
+| holdout5-j-handbook-pages | 7 | 4 / 4 / 3 (3) |
+| holdout5-j-invoice-incremental | 7 | 5 / 5 / 3 (5) |
+| holdout5-j-lease-redact | 7 | 3 / 3 / 5 (3) |
+| holdout5-j-zh-quote-htmlbox | 8 | 6 / 6 / 2 (6) |
+| **Total** | 144 | **111 / 111 / 79 (110)** |
+
+Rules: snippets with context (default); carets at a page boundary count for both pages (default); rules decided after round 4 (one-sided regions, part of a replace, overflow by region, header/footer lines) off (--registered-rules). Blind runs: rounds 1–3 used --strict-snippets --strict-carets, round 4 --registered-rules.
+ChangeLens misses:
+  holdout5-h-dienstleistungsvertrag #6 format "Änderungen und Ergänzungen dieses Vertrages bedürfen der Schriftform." → "Änderungen und Ergänzungen dieses Vertrages bedürfen der Schriftform.": not found
+  holdout5-h-dienstleistungsvertrag #7 furniture "Stand 12.02.2026" → "Stand 03.03.2026": not found
+  holdout5-h-dienstleistungsvertrag #8 furniture "Stand 12.02.2026" → "Stand 03.03.2026": not found
+  holdout5-h-dienstleistungsvertrag #9 furniture "Stand 12.02.2026" → "Stand 03.03.2026": not found
+  holdout5-h-pruefbericht #4 replace "0,007 i. O." → "0,007 n. i. O.": not found
+  holdout5-h-pruefbericht #7 replace "Alle geprüften Merkmale liegen innerhalb der zulässigen Toleranzen." → "Das Merkmal M7 liegt außerhalb der zulässigen Toleranz.": not found
+  holdout5-h-services-agreement #8 replace "affiliates without the Customer’s consent" → "affiliates only with the Customer’s prior written consent": not found
+  holdout5-i-payslip-cny #8 replace "人民币壹万柒仟陆佰叁拾柒元肆角整" → "人民币壹万柒仟柒佰叁拾柒元肆角整": not found
+  holdout5-i-pricelist-gbp #5 format "Anvil loppers 70 cm, ratchet" → "Anvil loppers 70 cm, ratchet": not found
+  holdout5-i-releve-chf #4 position "85.40" → "85.40": not found
+  holdout5-i-statement-gbp #3 number "150.00 DR" → "150.00 CR": not found
+  holdout5-j-audit-annotations #1 number "87" → "82": not found
+  holdout5-j-audit-annotations #4 format "The finding is considered minor." → "The finding is considered minor.": not found
+  holdout5-j-audit-annotations #6 format "within 30 days of receiving this report" → "within 30 days of receiving this report": not found
+  holdout5-j-audit-annotations #7 replace "October 2027" → "April": not found
+  holdout5-j-datasheet-overlay #1 furniture "Rev. B" → "Rev. C": not found
+  holdout5-j-datasheet-overlay #2 furniture "Rev. B" → "Rev. C": not found
+  holdout5-j-datasheet-overlay #3 position "Document no. DS-UFM80-004" → "Document no. DS-UFM80-004": not found
+  holdout5-j-datasheet-overlay #4 number "−20" → "-10": not found
+  holdout5-j-datasheet-overlay #6 format "3 Electrical connection" → "3 Electrical connection": not found
+  holdout5-j-datasheet-overlay #7 delete "Use shielded twisted-pair cable and connect the shield": not found
+  holdout5-j-datasheet-overlay #8 insert → "2.4 or later is required for the low": not found
+  holdout5-j-handbook-pages #1 delete "Until the tablet roll-out is complete": not found
+  holdout5-j-handbook-pages #4 insert → "5A Lone working": not a separate item
+  holdout5-j-handbook-pages #6 number "48.00" → "52.00": not found
+  holdout5-j-handbook-pages #7 number "0.32" → "0.35": not found
+  holdout5-j-invoice-incremental #2 number "1,240.00" → "1,420.00": not found
+  holdout5-j-invoice-incremental #3 replace "2045 1189 03" → "9932 0457 18": not found
+  holdout5-j-lease-redact #1 number "1,850.00" → "1,975.00": not found
+  holdout5-j-lease-redact #2 number "1 March 2027" → "15 March 2027": not found
+  holdout5-j-lease-redact #3 replace "Consumer" → "Retail": not found
+  holdout5-j-lease-redact #5 replace "March to May 2027" → "April to June 2027": not found
+  holdout5-j-zh-quote-htmlbox #1 number "有效期至：2026年11月30日" → "有效期至：2026年12月31日": not found
+  holdout5-j-zh-quote-htmlbox #3 number "4 小时内派工程师" → "6 小时内派工程师": not found
