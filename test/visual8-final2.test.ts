@@ -108,3 +108,15 @@ test('V-V2: a word struck or recoloured under an image stamp both versions draw 
   const by = await run('probe8-V-V2-a150.pdf', 'probe8-V-V2-a150-strike-by.pdf');
   assert.deepEqual(list(by.changes), ['Struck through: “by”']);
 });
+
+test('V-V5: rows re-spaced by a cell padding, with nothing else changed, are not counted as compared in part', { skip }, async () => {
+  // SYNTHETIC (Chromium, the verifier's generator): an invoice table with
+  // zebra rows and grey row rules, cell padding 4 px → 6 px. Before: "Seal",
+  // "31.00" and "217.00" were counted (the rules moved a pixel next to
+  // them, grey like the glyphs' edges), and --fail-on-change exited with 3.
+  const pad = await run('probe8-V-V5-before.pdf', 'probe8-V-V5-pad6.pdf');
+  assert.deepEqual([list(pad.changes), counted(pad)], [[], []]);
+  // Control: "Gasket set" struck through in the table re-spaced by 5 px.
+  const strike = await run('probe8-V-V5-before.pdf', 'probe8-V-V5-pad5-strike.pdf');
+  assert.deepEqual(list(strike.changes), ['Struck through: “Gasket set”']);
+});

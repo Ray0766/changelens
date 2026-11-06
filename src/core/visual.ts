@@ -2924,6 +2924,10 @@ function appearanceChanges(
     const [x, y] = [r.x + r.w / 2, r.y + r.h / 2];
     return (doc.runs[t.page] ?? []).some((u) => slantedRun(u) && Math.abs(u.fontSize - t.size) <= 0.5 && u.str.includes(t.text) && x >= u.x && x <= u.x + u.w && y >= u.y && y <= u.y + u.h);
   };
+  const sameDarkness = (A: Prepared, ka: Rect, B: Prepared, kb: Rect) => {
+    const [u, v] = [ink(A, ka).total, ink(B, kb).total];
+    return Math.abs(u - v) <= 0.1 * Math.max(u, v, 1);
+  };
   const refitted = (a: Token, b: Token) => {
     if (!a.autoSize || !b.autoSize) return false;
     const [u, v] = [a.rects[0], b.rects[0]];
@@ -3187,8 +3191,13 @@ function appearanceChanges(
     if (colour || weight || bold) hits.push({ a, b, colour, ink: ib, p, bold });
     // Most of its glyphs lie in the overlay's states (its weight was not
     // judged), too few are left to tell their colour, or its change of
-    // colour was put down to the overlay: compared in part.
-    else if (!(outside || behindAll) || ia.n < 6 || ib.n < 6 || putDown) notePartly(result, newPage, b);
+    // colour was put down to the overlay: compared in part. Not where every
+    // overlay is a graphic that changed next to the word (no text drawn
+    // over it) and the word's box as a whole is as dark in both versions,
+    // within a tenth: what changed did not reach into the box, and its
+    // weight is the same (a table's row rules and stripes moved a pixel or
+    // two by a cell padding, grey like the glyphs' anti-aliased edges).
+    else if ((!(outside || behindAll) && !(!ca && !cb && !t?.[0] && !t?.[1] && sameDarkness(A, ka, B, kb))) || ia.n < 6 || ib.n < 6 || putDown) notePartly(result, newPage, b);
   }
   // A line found through or under a word goes on at the same height across
   // the next words of the line where it is fainter there (a tracked
