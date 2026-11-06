@@ -3249,7 +3249,13 @@ function appearanceChanges(
       if (!t || t.b.line !== h.b.line || byToken.get(t.b.i)?.line) continue;
       const f = t.weak(l.added);
       if (!f || f.line !== l.line || Math.abs(f.rows[0] + f.rows[1] - l.rows[0] - l.rows[1]) > 2) continue;
-      const next: Hit = { a: t.a, b: t.b, colour: false, line: { line: f.line, added: l.added, rows: f.rows }, p: t.p };
+      // Not onto a word where the line found is the rule that closes a
+      // table fragment at a moved page break (see closingRules), which runs
+      // under every word of the row: it is no line of the word, and what
+      // was found on the word (a colour) stays as it is.
+      const found = { line: f.line, added: l.added, rows: f.rows };
+      if (closes(t.a, t.b, found)) continue;
+      const next: Hit = { a: t.a, b: t.b, colour: false, line: found, p: t.p };
       const old = byToken.get(t.b.i);
       if (old) hits[hits.indexOf(old)] = next;
       else hits.push(next);

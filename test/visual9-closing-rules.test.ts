@@ -107,6 +107,30 @@ test('V1-closing-rules: a colour, a highlight or a strike put on the last row st
   }
 });
 
+test('V1-closing-rules: a colour on the last row stays listed next to a real line on a word one or two words away', { skip }, async () => {
+  // 70.8 drawn red, and a 1.6 pt black segment centred on the closing rule
+  // under 62.9 (the next word) or 58.7 (two words away), which is a line of
+  // that word's own. The line was followed along the row onto 70.8, where
+  // only the closing rule lies, and that hit, which had taken the colour's
+  // place, was then dropped with the rule: the colour was lost.
+  for (const [b, word] of [
+    ['before-red-ul', '62.9'],
+    ['before-red-ul-far', '58.7'],
+  ] as const) {
+    const r = await probe(b, 'after');
+    assert.deepEqual(list(r.changes).sort(), ['Added 49 words', 'Text colour or weight changed', `Underline removed: “${word}”`], b);
+    const colour = r.changes.find((c) => describeChange('en', c) === 'Text colour or weight changed')!;
+    assert.ok(at(colour, 'old', 1, 422, 751) && !at(colour, 'old', 1, 300, 751), `${b}: ${JSON.stringify(colour.old.rects)}`);
+    assert.equal(r.ignored.closingRules, 1, b);
+  }
+  const back = await probe('after', 'before-red-ul');
+  assert.deepEqual(list(back.changes).sort(), ['Deleted 49 words', 'Text colour or weight changed', 'Underlined: “62.9”']);
+  assert.equal(back.ignored.closingRules, 1);
+  // Control: the colour alone (no line of a word's own) is listed as well.
+  const only = await probe('before-red-70', 'after');
+  assert.deepEqual(list(only.changes), ['Added 49 words', 'Text colour or weight changed']);
+});
+
 test('V1-closing-rules: a number edited in the last row stays listed; the rule under it is still a consequence', { skip }, async () => {
   const r = await probe('before-num', 'after');
   assert.deepEqual(list(r.changes), ['Added 49 words', 'Number changed: 86.6 → 88.6 (+2.3%)']);

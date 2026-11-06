@@ -111,6 +111,12 @@ if __name__ == '__main__':
     overlay(before, 'before-red', lambda pg, r: pg.draw_line((r.x0, r.y0), (r.x1, r.y0), color=(0.85, 0, 0), width=0.9))
     overlay(before, 'before-thick', lambda pg, r: pg.draw_line((r.x0, r.y0), (r.x1, r.y0), color=(0, 0, 0), width=2.4))
     overlay(before, 'before-double', lambda pg, r: pg.draw_line((r.x0, r.y0 + 4.2), (r.x1, r.y0 + 4.2), color=(0, 0, 0), width=0.9))
+    # Second pass: a colour put on one word of the last row (70.8) and a
+    # real line of another word's own, a 1.6 pt black segment centred on the
+    # closing rule, under the next word (62.9) or two words away (58.7).
+    red = build('before-red-70', source(False, gap=GAP, cell=lambda r, k, v: f'#text(fill: rgb("#c00000"))[{v}]' if (r, k) == (0, 4) else v))
+    for name, word in (('before-red-ul', '62.9'), ('before-red-ul-far', '58.7')):
+        overlay(red, name, lambda pg, r, word=word: [pg.draw_line((w[0], r.y0), (w[2], r.y0), color=(0, 0, 0), width=1.6) for w in pg.get_text('words') if w[4] == word and w[1] > 700])
     # A rule really added at a page foot where no page break moved: under the
     # last line of page 1 of "after", which keeps no table.
     build('after-rule', source(True, gap=GAP).replace('#v(450pt)', '#v(1fr)\n#line(length: 100%, stroke: 0.9pt)\n#pagebreak()'))
