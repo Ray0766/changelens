@@ -1423,6 +1423,87 @@ function ink(
 }
 
 /**
+ * Whether the colour `bg` behind a word goes on to both sides of it, in its
+ * middle rows from 1 to 5 pt beyond its box (half or more of the pixels on
+ * each side, glyphs left out): a band along the line, not a highlight that
+ * ends at the word.
+ */
+function sideways(X: Prepared, rect: Rect, bg: number[]): boolean {
+  const { r } = X;
+  const s = r.scale;
+  const lb = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2];
+  const share = (x0: number, x1: number) => {
+    let n = 0;
+    let of = 0;
+    for (let y = Math.max(0, Math.floor((rect.y + 0.25 * rect.h) * s)); y < Math.min(r.height, Math.ceil((rect.y + 0.75 * rect.h) * s)); y++)
+      for (let x = Math.max(0, Math.round(x0 * s)); x < Math.min(r.width, Math.round(x1 * s)); x++) {
+        const p = rgb(r, y * r.width + x);
+        if (0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2] < lb - 24) continue;
+        n++;
+        if (Math.abs(p[0] - bg[0]) <= 12 && Math.abs(p[1] - bg[1]) <= 12 && Math.abs(p[2] - bg[2]) <= 12) of++;
+      }
+    return n ? of / n : 0;
+  };
+  return share(rect.x - 5, rect.x - 1) >= 0.5 && share(rect.x + rect.w + 1, rect.x + rect.w + 5) >= 0.5;
+}
+
+/**
+ * Whether the colour `bg` lies in the rows next to a word on the other
+ * side, `X` (in the band from a quarter of the word's height to twice it,
+ * above or below, a third or more of the pixels within 12 levels of it,
+ * glyphs left out): a pattern of stripes there that the word moved into.
+ */
+function aroundOther(X: Prepared, rect: Rect, bg: number[]): boolean {
+  const { r } = X;
+  const s = r.scale;
+  const lb = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2];
+  const share = (y0: number, y1: number) => {
+    let n = 0;
+    let of = 0;
+    for (let y = Math.max(0, Math.floor(y0 * s)); y < Math.min(r.height, Math.ceil(y1 * s)); y++)
+      for (let x = Math.max(0, Math.round(rect.x * s)); x < Math.min(r.width, Math.round((rect.x + rect.w) * s)); x++) {
+        const p = rgb(r, y * r.width + x);
+        if (0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2] < lb - 24) continue;
+        n++;
+        if (Math.abs(p[0] - bg[0]) <= 12 && Math.abs(p[1] - bg[1]) <= 12 && Math.abs(p[2] - bg[2]) <= 12) of++;
+      }
+    return n ? of / n : 0;
+  };
+  return share(rect.y - 2 * rect.h, rect.y - 0.25 * rect.h) >= 1 / 3 || share(rect.y + 1.25 * rect.h, rect.y + 3 * rect.h) >= 1 / 3;
+}
+
+/**
+ * Whether `bg`, a pale background found behind a word (see ink), is the
+ * word's own: the colour of nearly all of its box between the glyphs (four
+ * in five of the pixels no more than 24 levels darker than it, within 12
+ * levels in each channel), that does not go on above or below the word (in
+ * the band a quarter to a half of its height away, fewer than half of such
+ * pixels are of it: the glyphs of the lines next to it are left out). A highlight drawn close around the word is so; a
+ * panel, a shaded row or a gradient that the word lies in is not, nor a
+ * fill's edge across the word.
+ */
+function ownBackground(side: Prepared, rect: Rect, bg: number[]): boolean {
+  const { r } = side;
+  const s = r.scale;
+  const near = (p: number[]) => Math.abs(p[0] - bg[0]) <= 12 && Math.abs(p[1] - bg[1]) <= 12 && Math.abs(p[2] - bg[2]) <= 12;
+  const lb = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2];
+  const share = (y0: number, y1: number, light: boolean) => {
+    let n = 0;
+    let of = 0;
+    for (let y = Math.floor(y0 * s); y < Math.ceil(y1 * s); y++)
+      for (let x = Math.max(0, Math.round(rect.x * s)); x < Math.min(r.width, Math.round((rect.x + rect.w) * s)); x++) {
+        const p = y < 0 || y >= r.height ? [255, 255, 255] : rgb(r, y * r.width + x);
+        if (light && 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2] < lb - 24) continue;
+        n++;
+        if (near(p)) of++;
+      }
+    return n ? of / n : 0;
+  };
+  if (share(rect.y, rect.y + rect.h, true) < 0.8) return false;
+  return share(rect.y - 0.5 * rect.h, rect.y - 0.25 * rect.h, true) < 0.5 || share(rect.y + 1.25 * rect.h, rect.y + 1.5 * rect.h, true) < 0.5;
+}
+
+/**
  * Darkness of a word's glyphs (as ink's `total` and `n`) where a fill or a
  * tint lies behind them: each pixel's against what lies behind it, as a
  * share of that lightness, `behind(x, y)` (the fill's luminance, or 0 for
@@ -2458,7 +2539,9 @@ export function partlyCompared(result: CompareResult): { page: number; words: st
  * `differs`: the graphics comparison found differences at a pixel of a
  * page (see crosses). `fillAround`: the colour of such a region on that
  * page that takes in the place, where it is mostly of one colour (a fill, a
- * tint), else null.
+ * tint), else null; `along`: also of one that reaches within 3 pt of the
+ * place, or lies on the same rows (a band behind a line that goes on past
+ * its words).
  */
 function appearanceChanges(
   result: CompareResult,
@@ -2475,7 +2558,7 @@ function appearanceChanges(
   graphicAt: (a: Token, b: Token) => boolean = () => false,
   graphicIn: (side: 'old' | 'new', r: Rect) => boolean = () => false,
   differs: (X: Prepared, x: number, y: number) => boolean = () => false,
-  fillAround: (side: 'old' | 'new', r: Rect) => number[] | null = () => null,
+  fillAround: (side: 'old' | 'new', r: Rect, along?: boolean) => number[] | null = () => null,
 ): Change[] {
   const TA = result.oldDoc.tokens;
   const TB = result.newDoc.tokens;
@@ -2922,9 +3005,32 @@ function appearanceChanges(
         const f = fillAround(side, r);
         return !!f && gap(f, bg) <= 16;
       };
+      // A pale background of the word's own on either side (a highlight
+      // drawn within a point or so of the glyphs, inside the text's mask,
+      // where the graphics comparison does not look: #d9d9d9, Office's
+      // light blue #deebf7) tells a change of more than 12 levels (see
+      // ownBackground), where the other version's is not the word's own,
+      // or is a band that goes on to both sides of the word where this one
+      // does not (a highlight in a shaded row; not a row's band re-tinted).
+      // Not where the other version has that colour in the
+      // rows next to the word (stripes of a table re-flowed by a row), nor
+      // where it is the colour of a graphic listed at the word or on its
+      // rows (a band behind the line, a page given a tint that ends at the
+      // line). Elsewhere, the background behind a word that moved can
+      // change by the 40 levels of a pale panel or gradient it lies in.
+      const along = (side: 'old' | 'new', r: Rect, bg: number[]) => {
+        const f = fillAround(side, r, true);
+        return !!f && gap(f, bg) <= 16;
+      };
+      const paleOn = (X: Prepared, kx: Rect, bx: number[], Y: Prepared, ky: Rect, by: number[], side: 'old' | 'new') =>
+        ownBackground(X, kx, bx) &&
+        (!ownBackground(Y, ky, by) || (!sideways(X, kx, bx) && sideways(Y, ky, by))) &&
+        !aroundOther(Y, ky, bx) &&
+        !along(side, kx, bx);
+      const pale = gap(ia.bg, ib.bg) > 12 && (paleOn(A, ka, ia.bg, B, kb, ib.bg, 'old') || paleOn(B, kb, ib.bg, A, ka, ia.bg, 'new'));
       const colour =
         Math.hypot(ia.chroma[0] - ib.chroma[0], ia.chroma[1] - ib.chroma[1], ia.chroma[2] - ib.chroma[2]) > 30 ||
-        (gap(ia.bg, ib.bg) > 40 && !filled('old', ia.bg, ib.bg, ka) && !filled('new', ib.bg, ia.bg, kb));
+        ((gap(ia.bg, ib.bg) > 40 || pale) && !filled('old', ia.bg, ib.bg, ka) && !filled('new', ib.bg, ia.bg, kb));
       const change = Math.abs(ia.total - ib.total) / Math.max(ia.total, ib.total, 1);
       const weight = change > 0.3 && !refitted(a, b);
       // The same glyphs drawn heavier (or lighter) at the very same pixels,
@@ -4606,11 +4712,13 @@ function compareAligned(
     };
     // The colour of such a region that takes in a place, from its pixels
     // outside the text's mask, where 60 % of them or more are of it.
-    const fillAround = (side: 'old' | 'new', at: Rect): number[] | null => {
+    const fillAround = (side: 'old' | 'new', at: Rect, along = false): number[] | null => {
       const P = side === 'old' ? A : B;
       const s = P.r.scale;
+      const reach = expand(at, 0.15 * at.h + 3);
+      const rows = (q: Rect) => Math.min(q.y + q.h, at.y + at.h) - Math.max(q.y, at.y) >= 0.5 * at.h;
       for (const q of side === 'old' ? oldRects : newRects) {
-        if (coveredShare(at, [q]) < 0.9) continue;
+        if (coveredShare(at, [q]) < 0.9 && !(along && (intersects(q, reach) || rows(q)))) continue;
         const x0 = Math.max(0, Math.floor(q.x * s));
         const y0 = Math.max(0, Math.floor(q.y * s));
         const x1 = Math.min(P.r.width, Math.ceil((q.x + q.w) * s));
