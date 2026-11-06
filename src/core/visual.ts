@@ -80,6 +80,25 @@ function luminance(r: Raster): Uint8Array {
 }
 
 /**
+ * Each pixel's lowest channel, composited on white: its distance from the
+ * paper in its strongest channel (Chebyshev), as a level like luminance.
+ * Grey and black give their luminance; a saturated colour is as far from
+ * the paper as black (pure green is 0 here, 150 as luminance), so that a
+ * thin line in a light, saturated colour weighs as much as a black one.
+ */
+function lowest(r: Raster): Uint8Array {
+  const n = r.width * r.height;
+  const out = new Uint8Array(n);
+  const d = r.data;
+  for (let i = 0, j = 0; i < n; i++, j += 4) {
+    const a = d[j + 3] / 255;
+    const l = Math.min(d[j], d[j + 1], d[j + 2]);
+    out[i] = Math.round(l * a + 255 * (1 - a));
+  }
+  return out;
+}
+
+/**
  * 3×3 box blur. Thin lines rendered at different sub-pixel positions (one
  * dark pixel row vs. two lighter ones) become alike after blurring, while the
  * total ink — and therefore real additions or removals — is preserved.
@@ -274,6 +293,8 @@ function textMask(doc: DocModel, page: number, r: Raster, lum: Uint8Array, angle
 interface Prepared {
   r: Raster;
   lum: Uint8Array;
+  /** Each pixel's lowest channel (see lowest): how lines through or under words are measured. */
+  low: Uint8Array;
   mask: Uint8Array;
   /** Blurred colour planes. */
   planes: Uint8Array[];
@@ -290,6 +311,7 @@ function prepare(doc: DocModel, page: number, r: Raster): Prepared {
   return {
     r,
     lum,
+    low: lowest(r),
     mask: textMask(doc, page, r, lum),
     planes: p,
     range: p.map((c) => minMax(c, r.width, r.height)),
@@ -1632,7 +1654,7 @@ type Box = { d: Float32Array; cols: number; rows: number; top: number; x0: numbe
  * had been drawn at the other version's sub-pixel position.
  */
 function boxDarkness(side: Prepared, rect: Rect, on?: { rect: Rect; scale: number }): Box {
-  const { r, lum } = side;
+  const { r, low: lum } = side;
   const s = r.scale;
   const x0 = Math.max(0, Math.round(rect.x * s));
   const x1 = Math.min(r.width, Math.round((rect.x + rect.w) * s));
@@ -1795,10 +1817,11 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       // Behind the glyphs (a fill, a tint), the overlay's anti-aliased edge
       // is that of the glyphs, and of a line drawn over it: compared, with
       // its darkness taken against the fill's lightness `lf` (a pixel of
-      // the fill is as light as paper).
+      // the fill is as light as paper), in its lowest channel as the box's
+      // darkness is (see lowest).
       const fill = cov.behind && cov.clear;
       const [r0, g0, b0] = cov.colours[0];
-      const lf = (0.299 * r0 + 0.587 * g0 + 0.114 * b0) / 255;
+      const lf = Math.min(r0, g0, b0) / 255;
       for (let k = 0; k < n; k++) {
         const y = Math.round(X.ys[k]);
         for (let c = 0; c < C; c++) {
@@ -1967,6 +1990,11 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
     let e = k;
     while (e + 1 < n && line(e + 1)) e++;
     if (e - k > Math.ceil(1.5 * b.r.scale) + 2) return null;
+    // The edge of a fill that `b` has and `a` not (a highlight on the line
+    // below, whose top reaches into the word's box) is no line: its ink
+    // goes on past the rows found (see goesOn). Where an overlay was found
+    // there, it is measured against that fill instead.
+    if (!valid && goesOn(a, b, A, B, C, k, e)) return null;
     // Unchanged elsewhere: the rest of the profile matches.
     let diff = 0;
     let total = 0;
@@ -2094,6 +2122,60 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
     return { line: rel >= 0.72 ? 'underline' : 'strike', rows: [Math.round(B.ys[k]), Math.round(B.ys[e])], core: [Math.round(B.ys[c0]), Math.round(B.ys[c1])] };
   }
   return part ? 'part' : null;
+}
+
+/**
+ * Whether the ink that `B` gained in rows k..e (the box of a word on `b`,
+ * compared with `A` on `a`, see lineIn) goes on past them: three and four
+ * pixel rows below or above them, half or more of the columns that `a`
+ * leaves light in those rows gained half as much per row as the line
+ * itself, and a tenth of a line at least. A line through or under a word
+ * has the paper (or the glyphs, unchanged) on both sides; the edge of a
+ * fill or a band does not. Measured on the pages' lowest channel (see
+ * lowest), where a light, saturated fill (a yellow highlight) is as far
+ * from the paper as a line in that colour.
+ */
+function goesOn(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number, e: number): boolean {
+  const q = a.r.scale / b.r.scale;
+  const darkB = (j: number, c: number) => {
+    const y = Math.round(B.ys[0]) + j;
+    const x = B.x0 + c;
+    return y < 0 || y >= b.r.height || x >= b.r.width ? 0 : (255 - b.low[y * b.r.width + x]) / 255;
+  };
+  // `a`'s row as the word moved (see boxDarkness), interpolated.
+  const darkA = (j: number, c: number) => {
+    const y = A.ys[0] + j * q;
+    const i = Math.floor(y);
+    const t = y - i;
+    const x = A.x0 + c;
+    const at = (v: number) => (v < 0 || v >= a.r.height || x >= a.r.width ? 0 : (255 - a.low[v * a.r.width + x]) / 255);
+    return (1 - t) * at(i) + t * at(i + 1);
+  };
+  let open = 0;
+  const past = [0, 0];
+  for (let c = 0; c < C; c++) {
+    let glyph = 0;
+    let gain = 0;
+    for (let j = k; j <= e; j++) {
+      glyph = Math.max(glyph, darkA(j, c));
+      gain += darkB(j, c) - darkA(j, c);
+    }
+    if (glyph >= 0.3) continue;
+    open++;
+    const per = gain / (e - k + 1);
+    for (const [side, rows] of [
+      [0, [e + 3, e + 4]],
+      [1, [k - 3, k - 4]],
+    ] as const) {
+      let on = true;
+      for (const j of rows) {
+        const g = darkB(j, c) - darkA(j, c);
+        if (g < Math.max(0.1, 0.5 * per)) on = false;
+      }
+      if (on) past[side]++;
+    }
+  }
+  return open >= 3 && Math.max(...past) >= 0.5 * open;
 }
 
 /**
@@ -2380,7 +2462,7 @@ class StrokeHue {
 
 /** The darkness of a token's glyph ink: the darkest pixel of its box (1 when it is nearly paper). */
 function inkUnit(side: Prepared, rect: Rect): number {
-  const { r, lum } = side;
+  const { r, low: lum } = side;
   const s = r.scale;
   let min = 255;
   for (let y = Math.max(0, Math.floor(rect.y * s)); y < Math.min(r.height, Math.ceil((rect.y + rect.h) * s)); y++)
