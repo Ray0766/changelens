@@ -261,6 +261,7 @@ function splitNumbers(ctx: Ctx, h: Hunk): Hunk[] {
   const da = A.slice(h.a0, h.a1);
   const db = B.slice(h.b0, h.b1);
   if (!da.length || !db.length || !isNumericPhrase(da.map((t) => t.text)) || !isNumericPhrase(db.map((t) => t.text))) return [h];
+  if (codeGroups(ctx, h)) return [h];
   // Where each figure starts, including a currency sign written onto it,
   // but not the percent or degree sign of the figure before it ("10%-20%").
   const starts = (T: Token[], s: number, e: number) => {
@@ -295,6 +296,42 @@ function splitNumbers(ctx: Ctx, h: Hunk): Hunk[] {
     if (!same) out.push(p);
   }
   return out;
+}
+
+/**
+ * The digit groups of a code written with spaces, such as an account number
+ * ("Account ZZ41 7700 2045 1189 03"), an IBAN or a phone number, that
+ * T[s, e) belongs to: plain digits on one line, each a word space from the
+ * next, extended over the groups and the codes of letters and digits next
+ * to them on the line. Null when T[s, e) is anything else.
+ */
+function codeRun(T: Token[], s: number, e: number): Token[] | null {
+  const line = T[s].line;
+  const close = (p: Token, t: Token) => {
+    const r = p.rects[p.rects.length - 1];
+    const gap = t.rects[0].x - (r.x + r.w);
+    return t.line === line && t.spaceBefore && gap > -0.1 * t.size && gap < 0.6 * t.size;
+  };
+  for (let k = s; k < e; k++) if (!/^\d+$/.test(T[k].text) || (k > s && !close(T[k - 1], T[k]))) return null;
+  const part = (t: Token) => /^\d+$/.test(t.text) || (/^[\p{L}\d]+$/u.test(t.text) && /\p{L}/u.test(t.text) && /\d/.test(t.text));
+  let a = s;
+  while (a > 0 && part(T[a - 1]) && close(T[a - 1], T[a])) a--;
+  let b = e;
+  while (b < T.length && part(T[b]) && close(T[b - 1], T[b])) b++;
+  return T.slice(a, b);
+}
+
+/**
+ * Both sides of a hunk are digit groups of one code (see codeRun) of at
+ * least three groups, and a group starts with a zero ("03", "0457"), which
+ * a figure of its own is not written with: the groups are one value, so a
+ * change to them is listed once, without a percentage. Figures in a row
+ * ("120 135 150", "Region0 1000 1001 1002") are each their own change.
+ */
+function codeGroups(ctx: Ctx, h: Hunk): boolean {
+  const a = codeRun(ctx.A, h.a0, h.a1);
+  const b = codeRun(ctx.B, h.b0, h.b1);
+  return !!a && !!b && a.length >= 3 && b.length >= 3 && [...a, ...b].some((t) => /^0\d/.test(t.text));
 }
 
 /**

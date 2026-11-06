@@ -15,6 +15,7 @@ import { compareDocs } from '../src/core/compare.ts';
 import { describeChange, notices } from '../src/core/describe.ts';
 import { buildJson } from '../src/core/report.ts';
 import type { CompareResult, DocModel, DocText, TextRun } from '../src/core/types.ts';
+import { makeDoc, model } from './helpers.ts';
 
 const fixtures = new URL('./fixtures/', import.meta.url).pathname;
 const cases = new URL('../eval/cases/', import.meta.url).pathname;
@@ -33,9 +34,7 @@ test('T1: re-typed values appended after the footer are listed once, in place, a
   assert.deepEqual(listed(r), [
     'Number changed: 1 → 15 (+1400%)',
     'Number changed: 1,850.00 → 1,975.00 (+6.8%)',
-    'Number changed: 2045 → 9932 (+386%)',
-    'Number changed: 1189 → 0457',
-    'Number changed: 03 → 18',
+    'Number changed: 2045 1189 03 → 9932 0457 18',
     'Changed “Consumer” → “Retail”',
     // Control: a word only deleted, next to the re-typed word, stays listed.
     'Deleted “onwards”',
@@ -47,8 +46,7 @@ test('T1: re-typed values appended after the footer are listed once, in place, a
     '“6 Electrical connection” font Helvetica-Bold → Times-Bold',
   ]);
   // Each change has its own place and the context of that place.
-  const [date, rent, account] = r.changes;
-  const word = r.changes[5];
+  const [date, rent, account, word] = r.changes;
   assert.equal(date.contextAfter.startsWith('March 2027 Term'), true, date.contextAfter);
   assert.equal(rent.contextBefore.endsWith('Monthly fee (EUR)'), true, rent.contextBefore);
   assert.equal(account.contextBefore.endsWith('Account ZZ41 7700'), true, account.contextBefore);
@@ -59,12 +57,12 @@ test('T1: re-typed values appended after the footer are listed once, in place, a
     assert.ok(Math.abs(o.x - n.x) < 1 && Math.abs(o.y - n.y) < 3, JSON.stringify([o, n]));
   }
   // The added clause is in its place in the reading order: after 4.1, before section 5.
-  const clause = r.changes[7];
+  const clause = r.changes[5];
   assert.match(clause.new.text, /^4\.2 Notices may also be sent/);
   assert.match(clause.contextBefore, /given in the particulars\.$/);
   assert.match(clause.contextAfter, /^5 Signatures/);
   // The note below the last line stays after it.
-  assert.match(r.changes[8].contextBefore, /Signed for the Tenant$/);
+  assert.match(r.changes[6].contextBefore, /Signed for the Tenant$/);
   // The notice says what was done, with the pages.
   const note = notices('en', r).find((n) => n.text.includes('after the page footer'));
   assert.equal(
@@ -161,6 +159,21 @@ test('T1 narrowness: only lines drawn after a footer drawn after the body, onto 
   assert.equal(order(over).at(-1), 'COPY');
 });
 
+// ------------------------------------------------------ account numbers ---
+
+test('T1: an account number re-typed in its digit groups is one change without a percentage; separate figures stay apart', () => {
+  const doc = (line: string) => model(makeDoc('d', [[['Please pay by bank transfer to the account below.', line, 'Quote the invoice number as the reference.']]]));
+  let r = compareDocs(doc('Account ZZ41 7700 2045 1189 03'), doc('Account ZZ41 7700 9932 0457 18'));
+  assert.deepEqual(listed(r), ['Number changed: 2045 1189 03 → 9932 0457 18']);
+  assert.equal(r.changes[0].numeric?.fromValue, null);
+  // An IBAN-like code: the groups after the letters and digits heading it.
+  r = compareDocs(doc('IBAN DE89 3704 0044 0532 0130 00'), doc('IBAN DE89 3704 0044 0532 0177 15'));
+  assert.deepEqual(listed(r), ['Number changed: 0130 00 → 0177 15']);
+  // Control: three readings of 1–3 digits in a row are three figures, each with its percentage.
+  r = compareDocs(doc('Readings 120 135 150 at noon'), doc('Readings 125 140 155 at noon'));
+  assert.deepEqual(listed(r), ['Number changed: 120 → 125 (+4.2%)', 'Number changed: 135 → 140 (+3.7%)', 'Number changed: 150 → 155 (+3.3%)']);
+});
+
 // --------------------------------------------------------- round 5 -------
 
 test('T1 round 5: the redacted lease lists each re-typed value in place', async () => {
@@ -187,9 +200,7 @@ test('T1 round 5: the incremental invoice lists the amount and the account numbe
   assert.deepEqual(listed(r).filter((d) => !d.startsWith('Graphic')), [
     'Number changed: 30 → 18 (-40%)',
     'Number changed: 1,240.00 → 1,420.00 (+15%)',
-    'Number changed: 2045 → 9932 (+386%)',
-    'Number changed: 1189 → 0457',
-    'Number changed: 03 → 18',
+    'Number changed: 2045 1189 03 → 9932 0457 18',
     'Deleted 11 words',
     'Added a paragraph',
   ]);
