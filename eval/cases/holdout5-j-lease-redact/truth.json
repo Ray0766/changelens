@@ -1,0 +1,64 @@
+{
+  "description": "Three-page commercial lease (fictitious parties) typeset with Typst 0.15 (Liberation Serif 10.5 pt, justified, hyphenated, Liberation Sans headings) and then edited in PyMuPDF 2.1 the way a PDF editor does it, with no re-flow. All seven edits are content-stream edits; the after file contains no annotations. Each edit removes glyphs with a redaction (apply_redactions, no fill, images and line art kept) and, where text is replaced, writes new text on top. p. 1: the rent 1,850.00 is re-typed as 1,975.00 in Helvetica 9 pt (base-14, not embedded) with its baseline 0.7 pt low; the commencement date is re-typed in Liberation Serif embedded again by PyMuPDF, same size and baseline; 'Consumer' becomes 'Retail' in Times-Roman (base-14). p. 2: clause 6.3 is deleted and its two lines stay blank (6.4 is not renumbered). p. 3: the rent-free period cell 'March to May 2027' is replaced through the redaction annotation's own replacement text, which MuPDF sets in Helvetica shrunk to 7.5 pt inside the redaction box, about 1 pt above the old baseline; a new clause 11.2 is added in existing white space with insert_htmlbox (MuPDF's default face Charis SIL, 10 pt); only the minus glyph of the deposit adjustment −250.00 is redacted. Consequences, not listed: all replacement text is appended at the end of the page content stream, so the stream order of text differs from the visual order; shorter replacements leave small gaps in their lines; the deposit (3 x rent), the schedule's rent-free credit and the header 'Draft 3' were left unchanged.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "1,850.00",
+      "new": "1,975.00",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Rent in the Particulars table; re-typed in Helvetica 9 pt instead of Liberation Serif 10.5 pt, baseline 0.7 pt lower. The font and size change is part of this edit, not a separate format item."
+    },
+    {
+      "type": "number",
+      "old": "1 March 2027",
+      "new": "15 March 2027",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Commencement date (day number changed) re-typed in the same typeface at the same baseline."
+    },
+    {
+      "type": "replace",
+      "old": "Consumer",
+      "new": "Retail",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Clause 3.1 'Consumer Prices Index' -> 'Retail Prices Index'; 'Retail' is Times-Roman (base-14) and leaves a gap before 'Prices'."
+    },
+    {
+      "type": "delete",
+      "old": "6.3 The Tenant may sublet the whole of the Premises",
+      "oldPage": 2,
+      "newPage": 2,
+      "maxItems": 2,
+      "note": "Whole sub-clause 6.3 redacted (two lines); the space is left blank. 6.4 keeps its number."
+    },
+    {
+      "type": "replace",
+      "old": "March to May 2027",
+      "new": "April to June 2027",
+      "oldPage": 3,
+      "newPage": 3,
+      "maxItems": 2,
+      "note": "May be listed as 'March' -> 'April' and 'May' -> 'June'. Schedule, row 'Rent-free period, three months', column 'When'. Replacement text written by MuPDF's redaction (Helvetica 7.5 pt instead of Liberation Serif 10.5 pt). '2027' is unchanged but re-typed; the change is the months."
+    },
+    {
+      "type": "insert",
+      "new": "11.2 Notices may also be sent by e-mail",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "New clause set with insert_htmlbox in MuPDF's default serif face (Charis SIL), in white space that existed before; nothing re-flows."
+    },
+    {
+      "type": "number",
+      "old": "−250.00",
+      "new": "250.00",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Schedule row 'Deposit adjustment': only the U+2212 minus glyph is redacted, so a credit becomes a charge; the digits are the original Typst glyphs at their old position, a blank remains where the sign was."
+    }
+  ]
+}

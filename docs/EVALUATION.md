@@ -108,6 +108,27 @@ Where the baselines lose:
   - Page numbers and re-wrapped lines create extra hunks: 11 in each demo, 3 for an inserted page.
 - **Pixel page diff**: it finds that *something* changed on a page, but after an insertion every later page differs. That gives 31 extra regions in the Chinese price list and 12–16 in the demos, and in the demos many changes land on the wrong page (9 of 13 located in demo-en).
 
+### Held-out round 5: registered before the run
+
+- **Authors and focus**: three independent authors wrote 18 cases (144 truth items) from [`eval/holdout5-brief.md`](../eval/holdout5-brief.md). Each used a PDF producer not used in earlier rounds:
+  - author H: Typst 0.15 (contracts and reports in English, German and French, one long report, one English/Chinese agreement);
+  - author I: fpdf2 2.9 (invoices, statements, a price list, a payslip, a delivery note; currencies and negative-amount conventions; Chinese and Japanese TrueType fonts);
+  - author J: PyMuPDF 2.1 (edits as PDF editors make them: redact and re-insert, HTML boxes, annotations, page operations, an incremental save; Chinese and Japanese HTML boxes).
+
+  The brief forbade the authors to read the engine's code, its tests, the docs other than the quality brief and the earlier held-out rounds, or to run ChangeLens; they could read the README, including its limits. The cases stayed outside the repository, and every fixer and verifier of fix round 8 was told not to open them, until this registration.
+- **Checked before the run**: a separate blind checker per author re-checked every truth file against the PDF.js and pdftotext text, the renders and a regenerated copy, and could change only truth files. Their notes are in `eval/holdout5-checker-notes-{h,i,j}.md`. They changed notes and descriptions in H, a region, a snippet and a description in one J case, and nothing in I. All 18 truth files pass the scorer's `validate()` at registration.
+- **Engine**: frozen at `f1053f3` until the run. Its engine is that of the merged fix round 8 (`2af63c3`); the commits after the merge change only docs, and the registration commit adds only the cases, their sources and notes, this text and the set label in `eval/run.ts`.
+- **Rules, fixed before seeing any result**:
+  - The headline number uses the default rules of `eval/score.ts` at `f1053f3`: the context rule for snippets, carets at a page boundary counting for both pages, and the four rules decided after round 4.
+  - Reported next to it: the rules registered for round 4 (`--registered-rules`) and the strict rules (`--strict-snippets --strict-carets`), both rescored from the same run's items.
+  - The cases are committed with this registration, before the run. Truth files are not edited after the run, except to fix a structural error that stops the scorer from reading them; any such fix is listed with the result.
+- **What is published**: the output of one run, committed unchanged whatever it shows, then a classification of every miss and extra item, each re-checked by a second agent. The run is:
+
+  ```
+  node eval/run.ts --cases 'holdout5-*' --blind --verbose --json eval/results-holdout5-blind.json --items eval/results-holdout5-blind-items.json
+  ```
+- **Reproducing the PDFs**: `eval/make-holdout5-{h,i,j}.py` with the producers in `eval/requirements-holdout5.txt` and the helpers in `eval/holdout5-{h,i,j}/`. They use system fonts (Inter, IPA Gothic, Carlito, DejaVu, Liberation, WenQuanYi Zen Hei). The brief names the authors' session paths, and the authors' check scripts (`*.mjs`) import PDF.js from `/home/user/changelens/node_modules`; change those paths to run them elsewhere. The committed PDFs are what was scored.
+
 ### Review round 7 and fix round 8 (probes, not held out)
 
 **Review round 7** probed the engine at `a722e40` (after fix round 6). It used seven lenses: renumbering, page edges and numbers, form fields, appearance (strike, underline, colour), page structure, robustness, and the diff itself.

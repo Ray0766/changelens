@@ -1,0 +1,72 @@
+{
+  "description": "Three-page Swiss private-account statement in French (Relevé de compte) with Swiss number format (CHF 1'234.50), negative running balances written with a trailing minus (1'204.35-), dd.mm.yy dates, two- and three-line booking texts and carry-forward rows (À reporter / Report). Produced with fpdf2 2.9.0, embedded Liberation Sans Regular/Bold subsets (TrueType, Identity-H with ToUnicode), drawn cell by cell. Edits: credit limit lowered, one value date corrected, one booking text corrected, and on the last day a card refund that had been posted as a debit is now posted as a credit, so the amount 85.40 moves from the Débit to the Crédit column; as a result the final running balance and the closing balance change sign (43.30- / en notre faveur -> 127.50 / en votre faveur), and the overdraft interest rate in the footnote changes. Page breaks and all other balances (including the carry-forward rows) are unchanged.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "CHF 5'000.00",
+      "new": "CHF 2'000.00",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Limite de crédit in the account info box."
+    },
+    {
+      "type": "number",
+      "old": "07.10.26",
+      "new": "08.10.26",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Valeur (value date) of the 06.10.26 card purchase at Boulangerie Exemple, Morges."
+    },
+    {
+      "type": "replace",
+      "old": "prime octobre",
+      "new": "prime novembre",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Second line of the 19.10.26 booking 'Ordre e-banking, Caisse-maladie Exemple'."
+    },
+    {
+      "type": "position",
+      "old": "85.40",
+      "new": "85.40",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Card refund 'Remboursement carte, Boutique Exemple, Genève': the unchanged amount moves sideways from the Débit column to the Crédit column (about 57 pt to the right), which reverses its sign. The README claims sideways moves of unchanged lines; here only one cell of the line moves. A report as a number/sign change would also be correct."
+    },
+    {
+      "type": "number",
+      "old": "43.30-",
+      "new": "5.00 127.50",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Running balance (Solde column) after the last booking, the account fee 5.00: the trailing-minus negative becomes positive (the README does not list a trailing minus among recognised sign notations). The new snippet includes the fee because 127.50 also appears in the closing line."
+    },
+    {
+      "type": "replace",
+      "old": "en notre faveur",
+      "new": "en votre faveur",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Closing line wording: balance in the bank's favour (overdrawn) becomes balance in the customer's favour."
+    },
+    {
+      "type": "number",
+      "old": "CHF 43.30",
+      "new": "CHF 127.50",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Closing balance amount on the same line; the sign is expressed by the wording, not by a minus."
+    },
+    {
+      "type": "number",
+      "old": "9.50 %",
+      "new": "8.75 %",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Overdraft interest rate in the footnote."
+    }
+  ]
+}

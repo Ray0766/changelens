@@ -1,0 +1,77 @@
+{
+  "description": "Two-page invoice with a service report (fictitious companies) written with fpdf2 2.9 (embedded DejaVu Sans subsets, zebra-shaded line-item table, a PNG bar chart made with Pillow), then edited with PyMuPDF 2.1 and saved as an incremental update (save(incremental=True), as saveIncr does, with compression): the original revision is still in the file byte for byte and the edits are appended. Content-stream edits: p. 1 the due date, the amount of line 2 and the last digit groups of the bank account are redacted (no fill, shading kept) and re-typed (due date in DejaVu Sans embedded again by PyMuPDF, amount and account digits in Helvetica base-14); p. 2 the first note and its bullet are redacted and a notice is added with insert_htmlbox (Nimbus Sans, drawn through a form XObject). Image edit: the chart image object is replaced in place (replace_image, same object number, size and position) by a chart in which the bar for week 43 is higher and orange. Annotation: an 'APPROVED' rubber stamp (/Stamp) on p. 1; the README does not claim annotation support. Consequences, not listed: subtotal, VAT and total were deliberately left at their old values, so line 2 (2 x 620.00) no longer adds up; the text '11 of 12 scheduled visits' was not updated to match the new chart; re-typed text sits at the end of the content stream.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "30 November 2026",
+      "new": "18 November 2026",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Due date (day number) re-typed in the same face, right-aligned to the old right edge."
+    },
+    {
+      "type": "number",
+      "old": "1,240.00",
+      "new": "1,420.00",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Amount of line 2 (filter replacement) with transposed digits; Helvetica instead of DejaVu Sans. Qty 2 and unit price 620.00 unchanged."
+    },
+    {
+      "type": "replace",
+      "old": "2045 1189 03",
+      "new": "9932 0457 18",
+      "oldPage": 1,
+      "newPage": 1,
+      "maxItems": 3,
+      "note": "Bank account 'ZZ41 7700 2045 1189 03' -> 'ZZ41 7700 9932 0457 18' (an account identifier, not an amount; a tool may list the three digit groups as number changes)."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 1,
+      "newPage": 1,
+      "newRect": [
+        186.0,
+        107.0,
+        128.0,
+        33.7
+      ],
+      "note": "Annotation: rubber stamp 'APPROVED' (/Stamp, PyMuPDF STAMP_Approved). This is a PDF annotation, not page content; the README does not claim annotation support. PDF.js, poppler and MuPDF all draw its appearance stream by default. Text inside an annotation appearance is not in PDF.js getTextContent, but poppler's pdftotext does output it."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 2,
+      "newPage": 2,
+      "oldRect": [
+        54.0,
+        114.0,
+        360.0,
+        152.0
+      ],
+      "newRect": [
+        54.0,
+        114.0,
+        360.0,
+        152.0
+      ],
+      "note": "Chart image replaced in place: week 43 bar 2 -> 3 visits and coloured orange instead of blue. The chart labels are pixels, not text."
+    },
+    {
+      "type": "delete",
+      "old": "Queries must be raised within 14 days of the invoice date.",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "First note and its bullet redacted; the line stays blank."
+    },
+    {
+      "type": "insert",
+      "new": "Our bank details changed on 1 November 2026.",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Added with insert_htmlbox (Nimbus Sans, first sentence bold) below the notes; it continues 'Please update your supplier records before the next payment.'"
+    }
+  ]
+}

@@ -21,7 +21,7 @@ Short running notes for whoever continues (people or agents). Newest first.
   - R4-10: single-glyph strikes in drifting Carlito word boxes;
   - R5-07: a strike on a header line drawn along a rule;
   - pages with a large slanted watermark take about 1.7 times as long as at `b3de0f4`.
-- **Next**: blind round 5. Its cases were written by independent authors and were kept out of the repository and away from the fixers. The engine is frozen at the commit that registers it, and the set is run once.
+- **Blind round 5 registered** (EVALUATION, Held-out round 5): 18 cases, 144 truth items, engine frozen at `f1053f3`. Next: run it once, commit the output unchanged, classify every miss and extra item with a second check.
 
 ## 2026-11-04 (fix rounds 5 and 6, after blind round 4)
 

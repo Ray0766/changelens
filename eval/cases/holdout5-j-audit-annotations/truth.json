@@ -1,0 +1,100 @@
+{
+  "description": "Two-page supplier audit report (fictitious supplier) written with fpdf2 2.9 (embedded Liberation Sans subsets, justified multi_cell paragraphs, fpdf2 tables), then reviewed in PyMuPDF 2.1. Six edits are PDF annotations with appearance streams and are not page content: a 'For Comment' rubber stamp, a highlight, a strike-out and a free-text note on p. 1, an underline and an ink scribble (initials on the 'Reviewed by' line) on p. 2. Two edits are content-stream edits: on p. 1 the score '87' is redacted and '82' re-typed in Helvetica (base-14) at the same baseline, and on p. 2 'October' is redacted and 'April' re-typed in Liberation Sans embedded again by PyMuPDF, right-aligned to where 'October' ended, so a gap opens before it. The README does not claim annotation support. Consequences, not listed: the re-typed words are at the end of each page's content stream; nothing re-flows.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "87",
+      "new": "82",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Content-stream edit: 'Overall score 87 / 100' -> '82 / 100'. Old snippet context: '87 / 100' in the summary table."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 1,
+      "newPage": 1,
+      "newRect": [
+        400.0,
+        53.6,
+        140.0,
+        36.8
+      ],
+      "note": "Annotation: rubber stamp 'FOR COMMENT' (/Stamp, PyMuPDF STAMP_ForComment) added at the top right. This is a PDF annotation, not page content; the README does not claim annotation support. PDF.js, poppler and MuPDF all draw its appearance stream by default. Text inside an annotation appearance is not in PDF.js getTextContent, but poppler's pdftotext does output it."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 1,
+      "newPage": 1,
+      "newRect": [
+        56.1,
+        248.4,
+        286.1,
+        13.2
+      ],
+      "note": "Annotation: yellow /Highlight over 'Calibration records for two torque wrenches were missing' (one line). This is a PDF annotation, not page content; the README does not claim annotation support. PDF.js, poppler and MuPDF all draw its appearance stream by default. Text inside an annotation appearance is not in PDF.js getTextContent, but poppler's pdftotext does output it."
+    },
+    {
+      "type": "format",
+      "old": "The finding is considered minor.",
+      "new": "The finding is considered minor.",
+      "oldPage": 1,
+      "newPage": 1,
+      "newRect": [
+        58.1,
+        454.4,
+        372.8,
+        28.2
+      ],
+      "note": "Annotation: red /StrikeOut over the sentence (two lines); the text itself is unchanged. This is a PDF annotation, not page content; the README does not claim annotation support. PDF.js, poppler and MuPDF all draw its appearance stream by default. Text inside an annotation appearance is not in PDF.js getTextContent, but poppler's pdftotext does output it."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 1,
+      "newPage": 1,
+      "newRect": [
+        440.6,
+        327.9,
+        139.8,
+        68.8
+      ],
+      "note": "Annotation: /FreeText note 'Reviewer: grade F1 as major? The records were missing for three weeks.' on a pale yellow box in the white space right of the findings table. Its text is not part of the page content. This is a PDF annotation, not page content; the README does not claim annotation support. PDF.js, poppler and MuPDF all draw its appearance stream by default. Text inside an annotation appearance is not in PDF.js getTextContent, but poppler's pdftotext does output it."
+    },
+    {
+      "type": "format",
+      "old": "within 30 days of receiving this report",
+      "new": "within 30 days of receiving this report",
+      "oldPage": 2,
+      "newPage": 2,
+      "newRect": [
+        58.1,
+        76.4,
+        372.8,
+        28.2
+      ],
+      "note": "Annotation: green /Underline under the phrase (two lines); text unchanged. This is a PDF annotation, not page content; the README does not claim annotation support. PDF.js, poppler and MuPDF all draw its appearance stream by default. Text inside an annotation appearance is not in PDF.js getTextContent, but poppler's pdftotext does output it."
+    },
+    {
+      "type": "replace",
+      "old": "October 2027",
+      "new": "April",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Content-stream edit: next audit 'October 2027' -> 'April 2027'; only the month was re-typed, so the new snippet is the re-typed word."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 2,
+      "newPage": 2,
+      "newRect": [
+        138.8,
+        224.5,
+        106.6,
+        25.0
+      ],
+      "note": "Annotation: blue /Ink scribble (initials) on the 'Reviewed by' line. This is a PDF annotation, not page content; the README does not claim annotation support. PDF.js, poppler and MuPDF all draw its appearance stream by default. Text inside an annotation appearance is not in PDF.js getTextContent, but poppler's pdftotext does output it."
+    }
+  ]
+}

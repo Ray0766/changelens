@@ -1,0 +1,70 @@
+{
+  "description": "Two-page Simplified Chinese quotation for office-equipment maintenance (fictitious companies, models and prices) with English phrases and a price table, written from scratch in both versions with PyMuPDF 2.1 insert_htmlbox (MuPDF Story HTML/CSS layout; WenQuanYi Zen Hei embedded via @font-face; each page is its own htmlbox, so text re-flows within a page but never across pages). Both versions are regenerated from edited HTML, so every edit is a content-stream edit; there are no annotations. Edits: validity date, inspection frequency, on-site response hours, an English phrase extended, underline added to the late-payment clause, list item 3 deleted, a new last list item, and a paragraph moved from p. 2 (section 5) to p. 1 (end of section 1). Consequences, not listed: the rest of p. 1 re-flows downwards; the ordered list renumbers automatically (item 4 becomes 3); p. 2 closes the gap left by the moved paragraph.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "有效期至：2026年11月30日",
+      "new": "有效期至：2026年12月31日",
+      "oldPage": 1,
+      "newPage": 1,
+      "maxItems": 2,
+      "note": "Validity date: month 11 -> 12 and day 30 -> 31 in one date; may be listed as one or two number changes."
+    },
+    {
+      "type": "replace",
+      "old": "每季度上门巡检",
+      "new": "每月上门巡检",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Inspection frequency quarterly -> monthly (每季度 -> 每月)."
+    },
+    {
+      "type": "number",
+      "old": "4 小时内派工程师",
+      "new": "6 小时内派工程师",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "On-site response time 4 -> 6 hours; the 2-hour phone response before it is unchanged."
+    },
+    {
+      "type": "insert",
+      "new": "and Chinese",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "English sentence inside Chinese text: 'available in English on weekdays' -> 'available in English and Chinese on weekdays'."
+    },
+    {
+      "type": "format",
+      "old": "逾期付款按每日 0.05% 计收违约金",
+      "new": "逾期付款按每日 0.05% 计收违约金",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Underline added (CSS text-decoration, drawn by MuPDF as line art in the content stream); text unchanged."
+    },
+    {
+      "type": "delete",
+      "old": "报价含上门差旅费用。",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Ordered-list item 3 deleted; the following item is renumbered automatically (not listed)."
+    },
+    {
+      "type": "insert",
+      "new": "更换的零配件享有 12 个月质保。",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "New last list item (numbered 4 in the new version)."
+    },
+    {
+      "type": "move",
+      "old": "如需将服务扩展至分支机构",
+      "new": "如需将服务扩展至分支机构",
+      "oldPage": 2,
+      "newPage": 1,
+      "note": "Unchanged paragraph moved from section 5 on p. 2 to the end of section 1 on p. 1."
+    }
+  ]
+}

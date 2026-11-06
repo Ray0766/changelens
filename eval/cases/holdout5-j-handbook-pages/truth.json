@@ -1,0 +1,75 @@
+{
+  "description": "Seven-page field service handbook (fictitious water utility) typeset with Typst 0.15 (Carlito 11 pt, one section per page, running header, footer 'Page n of 7'), then reorganised in PyMuPDF 2.1 with page operations, which change the page tree and not any content stream: old p. 4 'Legacy paper forms' deleted (delete_page); the appendix of emergency contacts moved from the end (old p. 7) to new p. 2 (move_page); a full copy of the PPE page (old p. 2, still at new p. 3) inserted as new p. 6 (fullcopy_page); a new page '5A Lone working' created with new_page + insert_htmlbox (Nimbus Sans, no running header or footer) as new p. 7; the hydrant schedule (old p. 6, new p. 8) rotated by 90 degrees (a /Rotate 90 page attribute). Content-stream edits on the travel page (old p. 3, new p. 4): in the rates table the daily allowance 48.00 is redacted and re-typed as 52.00 in Carlito embedded again by PyMuPDF, and the mileage rate 0.32 is re-typed as 0.35 in Helvetica 10 pt (base-14). No annotations. Consequences, not listed: the Typst footers keep their old numbers, so new p. 2 says 'Page 7 of 7', new pp. 3 and 6 both say 'Page 2 of 7' and no page says 'Page 4'; the contents list on p. 1 still names section 4; all pages after the move shift position. 7 -> 8 pages.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "delete",
+      "old": "Until the tablet roll-out is complete",
+      "oldPage": 4,
+      "newPage": 4,
+      "maxItems": 4,
+      "note": "Whole page deleted (heading, a paragraph, a four-item list and a paragraph). Old p. 4 sat between old p. 3 (now new p. 4) and old p. 5 (now new p. 5); newPage 4 is the deletion point at the end of new p. 4."
+    },
+    {
+      "type": "move",
+      "old": "Call these numbers in the order shown",
+      "new": "Call these numbers in the order shown",
+      "oldPage": 7,
+      "newPage": 2,
+      "maxItems": 3,
+      "note": "Whole page (Appendix A, emergency contacts table) moved from the end to second position, unchanged. Its footer still reads 'Page 7 of 7'."
+    },
+    {
+      "type": "insert",
+      "new": "Crews must wear the equipment listed below",
+      "oldPage": 5,
+      "newPage": 6,
+      "maxItems": 4,
+      "note": "Exact duplicate of the PPE page (old p. 2 = new p. 3, still in place) inserted after the confined-space page; oldPage 5 is the insertion point at the end of old p. 5. Expected to be described as repeating new p. 3 word for word."
+    },
+    {
+      "type": "insert",
+      "new": "5A Lone working",
+      "oldPage": 5,
+      "newPage": 7,
+      "maxItems": 5,
+      "note": "New page written with insert_htmlbox: heading, three paragraphs and a three-item list; inserted after the duplicate PPE page and before the hydrant page, i.e. at the end of old p. 5 in old terms. It has no running header or footer."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 6,
+      "newPage": 8,
+      "oldRect": [
+        0,
+        0,
+        595.3,
+        841.9
+      ],
+      "newRect": [
+        0,
+        0,
+        841.9,
+        595.3
+      ],
+      "note": "Page rotation 0 -> 90 degrees: the hydrant schedule page is displayed landscape with its text running top to bottom; content unchanged. README lists page size or orientation changes under graphics. Rects are the whole page in display orientation."
+    },
+    {
+      "type": "number",
+      "old": "48.00",
+      "new": "52.00",
+      "oldPage": 3,
+      "newPage": 4,
+      "note": "Rates table, daily allowance '48.00 per day': re-typed in the same face (Carlito 11 pt) at the same baseline."
+    },
+    {
+      "type": "number",
+      "old": "0.32",
+      "new": "0.35",
+      "oldPage": 3,
+      "newPage": 4,
+      "note": "Rates table, private car '0.32 per kilometre': re-typed in Helvetica 10 pt instead of Carlito 11 pt; the font change is part of this edit."
+    }
+  ]
+}

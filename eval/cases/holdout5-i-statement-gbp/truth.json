@@ -1,0 +1,80 @@
+{
+  "description": "UK customer statement of account (Sample Wholesale Supplies Ltd, fictional) listing invoices, credit notes and payments for August-October 2026, produced with fpdf2 2.9.0 using non-embedded core fonts (Courier for the transaction rows, Helvetica for headings, cp1252). Amounts use the ledger convention 1,234.56 DR / 150.00 CR, dates dd/mm/yyyy, 'Page X of Y' footers, a header row repeated on each page, an aged-balance grid, a credit-use bar drawn with rectangles and a remittance slip with a dashed cut line and an Interleaved 2 of 5 barcode. Edits: a missing invoice INV 40871 inserted on page 1, the due date of INV 40626 extended, a payment that had been posted as DR corrected to CR, the reason text of credit note CRN 7344 changed; the aged balance and the credit-use bar are recomputed. Consequences not listed: the last row of page 1 (PAY 88123) moves to page 2, the whole summary block (aged balance, credit bar, remittance slip with barcode) no longer fits on page 2 and moves to a new page 3, and the footers change from 'Page n of 2' to 'Page n of 3'. The 2 months and Older buckets are unchanged.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "insert",
+      "new": "INV 40871 Delivery 7716 - Shelving brackets",
+      "newPage": 1,
+      "note": "Whole new row dated 12/09/2026, due 12/10/2026, 1,820.40 DR."
+    },
+    {
+      "type": "number",
+      "old": "Sandpaper rolls 30/09/2026",
+      "new": "Sandpaper rolls 15/10/2026",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Due date of INV 40626 (30/08/2026, Delivery 7626 - Sandpaper rolls) extended; the description is in the snippet because another invoice is also due 15/10/2026."
+    },
+    {
+      "type": "number",
+      "old": "150.00 DR",
+      "new": "150.00 CR",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Payment PAY 88213 (20/10/2026) corrected from debit to credit: a sign change written with the DR/CR suffix, which the README does not list among recognised sign notations. A report as a word change DR -> CR is equally correct."
+    },
+    {
+      "type": "replace",
+      "old": "Goods returned - damaged",
+      "new": "Goods returned - wrong size",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Details of credit note CRN 7344 (23/10/2026); the August credit notes keep 'damaged'. Snippet unique on that page."
+    },
+    {
+      "type": "number",
+      "old": "£1,496.34",
+      "new": "£1,196.34",
+      "oldPage": 2,
+      "newPage": 3,
+      "note": "Aged balance, Current (October) bucket: -300.00 from the sign correction."
+    },
+    {
+      "type": "number",
+      "old": "£1,848.42",
+      "new": "£3,668.82",
+      "oldPage": 2,
+      "newPage": 3,
+      "note": "Aged balance, 1 month (September) bucket: +1,820.40 from the inserted invoice."
+    },
+    {
+      "type": "number",
+      "old": "£6,877.15",
+      "new": "£8,397.55",
+      "oldPage": 2,
+      "newPage": 3,
+      "note": "Total due."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 2,
+      "newPage": 3,
+      "oldRect": [
+        127.6,
+        548.8,
+        311.8,
+        11.3
+      ],
+      "newRect": [
+        127.6,
+        114.8,
+        311.8,
+        11.3
+      ],
+      "note": "Credit-use bar: filled part grows from 69% to 84% of the bar; rect is the whole bar outline. The bar is on a different page after the edit (summary block moved)."
+    }
+  ]
+}
