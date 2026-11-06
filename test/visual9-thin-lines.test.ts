@@ -121,19 +121,25 @@ test('V2-thin: light and mid-tone lines drawn over black text are found (round 5
   const one = await probe('text-before', 'text-midtone-one');
   assert.deepEqual(lines(one), ['Struck through: “audited”', 'Struck through: “twelve”']);
   // The round-5 case: the same lines as PyMuPDF annotations, and a yellow
-  // highlight, a colour item as before.
+  // highlight. Since V3-markup-annotations, read as annotations and listed
+  // once each (see visual9-markup.test.ts), not found again in the pixels.
   const a = await run(cases + 'holdout5-j-audit-annotations/before.pdf', cases + 'holdout5-j-audit-annotations/after.pdf');
-  assert.deepEqual(lines(a), ['Struck through: “The finding is considered minor”', 'Underlined: “within 30 days of receiving thi…”']);
-  assert.deepEqual(a.changes.filter((c) => describeChange('en', c) === 'Text colour or weight changed').map((c) => c.new.text), ['Calibration records for two torque wrenches were missing']);
+  assert.deepEqual(lines(a), []);
+  assert.deepEqual(
+    a.changes.filter((c) => c.format?.markup).map((c) => describeChange('en', c)),
+    ['Highlighted (annotation): “Calibration records for two tor…”', 'Struck through (annotation): “The finding is considered minor.”', 'Underlined (annotation): “within 30 days of receiving thi…”'],
+  );
+  assert.deepEqual(a.changes.filter((c) => describeChange('en', c) === 'Text colour or weight changed'), []);
 });
 
 test('V2-thin: controls — a highlight’s edge or the strip where its quads overlap is no line', { skip }, async () => {
   // Round-4 case: a yellow highlight annotation (multiply) over three
   // lines, its quads overlapping in a darker strip under the second line:
-  // one colour item, no underline.
+  // one item, no underline. (A colour item before V3-markup-annotations,
+  // now the highlight read as an annotation.)
   const h = await run(cases + 'holdout4-g-annotated-agreement/before.pdf', cases + 'holdout4-g-annotated-agreement/after.pdf');
   assert.deepEqual(lines(h), []);
-  assert.equal(list(h.changes).filter((d) => d === 'Text colour or weight changed').length, 1);
+  assert.deepEqual(list(h.changes).filter((d) => d === 'Text colour or weight changed' || d.startsWith('Highlighted')), ['Highlighted (annotation): “The Supplier’s total liability …”']);
 });
 
 test('V2-thin: a grey strike over black text is found where it crosses several words, and counted on one word', { skip }, async () => {

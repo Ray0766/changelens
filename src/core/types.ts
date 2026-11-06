@@ -278,6 +278,8 @@ export interface FormatDetail {
   appearanceChanged?: boolean;
   /** A line through or under the text was added or removed (found visually). */
   decoration?: { line: 'strike' | 'underline'; added: boolean };
+  /** A text-markup annotation on the words was added, removed or changed colour (read from the PDF's annotations). */
+  markup?: { kind: MarkupKind; change: 'added' | 'removed' | 'recoloured' };
   /**
    * (Form fields) The value reads in another direction in its box: degrees
    * clockwise from left to right (90: top to bottom, 180: upside down, 270:

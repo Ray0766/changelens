@@ -170,6 +170,7 @@ function describeKind(lang: Lang, c: Change): string {
     case 'graphic':
       if (c.minor) return t(lang, 'minorShift', { n: SHIFT_PT });
       if (c.pageChange) return describePage(lang, c);
+      if (c.format?.markup) return describeMarkup(lang, c);
       if (c.format?.decoration) {
         const d = c.format.decoration;
         const key = d.line === 'strike' ? (d.added ? 'strikeAdded' : 'strikeRemoved') : d.added ? 'underlineAdded' : 'underlineRemoved';
@@ -180,6 +181,14 @@ function describeKind(lang: Lang, c: Change): string {
       if (!c.new.rects.length) return t(lang, 'graphicRemoved');
       return t(lang, 'graphicChanged');
   }
+}
+
+/** A text-markup annotation added, removed or recoloured on words (see FormatDetail.markup). */
+function describeMarkup(lang: Lang, c: Change): string {
+  const m = c.format!.markup!;
+  const kind = ({ strike: 'Strike', underline: 'Underline', squiggly: 'Squiggly', highlight: 'Highlight' } as const)[m.kind];
+  const change = ({ added: 'Added', removed: 'Removed', recoloured: 'Recoloured' } as const)[m.change];
+  return t(lang, `markup${kind}${change}`, { text: truncate((m.change === 'removed' ? c.old : c.new).text, 32) });
 }
 
 /** The direction a text reads in (degrees clockwise from left to right). */
