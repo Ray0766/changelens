@@ -3075,7 +3075,7 @@ function tightRowNumbers(doc: DocModel): Set<number> {
     page: number;
     /** Where the next text on the line starts (NaN: none). */
     next: number;
-    /** Set apart from the next text by more than the line's word spacing, or alone on its line. */
+    /** Set apart from the next text by more than the line's word spacing (or no word space follows), or alone on its line. */
     spaced: boolean;
   }
   const sameEdge = (p: Row, q: Row) => Math.abs(p.size - q.size) <= 0.06 * Math.max(p.size, q.size) && (Math.abs(p.x1 - q.x1) <= 1.5 || Math.abs(p.x0 - q.x0) <= 1.5);
@@ -3093,7 +3093,7 @@ function tightRowNumbers(doc: DocModel): Set<number> {
     row.next = next.rects[0].x;
     const gap = row.next - row.x1;
     if (gap < 0.4 * t.size) return null;
-    // The narrowest word space after the number on its line.
+    // The narrowest word space after the number on its line (none: nothing to set it apart from).
     let space = Infinity;
     for (let j = k + 2; j < line.end; j++) {
       if (!doc.tokens[j].spaceBefore) continue;
@@ -3101,7 +3101,7 @@ function tightRowNumbers(doc: DocModel): Set<number> {
       const w = doc.tokens[j].rects[0].x - (p.x + p.w);
       if (w > 0.05 * t.size && w < space) space = w;
     }
-    row.spaced = gap >= 1.5 * space;
+    row.spaced = space === Infinity || gap >= 1.5 * space;
     return row;
   };
   /** Where the next cell starts on the rows of each column that is one of row numbers. */

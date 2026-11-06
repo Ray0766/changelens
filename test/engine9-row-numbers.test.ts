@@ -42,6 +42,10 @@ test('T2: row numbers set closer than an em to the next cell are renumbered afte
   assert.deepEqual(listed(del), ['Deleted a paragraph', 'Number changed: 6 → 4 (-33%)', 'Number changed: 74,40 → 49,60 (-33%)', 'Number changed: 1.426,15 → 1.247,35 (-13%)']);
   assert.ok(del.changes[0].old.text.startsWith('4 31-0458 Pipettenspitzen'), del.changes[0].old.text);
   assert.equal(del.ignored.renumbered, 9);
+  // Rows of one word each, no word space to compare the gap with: a row inserted as Pos. 3.
+  const two = await probe('twocol-before', 'twocol-after');
+  assert.deepEqual(listed(two), ['Added “3 Muffe”']);
+  assert.deepEqual(minor(two), shifted(3, 10));
   // A left-aligned column: "1"–"9" stand an em or more before the next cell, "10"–"13" closer.
   for (const [before, after, kind] of [['leftcol-before', 'leftcol-after', 'Added'], ['leftcol-after', 'leftcol-before', 'Deleted']]) {
     const r = await probe(before, after);

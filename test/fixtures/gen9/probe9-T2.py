@@ -20,6 +20,7 @@ holdout5-i-rechnung-eur: a right-aligned "Pos." column 10 mm wide, so that fpdf2
   probe9-T2-justified-before / -after  single lines that start with a count (1, 2, 3 …), set word by
                                        word with spaces of 0.8 em, as wide as the gap after the
                                        count; a line added on top and every count raised by one
+  probe9-T2-twocol-before / -after     a table of row numbers and one-word parts; a row inserted as Pos. 3
   probe9-T2-lone-before / -after       a single line-start integer changed (no column)
   probe9-T2-crossing-before / -after   30 rows over 2 pages, a running header on p. 2 only; a row
                                        inserted as Pos. 5, so the last row of p. 1 crosses to p. 2
@@ -221,6 +222,13 @@ def main(out):
                 pdf.cell(w, 6, word)
                 x += w + space
             y += 6
+        pdf.output(p(name))
+    # Two columns, one word each: no word space on the rows to compare the gap with; a row inserted as Pos. 3.
+    parts = ["Dichtung", "Ventil", "Flansch", "Schraube", "Mutter", "Feder", "Kolben", "Zylinder", "Lager", "Welle"]
+    tcols = [("Pos.", 10, "R"), ("Teil", 60, "L")]
+    for name, names in (("twocol-before", parts), ("twocol-after", parts[:2] + ["Muffe"] + parts[2:])):
+        pdf = new_doc()
+        table(pdf, tcols, [[str(i + 1), n] for i, n in enumerate(names)])
         pdf.output(p(name))
     # A single line-start integer changed: no column.
     for name, n in (("lone-before", 5), ("lone-after", 6)):
