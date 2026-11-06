@@ -323,12 +323,16 @@ function codeRun(T: Token[], s: number, e: number): Token[] | null {
 
 /**
  * Both sides of a hunk are digit groups of one code (see codeRun) of at
- * least three groups, and a group starts with a zero ("03", "0457"), which
- * a figure of its own is not written with: the groups are one value, so a
- * change to them is listed once, without a percentage. Figures in a row
- * ("120 135 150", "Region0 1000 1001 1002") are each their own change.
+ * least three groups, a group starts with a zero ("03", "0457"), which a
+ * figure of its own is not written with, and one side was re-typed by a PDF
+ * editor (Token.retyped): the groups are one value, re-typed as a whole, so
+ * a change to them is listed once, without a percentage. Figures in a row
+ * ("120 135 150", "Region0 1000 1001 1002") are each their own change, and
+ * so are the groups of a document in reading order, as before this rule
+ * ("hourly: 07 09 12 15" → "07 09 14 19" is two number changes).
  */
 function codeGroups(ctx: Ctx, h: Hunk): boolean {
+  if (!ctx.A.slice(h.a0, h.a1).some((t) => t.retyped) && !ctx.B.slice(h.b0, h.b1).some((t) => t.retyped)) return false;
   const a = codeRun(ctx.A, h.a0, h.a1);
   const b = codeRun(ctx.B, h.b0, h.b1);
   return !!a && !!b && a.length >= 3 && b.length >= 3 && [...a, ...b].some((t) => /^0\d/.test(t.text));

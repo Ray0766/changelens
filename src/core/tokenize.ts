@@ -831,6 +831,7 @@ export function buildDocModel(doc: DocText): DocModel {
           ...(main.autoSize ? { autoSize: true as const } : {}),
           ...(main.widget ? { widget: main.widget } : {}),
           ...(rl.late ? { late: true as const } : {}),
+          ...(rl.retyped?.has(main) ? { retyped: true as const } : {}),
         });
       }
       const line: Line = {

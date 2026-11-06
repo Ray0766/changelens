@@ -313,17 +313,24 @@ test('T1: a late value below the text drawn before the footer is joined only wit
 
 // ------------------------------------------------------ account numbers ---
 
-test('T1: an account number re-typed in its digit groups is one change without a percentage; separate figures stay apart', () => {
+test('T1: an account number re-typed in its digit groups is one change without a percentage; in reading order, as before', async () => {
+  // Re-typed after the footer by a PDF editor (the lease probe and the
+  // round-5 invoice): one change, without a percentage.
+  const r = await probe('lease');
+  assert.ok(listed(r).includes('Number changed: 2045 1189 03 → 9932 0457 18'));
+  assert.equal(r.changes.find((c) => c.new.text === '9932 0457 18')?.numeric?.fromValue, null);
+  // Controls, in reading order: each group is its own figure, as before
+  // this rule (an account number, an IBAN, readings in a row, zero-padded
+  // hourly readings).
   const doc = (line: string) => model(makeDoc('d', [[['Please pay by bank transfer to the account below.', line, 'Quote the invoice number as the reference.']]]));
-  let r = compareDocs(doc('Account ZZ41 7700 2045 1189 03'), doc('Account ZZ41 7700 9932 0457 18'));
-  assert.deepEqual(listed(r), ['Number changed: 2045 1189 03 → 9932 0457 18']);
-  assert.equal(r.changes[0].numeric?.fromValue, null);
-  // An IBAN-like code: the groups after the letters and digits heading it.
-  r = compareDocs(doc('IBAN DE89 3704 0044 0532 0130 00'), doc('IBAN DE89 3704 0044 0532 0177 15'));
-  assert.deepEqual(listed(r), ['Number changed: 0130 00 → 0177 15']);
-  // Control: three readings of 1–3 digits in a row are three figures, each with its percentage.
-  r = compareDocs(doc('Readings 120 135 150 at noon'), doc('Readings 125 140 155 at noon'));
-  assert.deepEqual(listed(r), ['Number changed: 120 → 125 (+4.2%)', 'Number changed: 135 → 140 (+3.7%)', 'Number changed: 150 → 155 (+3.3%)']);
+  const cases: [string, string, string[]][] = [
+    ['Account ZZ41 7700 2045 1189 03', 'Account ZZ41 7700 9932 0457 18', ['Number changed: 2045 → 9932 (+386%)', 'Number changed: 1189 → 0457', 'Number changed: 03 → 18']],
+    ['IBAN DE89 3704 0044 0532 0130 00', 'IBAN DE89 3704 0044 0532 0177 15', ['Number changed: 0130 → 0177', 'Number changed: 00 → 15']],
+    ['Readings 120 135 150 at noon', 'Readings 125 140 155 at noon', ['Number changed: 120 → 125 (+4.2%)', 'Number changed: 135 → 140 (+3.7%)', 'Number changed: 150 → 155 (+3.3%)']],
+    ['Pressure readings in bar, hourly: 07 09 12 15 18 21.', 'Pressure readings in bar, hourly: 07 09 14 19 18 21.', ['Number changed: 12 → 14 (+17%)', 'Number changed: 15 → 19 (+27%)']],
+  ];
+  for (const [a, b, want] of cases) assert.deepEqual(listed(compareDocs(doc(a), doc(b))), want, a);
+  assert.ok(!doc('Account ZZ41 7700 2045 1189 03').tokens.some((t) => t.retyped));
 });
 
 // --------------------------------------------------------- round 5 -------

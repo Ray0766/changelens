@@ -147,6 +147,12 @@ export interface Token {
    * no place for it was found (see restoreReadingOrder in tokenize.ts).
    */
   late?: true;
+  /**
+   * Drawn after the page's footer (as PDF editors append re-typed text) and
+   * put back by its position on the page (see restoreReadingOrder in
+   * tokenize.ts): text that a PDF editor re-typed.
+   */
+  retyped?: true;
 }
 
 export interface Line {
