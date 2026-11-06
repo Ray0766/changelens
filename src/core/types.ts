@@ -323,6 +323,8 @@ export interface Change {
   blankPage?: boolean;
   /** (pageChange 'resized') The page was turned (/Rotate) by this many degrees clockwise. */
   turned?: 90 | 180 | 270;
+  /** (Graphics) Drawn by a stamp, a free-text note or a comment annotation: its text is on the side(s) that have it. */
+  note?: AnnotationNote['kind'];
   /**
    * Not an edit but a consequence of one: list items renumbered after an
    * insertion, or a line repeated at the top of a page (a table's header

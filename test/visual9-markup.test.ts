@@ -1,13 +1,15 @@
 // Visual stage, fix round 9, area V3-markup-annotations (held-out round 5,
 // holdout5-j-audit-annotations): PDF annotations were compared only as the
 // pixels PDF.js draws. A yellow Highlight and a red StrikeOut were listed as
-// "Text colour or weight changed", and a green Underline over two lines was
-// missed (fix round 9 found it in the pixels as "Underlined").
+// "Text colour or weight changed", a green Underline over two lines was
+// missed, a Stamp and a FreeText note were listed only as "Graphic or image
+// added", and no notice said that the file had annotations.
 // Text-markup annotations (StrikeOut, Underline, Squiggly, Highlight) are now
 // read from the PDF and listed on the words they cover, "(annotation)", when
 // one came, went or changed colour; what they draw is not listed again from
 // the pixels where the glyphs outside their ink are the same in both
-// versions.
+// versions. Stamps, free-text notes and comments are named with their text,
+// and a notice counts the annotations by kind.
 // Fixtures test/fixtures/probe9-V3-markup-*.pdf are SYNTHETIC (page content
 // by fpdf2 2.9, annotations by PyMuPDF 2.1, as the round-5 case), made by
 // test/fixtures/gen9/v3-markup.py: a two-page audit note in Liberation Sans
@@ -23,6 +25,7 @@ import { addVisualChanges } from '../src/core/pipeline.ts';
 import { describeChange, notices } from '../src/core/describe.ts';
 import { reportNotices } from '../src/core/report.ts';
 import type { Change, CompareResult, DiffOptions } from '../src/core/types.ts';
+import { makeDoc, model } from './helpers.ts';
 
 const fixtures = new URL('./fixtures/', import.meta.url).pathname;
 const cases = new URL('../eval/cases/', import.meta.url).pathname;
@@ -146,6 +149,7 @@ test('V3-markup: a highlight on every word (188) is read within the bound and li
   assert.ok(performance.now() - t0 < 30000);
   assert.equal(r.changes.length, 9);
   assert.ok(r.changes.every((c) => c.format?.markup?.kind === 'highlight'));
+  assert.ok(notices('en', r).some((n) => n.text.startsWith('New version p. 1–2: 188 annotations (188 highlights).')));
   // On the header and footer: counted, not listed.
   assert.equal(r.ignored.furniture, 4);
 });
@@ -218,4 +222,76 @@ test('V3-markup: at most MAX_MARKUP markup annotations are read per page; the re
   assert.deepEqual(b.counts, { Underline: 1, Squiggly: 1 });
   assert.deepEqual(b.markup, [{ kind: 'squiggly', quads: [{ x: 0, y: 832, w: 10, h: 10 }], colour: null, rect: { x: 0, y: 832, w: 10, h: 10 } }]);
   assert.equal(pageAnnotations([{ subtype: 'Link', rect: [0, 0, 1, 1] }], vt), null);
+  // The notice counts those past the bound.
+  const doc = makeDoc('new', [[['Calibration records were missing.']]]);
+  doc.pages[0].annotations = a;
+  const r = compareDocs(model(makeDoc('old', [[['Calibration records were missing.']]])), model(doc));
+  assert.deepEqual(
+    notices('en', r).map((n) => [n.level, n.text]),
+    [
+      ['info', `New version p. 1: ${MAX_MARKUP + 200} annotations (${MAX_MARKUP + 200} highlights). Their text (a stamp’s or a note’s own text, pop-up comments) is not compared as text; in the visual check, highlights, strike-outs and underlines are compared on the words they cover, other annotations as images only.`],
+      ['warn', 'New version p. 1: 200 more text-markup annotations than are read per page were compared as images only, not on the words they cover.'],
+    ],
+  );
+});
+
+test('V3-markup: stamps, free-text notes and comments are named with their text (round 5, audit #2 and #5; round 4)', { skip }, async () => {
+  const c = await probe('before', 'comment');
+  assert.deepEqual(list(c), ['Stamp added (annotation): “APPROVED”', 'Comment added (annotation): “Ask for the calibration certificates. SYNTHETIC”', HL]);
+  const n = await probe('note-before', 'note-changed');
+  assert.deepEqual(list(n), ['Note changed (annotation): “Draft for internal review, SYNTHETIC” → “Reviewed 2 Nov 2026: plan accepted, SYN…”']);
+  assert.equal(describeChange('zh', n.changes[0]), '文本框批注有变化（批注）：「Draft for internal review, SYNTHETIC」→「Reviewed 2 Nov 2026: plan accepted, SYN…」');
+  // Round 4: a stamp, a highlight with a pop-up comment, a free-text note
+  // whose text changed and a comment icon.
+  const r4 = await run(cases + 'holdout4-g-annotated-agreement/before.pdf', cases + 'holdout4-g-annotated-agreement/after.pdf');
+  assert.deepEqual(list(r4), [
+    'Stamp added (annotation): “RECEIVED 02 NOV 2026”',
+    'Highlighted (annotation): “The Supplier’s total liability …”',
+    'Note changed (annotation): “Draft for internal review A. Kowal, 27 …” → “Reviewed 2 Nov 2026: two questions open…”',
+    'Number changed: 30 → 45 (+50%)',
+    'Comment added (annotation): “Is three months enough for a data migration?”',
+  ]);
+});
+
+test('V3-markup: the round-5 case lists each annotation once, by name, with a notice', { skip }, async () => {
+  const r = await run(cases + 'holdout5-j-audit-annotations/before.pdf', cases + 'holdout5-j-audit-annotations/after.pdf');
+  assert.deepEqual(list(r), [
+    'Stamp added (annotation): “FOR COMMENT”',
+    'Deleted “87”',
+    'Added “82”',
+    'Highlighted (annotation): “Calibration records for two tor…”',
+    'Note added (annotation): “Reviewer: grade F1 as major? The records were m…”',
+    'Struck through (annotation): “The finding is considered minor.”',
+    'Underlined (annotation): “within 30 days of receiving thi…”',
+    'Deleted “October”',
+    'Added “April”',
+    'Graphic or image changed',
+  ]);
+  assert.equal(r.changes[5].new.text, 'The finding is considered minor.');
+  assert.equal(counted(r), 0);
+  const en = reportNotices('en', r);
+  assert.deepEqual(en, [
+    {
+      level: 'warn',
+      text: 'New version p. 1–2: 6 annotations (1 stamp, 1 highlight, 1 strike-out, 1 free-text note, 1 underline, 1 ink drawing). Their text (a stamp’s or a note’s own text, pop-up comments) is not compared as text; in the visual check, highlights, strike-outs and underlines are compared on the words they cover, other annotations as images only.',
+    },
+  ]);
+  assert.equal(
+    reportNotices('zh', r)[0].text,
+    '新版第 1–2 页有 6 个批注（1 个图章、1 处高亮、1 处删除线、1 个文本框批注、1 处下划线、1 处手绘）。批注中的文字（图章或文本框自身的文字、弹出式评论）不作为文字比较；在版式比较中，高亮、删除线和下划线按所覆盖的文字比较，其他批注只按图像比较。',
+  );
+  // Without the visual stage, the notice stays.
+  const text = await run(cases + 'holdout5-j-audit-annotations/before.pdf', cases + 'holdout5-j-audit-annotations/after.pdf', {}, false);
+  assert.ok(reportNotices('en', text, false).some((n) => n.level === 'warn' && n.text.startsWith('New version p. 1–2: 6 annotations')));
+});
+
+test('V3-markup: a highlight without text is an information notice; none without annotations', { skip }, async () => {
+  const hl = await probe('before', 'hl');
+  assert.deepEqual(
+    notices('en', hl).map((n) => n.level),
+    ['info'],
+  );
+  const none = await probe('before', 'before');
+  assert.deepEqual(list(none), []);
+  assert.deepEqual(notices('en', none), []);
 });

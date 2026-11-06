@@ -171,6 +171,7 @@ function describeKind(lang: Lang, c: Change): string {
       if (c.minor) return t(lang, 'minorShift', { n: SHIFT_PT });
       if (c.pageChange) return describePage(lang, c);
       if (c.format?.markup) return describeMarkup(lang, c);
+      if (c.note) return describeNote(lang, c);
       if (c.format?.decoration) {
         const d = c.format.decoration;
         const key = d.line === 'strike' ? (d.added ? 'strikeAdded' : 'strikeRemoved') : d.added ? 'underlineAdded' : 'underlineRemoved';
@@ -189,6 +190,33 @@ function describeMarkup(lang: Lang, c: Change): string {
   const kind = ({ strike: 'Strike', underline: 'Underline', squiggly: 'Squiggly', highlight: 'Highlight' } as const)[m.kind];
   const change = ({ added: 'Added', removed: 'Removed', recoloured: 'Recoloured' } as const)[m.change];
   return t(lang, `markup${kind}${change}`, { text: truncate((m.change === 'removed' ? c.old : c.new).text, 32) });
+}
+
+/** A graphic drawn by a stamp, a free-text note or a comment annotation (see Change.note), with its text. */
+function describeNote(lang: Lang, c: Change): string {
+  const what = t(lang, ({ stamp: 'noteStamp', freetext: 'noteFreetext', comment: 'noteComment' } as const)[c.note!]);
+  const [o, n] = [c.old.rects.length > 0, c.new.rects.length > 0];
+  if (n && !o) return t(lang, 'noteAdded', { what, text: truncate(c.new.text, 48) });
+  if (o && !n) return t(lang, 'noteRemoved', { what, text: truncate(c.old.text, 48) });
+  if (c.old.text && c.new.text && c.old.text !== c.new.text) return t(lang, 'noteChanged', { what, from: truncate(c.old.text, 40), to: truncate(c.new.text, 40) });
+  return t(lang, 'noteChangedLook', { what, text: truncate(c.new.text || c.old.text, 48) });
+}
+
+/** "6 annotations (1 stamp, 1 highlight, …)": the subtypes counted on the pages of one version (see PageAnnotations.counts). */
+function annotationList(lang: Lang, counts: Map<string, number>): string {
+  const named: Record<string, 'annotHighlight' | 'annotStrikeOut' | 'annotUnderline' | 'annotSquiggly' | 'annotStamp' | 'annotFreeText' | 'annotText' | 'annotInk'> = {
+    Highlight: 'annotHighlight',
+    StrikeOut: 'annotStrikeOut',
+    Underline: 'annotUnderline',
+    Squiggly: 'annotSquiggly',
+    Stamp: 'annotStamp',
+    FreeText: 'annotFreeText',
+    Text: 'annotText',
+    Ink: 'annotInk',
+  };
+  return [...counts]
+    .map(([type, n]) => (named[type] ? t(lang, named[type], { n }) : t(lang, 'annotOther', { n, type: truncate(type, 24) })))
+    .join(lang === 'zh' ? '、' : ', ');
 }
 
 /** The direction a text reads in (degrees clockwise from left to right). */
@@ -277,6 +305,31 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
       out.push({ level: 'warn', text: t(lang, 'noticeFieldsUnread', { side: side(s), pages: pageRuns(lang, fields.map((u) => u.page)), n: fields.reduce((n, u) => n + u.count, 0) }) });
     const unreadable = (cov.fieldsUnread ?? []).filter((u) => u.count < 0);
     if (unreadable.length) out.push({ level: 'warn', text: t(lang, 'noticeFieldsUnreadable', { side: side(s), pages: pageRuns(lang, unreadable.map((u) => u.page)) }) });
+  }
+  // Annotations other than form fields' widgets and links: how many of
+  // which kind, and that their text is not compared as text. A warning
+  // where one shows or carries text (a stamp, a note, a comment's pop-up).
+  for (const s of ['old', 'new'] as const) {
+    const doc = s === 'old' ? r.oldDoc : r.newDoc;
+    const counts = new Map<string, number>();
+    const pages: number[] = [];
+    const unreadPages: number[] = [];
+    let withText = 0;
+    let unread = 0;
+    for (const pg of doc?.pages ?? []) {
+      const an = pg.annotations;
+      if (!an) continue;
+      pages.push(pg.index);
+      for (const [k, n] of Object.entries(an.counts)) counts.set(k, (counts.get(k) ?? 0) + n);
+      withText += an.withText;
+      if (an.unread) {
+        unread += an.unread;
+        unreadPages.push(pg.index);
+      }
+    }
+    const n = [...counts.values()].reduce((x, y) => x + y, 0);
+    if (n) out.push({ level: withText ? 'warn' : 'info', text: t(lang, 'noticeAnnotations', { side: side(s), pages: pageRuns(lang, pages), n, list: annotationList(lang, counts) }) });
+    if (unread) out.push({ level: 'warn', text: t(lang, 'noticeAnnotationsUnread', { side: side(s), pages: pageRuns(lang, unreadPages), n: unread }) });
   }
   for (const s of ['old', 'new'] as const) {
     const skipped = r.coverage?.[s]?.visualSkipped ?? [];

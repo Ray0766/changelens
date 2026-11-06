@@ -9,7 +9,7 @@
  * the matched words above and below it as anchors). Text itself is masked
  * out, and small anti-aliasing differences are tolerated.
  */
-import type { Change, CompareResult, DocModel, Line, Markup, MarkupKind, Rect, TextRun, Token } from './types.ts';
+import type { AnnotationNote, Change, CompareResult, DocModel, Line, Markup, MarkupKind, Rect, TextRun, Token } from './types.ts';
 import { expand, intersects, union } from './geometry.ts';
 import { joinTokens } from './tokenize.ts';
 
@@ -6322,6 +6322,9 @@ function compareAligned(
     c[other].pages = c[other].rects.length ? [page] : [];
   }
 
+  // Graphics drawn by a stamp or a note annotation: named with its text.
+  nameNotes(result, oldPage, newPage, changes);
+
   // Minor shifts: only where neither side has a real difference.
   const clear = (r: Rect, same: Rect[], other: Rect[], map: (r: Rect) => Rect) =>
     !same.some((q) => intersects(expand(q, 4), r)) && !other.some((q) => intersects(expand(q, 6), map(r)));
@@ -6722,6 +6725,52 @@ function unnoteMarkup(result: CompareResult, oldPage: number, newPage: number, A
     if (a.rects.length !== 1 || b.rects.length !== 1 || !markupExplains(line, a, b, f.rows, A, B, on)) continue;
     const ok = f.added ? sameOutside(B, b.rects[0], A, a.rects[0], f.rows) : sameOutside(A, a.rects[0], B, b.rects[0], f.rows);
     if (ok) words.delete(i);
+  }
+}
+
+/**
+ * Graphic changes drawn by a stamp, a free-text note or a comment
+ * annotation that one version has and the other does not have alike (of
+ * the same kind, at the same place within 3 pt, with the same text): the
+ * change that covers most of its box on that page is marked with its kind
+ * (`note`) and given its text, so that it reads "Stamp added (annotation):
+ * “FOR COMMENT”", "Note changed (annotation): “…” → “…”". A note whose text
+ * could not be read leaves the change as it is.
+ */
+function nameNotes(result: CompareResult, oldPage: number, newPage: number, changes: Change[]): void {
+  const na = result.oldDoc.pages[oldPage]?.annotations?.notes ?? [];
+  const nb = result.newDoc.pages[newPage]?.annotations?.notes ?? [];
+  if (!na.length && !nb.length) return;
+  const place = (x: AnnotationNote, y: AnnotationNote) =>
+    x.kind === y.kind && Math.abs(x.rect.x - y.rect.x) <= 3 && Math.abs(x.rect.y - y.rect.y) <= 3 && Math.abs(x.rect.w - y.rect.w) <= 3 && Math.abs(x.rect.h - y.rect.h) <= 3;
+  const area = (r: Rect, s: Rect) => Math.max(0, Math.min(r.x + r.w, s.x + s.w) - Math.max(r.x, s.x)) * Math.max(0, Math.min(r.y + r.h, s.y + s.h) - Math.max(r.y, s.y));
+  const plain = (c: Change) => c.kind === 'graphic' && !c.format && !c.minor && !c.pageChange && !c.consequence;
+  const best = (side: 'old' | 'new', n: AnnotationNote, page: number): Change | null => {
+    let top: Change | null = null;
+    let most = 0.25 * n.rect.w * n.rect.h;
+    for (const c of changes) {
+      if (!plain(c)) continue;
+      const v = c[side].rects.filter((q) => q.page === page).reduce((s, q) => s + area(q.rect, n.rect), 0);
+      if (v > most) [top, most] = [c, v];
+    }
+    return top;
+  };
+  for (const n of nb) {
+    const twin = na.find((o) => place(o, n));
+    if (twin && twin.text === n.text) continue;
+    if (!n.text && !twin?.text) continue;
+    const c = best('new', n, newPage) ?? (twin ? best('old', twin, oldPage) : null);
+    if (!c || c.note) continue;
+    c.note = n.kind;
+    c.new.text = n.text;
+    if (twin) c.old.text = twin.text;
+  }
+  for (const o of na) {
+    if (!o.text || nb.some((n) => place(o, n))) continue;
+    const c = best('old', o, oldPage);
+    if (!c || (c.note && c.old.text)) continue;
+    c.note ??= o.kind;
+    c.old.text = o.text;
   }
 }
 
