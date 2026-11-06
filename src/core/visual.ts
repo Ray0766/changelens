@@ -1642,8 +1642,31 @@ function coverStates(X: Prepared, r: Rect, own: Cover[], other: Cover[]): Record
   return { any: (x, y) => (get(x, y) & 1) !== 0, hidden: (x, y) => (get(x, y) & 2) !== 0, own: (x, y) => (get(x, y) & 4) !== 0 };
 }
 
-/** Darkness of a token's box; `x0` and `ys` say which pixel column and row (fractional when re-sampled) each cell comes from. */
-type Box = { d: Float32Array; cols: number; rows: number; top: number; x0: number; ys: Float32Array };
+/**
+ * Darkness of a token's box; `x0` and `ys` say which pixel column and row
+ * (fractional when re-sampled) each cell comes from. `bg`: the darkness of
+ * the box's lightest cell, taken off every cell (see offFill), else 0.
+ */
+type Box = { d: Float32Array; cols: number; rows: number; top: number; x0: number; ys: Float32Array; bg?: number };
+
+/**
+ * A box measured against its own background: where no cell of it is
+ * paper (the word stands on a pale fill or a stripe of a table, in one
+ * version only after a re-flow by a row), each cell's darkness is taken
+ * against the lightest cell's, so that the fill adds no darkness to any
+ * row. Not on a fill half as dark as black or more (a yellow highlight,
+ * far from the paper in its lowest channel, see lowest): taken against
+ * it, the strip where two of its quads overlap would read as a line. The
+ * whole box is darker there, too thick to be a line.
+ */
+function offFill(X: Box): Box {
+  let bg = 1;
+  for (let q = 0; q < X.d.length; q++) if (X.d[q] < bg) bg = X.d[q];
+  if (!(bg > 0.02) || bg >= 0.5) return X;
+  for (let q = 0; q < X.d.length; q++) X.d[q] = Math.max(0, (X.d[q] - bg) / (1 - bg));
+  X.bg = bg;
+  return X;
+}
 
 /**
  * Darkness (0–1) of each pixel of a token's box, extended a little below for
@@ -1714,7 +1737,9 @@ type FoundLine = { line: 'strike' | 'underline'; rows: [number, number]; core: [
  * word (listed on its own): a line that is not level must not be a stroke
  * of it, which goes on out of the word's box to pixels where the graphics
  * comparison found differences (`crossing` tells those pixels of a page,
- * see crosses).
+ * see crosses). `faint`: where no line is found, a line too thin or too
+ * light for the test (see lineIn's thin) that passes its other checks is
+ * put here, for the caller to weigh against the words next to it.
  */
 type LineOptions = {
   drift?: boolean;
@@ -1724,6 +1749,7 @@ type LineOptions = {
   exact?: boolean;
   level?: boolean;
   crossing?: (X: Prepared, x: number, y: number) => boolean;
+  faint?: { line?: FoundLine };
 };
 
 /**
@@ -1783,8 +1809,11 @@ function addedLine(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, c
  * word does not, at whichever shift its strokes look most like a line.
  */
 function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: Cover | null, cb: Cover | null, opts: LineOptions, shifted = false): FoundLine | 'part' | null {
-  const A = boxDarkness(a, ra, { rect: rb, scale: b.r.scale });
-  const B = boxDarkness(b, rb);
+  // Without an overlay found there, a fill under the word is taken off
+  // (see offFill); an overlay's fill is measured against below.
+  const plain = !ca && !cb;
+  const A = plain ? offFill(boxDarkness(a, ra, { rect: rb, scale: b.r.scale })) : boxDarkness(a, ra, { rect: rb, scale: b.r.scale });
+  const B = plain ? offFill(boxDarkness(b, rb)) : boxDarkness(b, rb);
   if (A.cols < 4 || B.cols < 4) return null;
   const n = Math.min(A.rows, B.rows);
   // Rows that belong to the glyphs of the line above or below (see
@@ -1853,8 +1882,9 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
   // through a transparent one are darker by its ink in that version only,
   // which its own units would scale up along their edges (a red figure
   // under a red and a blue stamp: a false strike along the bar of a "4").
-  const ua = inkUnit(a, ra);
-  const ub = inkUnit(b, rb);
+  const bare = (u: number, X: Box) => (X.bg ? Math.max(0, (u - X.bg) / (1 - X.bg)) : u);
+  const ua = bare(inkUnit(a, ra), A);
+  const ub = bare(inkUnit(b, rb), B);
   const unit = Math.min(ua, ub);
   const [ha, hb] = [inkHue(a, ra), inkHue(b, rb)];
   const recoloured = !valid && Math.hypot(ha[0] - hb[0], ha[1] - hb[1], ha[2] - hb[2]) > 30;
@@ -1982,144 +2012,277 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
     return g >= 0.55 || (!shifted && g >= 0.4 && share(A, k, 1) <= 0.7) || (still && filled(k));
   };
   let part = false;
-  for (let k = 0; k < n; k++) {
-    if (!line(k)) {
-      if (!part && win(pb, k, 1) - win(pa, k, 1) >= 0.15 && gained(k, true) >= 0.3) part = true;
-      continue;
-    }
-    let e = k;
-    while (e + 1 < n && line(e + 1)) e++;
-    if (e - k > Math.ceil(1.5 * b.r.scale) + 2) return null;
-    // The edge of a fill that `b` has and `a` not (a highlight on the line
-    // below, whose top reaches into the word's box) is no line: its ink
-    // goes on past the rows found (see goesOn). Where an overlay was found
-    // there, it is measured against that fill instead.
-    if (!valid && goesOn(a, b, A, B, C, k, e)) return null;
-    // Unchanged elsewhere: the rest of the profile matches.
-    let diff = 0;
-    let total = 0;
-    for (let j = 1; j < n - 1; j++) {
-      if (j >= k - 3 && j <= e + 3) continue;
-      diff += Math.abs(win(pb, j, 1) - win(pa, j, 1));
-      total += win(pa, j, 1);
-    }
-    // A token of one or two glyphs (or narrower than 8 pt) may have a stroke
-    // across its whole width of its own (the bar of a "4", most CJK
-    // characters: 一 主 重 年); drawn at another sub-pixel position it can
-    // look like a line. That is only so where the glyph in `a` has such a
-    // stroke: at least as much ink in the line's rows (and the row on either
-    // side) as the line adds there. A line through rows that the glyph
-    // leaves blank (between the strokes of 二 or 三, under 王) is not part of
-    // it, however its strokes elsewhere were re-sampled after a re-flow by a
-    // fraction of a pixel.
-    let own = 0;
-    let all = 0;
-    for (let j = Math.max(0, k - 1); j <= Math.min(n - 1, e + 1); j++) {
-      own += pa[j];
-      all += pb[j];
-    }
-    // Where an overlay leaves only a narrow part of the token to compare,
-    // that part is as narrow as a short token.
-    let seen = C;
-    if (valid) {
-      seen = 0;
-      for (let c = 0; c < C; c++) {
-        let ok = true;
-        for (let j = Math.max(0, k - 1); j <= Math.min(n - 1, e + 1) && ok; j++) ok = !!valid[j * C + c];
-        if (ok) seen++;
-      }
-    }
-    let narrow = (few || rb.w < 8 || seen < 8 * b.r.scale) && own >= all - own;
-    if (shifted) {
-      const ext = extent(A, B, C, n, k, e, valid, true);
-      if (ext !== null && ext < 0.75) return null;
-    }
-    if (narrow) {
-      // Such a stroke spans the glyph's ink, a line the whole advance: its
-      // side bearings and the gap between two figures, columns where the
-      // glyph in `a` has no ink near the line's rows. Where there are such
-      // columns, a line covers them and the glyph's own stroke does not.
-      // Otherwise (the glyph fills its box at those rows) the other rows
-      // must match almost exactly: a line added to the same glyph leaves
-      // them as they were. Where the glyph only moved up or down (a re-flow
-      // by a fraction of a pixel), its columns line up and re-sampling its
-      // rows changes up to a fifth of the ink; where it also moved sideways
-      // by a fraction of a pixel, its columns are blurred against each
-      // other as well, and only the strict test tells.
-      // Where a CJK character fills its box there, a line must also add
-      // about its own darkness on average across the box (half a line or
-      // more within two rows of it): a stroke across the character drawn
-      // crisp in one version and spread over two rows in the other comes
-      // out darker by a fifth or so (the bottom stroke of 重), a line on
-      // paper or beside a stroke by nearly its whole darkness. (A figure
-      // that fills its box, an "8", has no stroke across it.)
-      // (For Latin text, only blank columns between the glyphs' first and
-      // last ink tell a stroke of their own: a box estimated a point or two
-      // beside its glyphs has blank columns beyond them, which a line along
-      // the glyphs does not reach either. A CJK character's box is its em
-      // square.)
-      const ext = extent(A, B, C, n, k, e, valid);
-      const tell = opts.cjk ? ext : extent(A, B, C, n, k, e, valid, true);
-      if (tell !== null && tell < 0.5) return null;
-      if (ext !== null && ext >= 0.75) narrow = false;
-      // So must a figure or a short word whose stroke fills the line's rows
-      // (the bar of a "4") where an overlay is passed: measured against a
-      // fill behind it in one version (a stripe a re-flow moved away), the
-      // rest of its box matches as closely as on paper, and its bar drawn
-      // over two rows in one version and one in the other passes for a
-      // line.
-      if (tell === null && (opts.cjk || valid)) {
-        let gain = 0;
-        let m = 0;
+  // A line too thin or too light for that (a 0.4 pt bar that fpdf2 draws
+  // as its strikethrough, 0.6 px at 1.5 px/pt, over a row that re-flowed
+  // by a fraction of a pixel), told column by column. The words' boxes are
+  // estimated from their runs' widths, so in a line that was set again
+  // (justified text re-flowed) a box can lie a few pixels further along its
+  // glyphs in one version than in the other: `a`'s box is first laid over
+  // `b`'s by the whole-pixel shift `dx` that matches their columns best,
+  // up to 3 pt either way (none where the glyphs give the very same pixels,
+  // see samePixels). `ad`: `a`'s darkness at row j and column c of `b`'s box.
+  let dx = 0;
+  const align = () => {
+    const reach = Math.round(3 * b.r.scale);
+    let best = Infinity;
+    for (let d = -reach; d <= reach; d++) {
+      let cost = 0;
+      for (let j = 0; j < n; j++)
         for (let c = 0; c < C; c++) {
-          const d = column(B, c, k - 2, e + 2) - column(A, c, k - 2, e + 2);
-          if (Number.isNaN(d)) continue;
-          gain += d;
-          m++;
+          const x = c + d;
+          cost += Math.abs(B.d[j * B.cols + c] - (x >= 0 && x < A.cols ? A.d[j * A.cols + x] : 0));
         }
-        if (!m || gain / m < 0.5) return null;
+      if (cost < best - 1e-6 || (Math.abs(cost - best) <= 1e-6 && Math.abs(d) < Math.abs(dx))) {
+        best = cost;
+        dx = d;
       }
     }
-    const phase = (r: Rect, sc: number) => r.x * sc - Math.round(r.x * sc);
-    const off = Math.abs(phase(ra, a.r.scale) - phase(rb, b.r.scale));
-    // (Next to a line found at the same height, see LineOptions.weak, the
-    // looser test holds either way.)
-    const loose = !narrow ? 0.35 : opts.weak || Math.min(off, 1 - off) <= 0.2 ? 0.2 : 0.08;
-    if (diff > loose * total + (loose === 0.35 ? 0.5 : loose === 0.2 ? 0.25 : 0.1)) return null;
-    const rel = (B.top + (k + e + 1) / 2 / b.r.scale - rb.y) / rb.h;
-    if (rel < 0.3) return null;
-    // Over all of the box, an overlay's ink too: a stamp's slanted border is
-    // no line where it is left out either. Only where such a graphic or
-    // overlay is there to explain the slant (see LineOptions.level and
-    // crossing): a strike drawn with a line tool can rise by a point or two
-    // over a word, and where nothing else is listed there, it is the only
-    // item that shows the mark. A graphic changed next to the word explains
-    // the slant only where the line is one of its strokes (see crosses): a
-    // tick added after the word, or a mark above it, does not. An overlay
-    // whose ink lies over the glyphs at the line's rows (a seal's ring, a
-    // stamp found as a graphic that changed) is one on the word as well.
-    let lies = !!opts.level;
-    for (let j = Math.max(0, k - 3); j <= Math.min(n - 1, e + 3) && over && !lies; j++) lies = over[j] === 1;
-    if ((lies || opts.crossing) && !level(A, B, C, n, k, e) && (lies || crosses(a, b, A, B, C, k, e, opts.crossing!))) return null;
-    let c0 = k;
-    let c1 = e;
-    let most = 0;
-    for (let j = k; j <= e; j++) most = Math.max(most, pb[j] - pa[j]);
-    // Glyphs drawn heavier as a whole (a synthetic bold, text render mode
-    // 2) gain darkness in every row of theirs, a little more where their
-    // strokes run across (the x-height band of "contract" reads as a line
-    // 3–4 pt thick): where the glyphs' rows gained so (the median of them,
-    // the line's rows among them), a line must gain clearly more in its
-    // own rows. A strike through such a word still does (twice as much and
-    // more in its rows); an underline lies below the glyphs' rows.
-    const rows: number[] = [];
-    for (let j = 0; j < n; j++) if (pa[j] >= 0.1) rows.push(pb[j] - pa[j]);
-    rows.sort((p, q) => p - q);
-    const typical = rows.length >= 5 ? rows[rows.length >> 1] : 0;
-    if (typical >= 0.06 && most < 1.6 * typical + 0.05) return null;
-    while (c0 < c1 && pb[c0] - pa[c0] < 0.4 * most) c0++;
-    while (c1 > c0 && pb[c1] - pa[c1] < 0.4 * most) c1--;
-    return { line: rel >= 0.72 ? 'underline' : 'strike', rows: [Math.round(B.ys[k]), Math.round(B.ys[e])], core: [Math.round(B.ys[c0]), Math.round(B.ys[c1])] };
+  };
+  const ad = (j: number, c: number) => {
+    const x = c + dx;
+    return x >= 0 && x < A.cols ? A.d[j * A.cols + x] : 0;
+  };
+  const columnA = (c: number, j0: number, j1: number) => {
+    let sum = 0;
+    for (let j = Math.max(0, j0); j <= Math.min(n - 1, j1); j++) sum += ad(j, c);
+    return sum;
+  };
+  // A line in a colour between the paper's and the glyphs' (grey over
+  // black text) makes the glyphs lighter where it crosses them: there it is
+  // told by its distance from the glyphs' colour. Only where the glyphs
+  // give the very same pixels in both versions (`still`): elsewhere, glyphs
+  // drawn at another sub-pixel position differ from themselves as much. So
+  // nearly every column (that can be compared) lies a quarter of a line or
+  // more from `A` within rows k-1..k+1, either way, or is dark in both
+  // versions (glyphs that a line in their own colour crosses).
+  const crossed = (k: number) => {
+    if (!still) return false;
+    let m = 0;
+    let seen = 0;
+    for (let c = 0; c < C; c++) {
+      let apart = 0;
+      let ok = true;
+      for (let j = Math.max(0, k - 1); j <= Math.min(n - 1, k + 1) && ok; j++) {
+        if (valid && !valid[j * C + c]) ok = false;
+        else apart += Math.abs(B.d[j * B.cols + c] - ad(j, c));
+      }
+      if (!ok) continue;
+      m++;
+      if (apart >= 0.25 || (column(B, c, k - 1, k + 1) >= 0.6 && columnA(c, k - 1, k + 1) >= 0.6)) seen++;
+    }
+    return m >= 4 && seen >= 0.85 * m;
+  };
+  // About a third of a line's darkness gained around row k (or, see
+  // crossed, the glyphs crossed), and nearly every column that `a` leaves
+  // light within two rows of it (the gaps between the glyphs, their
+  // counters and side bearings) gained a quarter of a line or more, from
+  // the box's first quarter to its last. Glyph strokes drawn at another
+  // sub-pixel position gain next to strokes that `a` has there, not across
+  // the gaps. Not where `a` gained as much in the columns that `b` leaves
+  // light there: glyphs still a pixel apart gain where the other version's
+  // have gaps, both ways; a line leaves no column light at its rows.
+  const thin = (k: number) => {
+    if (win(pb, k, 1) - win(pa, k, 1) < 0.2 && !crossed(k)) return false;
+    let open = 0;
+    let up = 0;
+    let lo = C;
+    let hi = -1;
+    let gaps = 0;
+    let back = 0;
+    for (let c = 0; c < C; c++) {
+      if (valid) {
+        let ok = true;
+        for (let j = Math.max(0, k - 2); j <= Math.min(n - 1, k + 2) && ok; j++) ok = !!valid[j * C + c];
+        if (!ok) continue;
+      }
+      let lightA = true;
+      let lightB = true;
+      for (let j = Math.max(0, k - 2); j <= Math.min(n - 1, k + 2); j++) {
+        if (ad(j, c) >= 0.3) lightA = false;
+        if (B.d[j * B.cols + c] >= 0.3) lightB = false;
+      }
+      const gain = column(B, c, k - 1, k + 1) - columnA(c, k - 1, k + 1);
+      if (lightB) {
+        gaps++;
+        if (gain <= -0.25) back++;
+      }
+      if (!lightA) continue;
+      open++;
+      if (gain < 0.25) continue;
+      up++;
+      lo = Math.min(lo, c);
+      hi = Math.max(hi, c);
+    }
+    return open >= Math.max(4, 0.25 * C) && up >= 0.85 * open && lo <= 0.25 * C && hi >= 0.75 * C && !(gaps >= 4 && back >= 0.3 * gaps);
+  };
+  // The first line found by `test` (see line and thin), checked as below;
+  // undefined where no row passes the test.
+  const scan = (test: (k: number) => boolean, faint: boolean): FoundLine | null | undefined => {
+    for (let k = 0; k < n; k++) {
+      if (!test(k)) {
+        if (!faint && !part && win(pb, k, 1) - win(pa, k, 1) >= 0.15 && gained(k, true) >= 0.3) part = true;
+        continue;
+      }
+      let e = k;
+      while (e + 1 < n && test(e + 1)) e++;
+      if (faint && e - k > 3) return null;
+      if (e - k > Math.ceil(1.5 * b.r.scale) + 2) return null;
+      // The edge of a fill that `b` has and `a` not (a highlight on the line
+      // below, whose top reaches into the word's box) is no line: its ink
+      // goes on past the rows found (see goesOn). Where an overlay was found
+      // there, it is measured against that fill instead.
+      if (!valid && goesOn(a, b, A, B, C, k, e)) return null;
+      // Unchanged elsewhere: the rest of the profile matches.
+      let diff = 0;
+      let total = 0;
+      for (let j = 1; j < n - 1; j++) {
+        if (j >= k - 3 && j <= e + 3) continue;
+        diff += Math.abs(win(pb, j, 1) - win(pa, j, 1));
+        total += win(pa, j, 1);
+      }
+      // A token of one or two glyphs (or narrower than 8 pt) may have a stroke
+      // across its whole width of its own (the bar of a "4", most CJK
+      // characters: 一 主 重 年); drawn at another sub-pixel position it can
+      // look like a line. That is only so where the glyph in `a` has such a
+      // stroke: at least as much ink in the line's rows (and the row on either
+      // side) as the line adds there. A line through rows that the glyph
+      // leaves blank (between the strokes of 二 or 三, under 王) is not part of
+      // it, however its strokes elsewhere were re-sampled after a re-flow by a
+      // fraction of a pixel.
+      let own = 0;
+      let all = 0;
+      for (let j = Math.max(0, k - 1); j <= Math.min(n - 1, e + 1); j++) {
+        own += pa[j];
+        all += pb[j];
+      }
+      // Where an overlay leaves only a narrow part of the token to compare,
+      // that part is as narrow as a short token.
+      let seen = C;
+      if (valid) {
+        seen = 0;
+        for (let c = 0; c < C; c++) {
+          let ok = true;
+          for (let j = Math.max(0, k - 1); j <= Math.min(n - 1, e + 1) && ok; j++) ok = !!valid[j * C + c];
+          if (ok) seen++;
+        }
+      }
+      let narrow = (few || rb.w < 8 || seen < 8 * b.r.scale) && own >= all - own;
+      if (shifted) {
+        const ext = extent(A, B, C, n, k, e, valid, true);
+        if (ext !== null && ext < 0.75) return null;
+      }
+      if (narrow) {
+        // Such a stroke spans the glyph's ink, a line the whole advance: its
+        // side bearings and the gap between two figures, columns where the
+        // glyph in `a` has no ink near the line's rows. Where there are such
+        // columns, a line covers them and the glyph's own stroke does not.
+        // Otherwise (the glyph fills its box at those rows) the other rows
+        // must match almost exactly: a line added to the same glyph leaves
+        // them as they were. Where the glyph only moved up or down (a re-flow
+        // by a fraction of a pixel), its columns line up and re-sampling its
+        // rows changes up to a fifth of the ink; where it also moved sideways
+        // by a fraction of a pixel, its columns are blurred against each
+        // other as well, and only the strict test tells.
+        // Where a CJK character fills its box there, a line must also add
+        // about its own darkness on average across the box (half a line or
+        // more within two rows of it): a stroke across the character drawn
+        // crisp in one version and spread over two rows in the other comes
+        // out darker by a fifth or so (the bottom stroke of 重), a line on
+        // paper or beside a stroke by nearly its whole darkness. (A figure
+        // that fills its box, an "8", has no stroke across it.)
+        // (For Latin text, only blank columns between the glyphs' first and
+        // last ink tell a stroke of their own: a box estimated a point or two
+        // beside its glyphs has blank columns beyond them, which a line along
+        // the glyphs does not reach either. A CJK character's box is its em
+        // square.)
+        const dark = faint ? 0.3 : 0.6;
+        const ext = extent(A, B, C, n, k, e, valid, false, dark);
+        const tell = opts.cjk ? ext : extent(A, B, C, n, k, e, valid, true, dark);
+        if (tell !== null && tell < 0.5) return null;
+        if (ext !== null && ext >= 0.75) narrow = false;
+        // So must a figure or a short word whose stroke fills the line's rows
+        // (the bar of a "4") where an overlay is passed: measured against a
+        // fill behind it in one version (a stripe a re-flow moved away), the
+        // rest of its box matches as closely as on paper, and its bar drawn
+        // over two rows in one version and one in the other passes for a
+        // line.
+        if (tell === null && (opts.cjk || valid)) {
+          let gain = 0;
+          let m = 0;
+          for (let c = 0; c < C; c++) {
+            const d = column(B, c, k - 2, e + 2) - column(A, c, k - 2, e + 2);
+            if (Number.isNaN(d)) continue;
+            gain += d;
+            m++;
+          }
+          if (!m || gain / m < (faint ? 0.25 : 0.5)) return null;
+        }
+      }
+      const phase = (r: Rect, sc: number) => r.x * sc - Math.round(r.x * sc);
+      const off = Math.abs(phase(ra, a.r.scale) - phase(rb, b.r.scale));
+      // (Next to a line found at the same height, see LineOptions.weak, the
+      // looser test holds either way.)
+      const loose = !narrow ? 0.35 : opts.weak || Math.min(off, 1 - off) <= 0.2 ? 0.2 : 0.08;
+      if (diff > loose * total + (loose === 0.35 ? 0.5 : loose === 0.2 ? 0.25 : 0.1)) return null;
+      const rel = (B.top + (k + e + 1) / 2 / b.r.scale - rb.y) / rb.h;
+      if (rel < 0.3) return null;
+      // Over all of the box, an overlay's ink too: a stamp's slanted border is
+      // no line where it is left out either. Only where such a graphic or
+      // overlay is there to explain the slant (see LineOptions.level and
+      // crossing): a strike drawn with a line tool can rise by a point or two
+      // over a word, and where nothing else is listed there, it is the only
+      // item that shows the mark. A graphic changed next to the word explains
+      // the slant only where the line is one of its strokes (see crosses): a
+      // tick added after the word, or a mark above it, does not. An overlay
+      // whose ink lies over the glyphs at the line's rows (a seal's ring, a
+      // stamp found as a graphic that changed) is one on the word as well.
+      let lies = !!opts.level;
+      for (let j = Math.max(0, k - 3); j <= Math.min(n - 1, e + 3) && over && !lies; j++) lies = over[j] === 1;
+      if ((lies || opts.crossing) && !level(A, B, C, n, k, e) && (lies || crosses(a, b, A, B, C, k, e, opts.crossing!))) return null;
+      let c0 = k;
+      let c1 = e;
+      let most = 0;
+      for (let j = k; j <= e; j++) most = Math.max(most, pb[j] - pa[j]);
+      // Glyphs drawn heavier as a whole (a synthetic bold, text render mode
+      // 2) gain darkness in every row of theirs, a little more where their
+      // strokes run across (the x-height band of "contract" reads as a line
+      // 3–4 pt thick): where the glyphs' rows gained so (the median of them,
+      // the line's rows among them), a line must gain clearly more in its
+      // own rows. A strike through such a word still does (twice as much and
+      // more in its rows); an underline lies below the glyphs' rows.
+      const rows: number[] = [];
+      for (let j = 0; j < n; j++) if (pa[j] >= 0.1) rows.push(pb[j] - pa[j]);
+      rows.sort((p, q) => p - q);
+      const typical = rows.length >= 5 ? rows[rows.length >> 1] : 0;
+      if (typical >= 0.06 && most < 1.6 * typical + 0.05) return null;
+      while (c0 < c1 && pb[c0] - pa[c0] < 0.4 * most) c0++;
+      while (c1 > c0 && pb[c1] - pa[c1] < 0.4 * most) c1--;
+      return { line: rel >= 0.72 ? 'underline' : 'strike', rows: [Math.round(B.ys[k]), Math.round(B.ys[e])], core: [Math.round(B.ys[c0]), Math.round(B.ys[c1])] };
+    }
+    return undefined;
+  };
+  const found = scan(line, false);
+  if (found !== undefined) return found;
+  // A fainter line is no line found here: the caller weighs it (see
+  // LineOptions.faint). Looked for only where some rows gained a third of
+  // a line or more (see thin), or where the glyphs give the same pixels and
+  // some differ (see crossed).
+  if (opts.faint && !shifted && !opts.weak) {
+    let gain = 0;
+    let moved = 0;
+    for (let k = 0; k < n; k++) {
+      gain = Math.max(gain, win(pb, k, 1) - win(pa, k, 1));
+      if (still && moved < 0.05) {
+        let sum = 0;
+        for (let j = Math.max(0, k - 1); j <= Math.min(n - 1, k + 1); j++) for (let c = 0; c < C; c++) sum += Math.abs(B.d[j * B.cols + c] - A.d[j * A.cols + c]);
+        moved = Math.max(moved, sum / C);
+      }
+    }
+    if (gain >= 0.2 || (still && moved >= 0.05)) {
+      if (!still) align();
+      const f = scan(thin, true);
+      if (f) opts.faint.line = f;
+    }
   }
   return part ? 'part' : null;
 }
@@ -2133,14 +2296,16 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
  * has the paper (or the glyphs, unchanged) on both sides; the edge of a
  * fill or a band does not. Measured on the pages' lowest channel (see
  * lowest), where a light, saturated fill (a yellow highlight) is as far
- * from the paper as a line in that colour.
+ * from the paper as a line in that colour, and against each box's own
+ * background (see offFill).
  */
 function goesOn(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number, e: number): boolean {
   const q = a.r.scale / b.r.scale;
   const darkB = (j: number, c: number) => {
     const y = Math.round(B.ys[0]) + j;
     const x = B.x0 + c;
-    return y < 0 || y >= b.r.height || x >= b.r.width ? 0 : (255 - b.low[y * b.r.width + x]) / 255;
+    const v = y < 0 || y >= b.r.height || x >= b.r.width ? 0 : (255 - b.low[y * b.r.width + x]) / 255;
+    return B.bg ? (v - B.bg) / (1 - B.bg) : v;
   };
   // `a`'s row as the word moved (see boxDarkness), interpolated.
   const darkA = (j: number, c: number) => {
@@ -2149,7 +2314,8 @@ function goesOn(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number, 
     const t = y - i;
     const x = A.x0 + c;
     const at = (v: number) => (v < 0 || v >= a.r.height || x >= a.r.width ? 0 : (255 - a.low[v * a.r.width + x]) / 255);
-    return (1 - t) * at(i) + t * at(i + 1);
+    const v = (1 - t) * at(i) + t * at(i + 1);
+    return A.bg ? (v - A.bg) / (1 - A.bg) : v;
   };
   let open = 0;
   const past = [0, 0];
@@ -2598,12 +2764,12 @@ function heavier(A: Prepared, ra: Rect, B: Prepared, rb: Rect, behindA?: (x: num
 /**
  * Of the columns where the glyphs in `A` have no ink within two rows of a
  * line's rows k..e, the share that `B` covers in those rows (dark as a
- * line: 0.6 over the rows and one on either side); null when fewer than two
- * columns are so blank. `inner`: only the columns between the glyphs'
- * first and last ink (the gaps between letters, not a box's ends beyond
- * them).
+ * line: 0.6 over the rows and one on either side, or `dark`); null when
+ * fewer than two columns are so blank. `inner`: only the columns between
+ * the glyphs' first and last ink (the gaps between letters, not a box's
+ * ends beyond them).
  */
-function extent(A: Box, B: Box, C: number, n: number, k: number, e: number, valid: Uint8Array | null, inner = false): number | null {
+function extent(A: Box, B: Box, C: number, n: number, k: number, e: number, valid: Uint8Array | null, inner = false, dark = 0.6): number | null {
   let blank = 0;
   let covered = 0;
   let c0 = 0;
@@ -2621,35 +2787,83 @@ function extent(A: Box, B: Box, C: number, n: number, k: number, e: number, vali
     blank++;
     let sum = 0;
     for (let j = Math.max(0, k - 1); j <= Math.min(n - 1, e + 1); j++) sum += B.d[j * B.cols + c];
-    if (sum >= 0.6) covered++;
+    if (sum >= dark) covered++;
   }
   return blank >= 2 ? covered / blank : null;
 }
 
 /**
- * Words compared only in part next to an overlay (see appearanceChanges),
- * by new page and token: a stamp, a watermark, a fill or a graphic that
- * changed lies over or around them where it cannot be told from their
- * glyphs, so their colour, weight, strikethrough and underline were judged
- * on what it leaves, or not at all. Finding nothing there is no
- * all-clear: they are counted in a notice (see partlyCompared).
+ * Words compared only in part (see appearanceChanges), by new page and
+ * token: a stamp, a watermark, a fill or a graphic that changed lies over
+ * or around them where it cannot be told from their glyphs, so their
+ * colour, weight, strikethrough and underline were judged on what it
+ * leaves, or not at all; or (`faint`, and nothing of that) a line through
+ * or under them is too thin or too light to tell from their glyphs on its
+ * own (see LineOptions.faint). Finding nothing there is no all-clear: they
+ * are counted in a notice (see partlyCompared).
  */
-const partly = new WeakMap<CompareResult, Map<number, Map<number, string>>>();
+const partly = new WeakMap<CompareResult, Map<number, Map<number, { text: string; faint: boolean }>>>();
 /** The rows of the line of an underline or strike change (see appearanceChanges), in points of the page that has it. */
 const lineRows = new WeakMap<Change, [number, number]>();
-function notePartly(result: CompareResult, page: number, t: Token): void {
+function notePartly(result: CompareResult, page: number, t: Token, faint = false): void {
   let pages = partly.get(result);
   if (!pages) partly.set(result, (pages = new Map()));
   let words = pages.get(page);
   if (!words) pages.set(page, (words = new Map()));
-  words.set(t.i, t.text);
+  const seen = words.get(t.i);
+  words.set(t.i, { text: t.text, faint: faint && (!seen || seen.faint) });
 }
 
-/** The words compared only in part next to an overlay, by new page (see notePartly). */
-export function partlyCompared(result: CompareResult): { page: number; words: string[] }[] {
-  return [...(partly.get(result) ?? new Map<number, Map<number, string>>())]
+/**
+ * The words compared only in part, by new page (see notePartly); `faint`:
+ * how many of them only for a line too thin or too light to be sure of.
+ */
+export function partlyCompared(result: CompareResult): { page: number; words: string[]; faint?: number }[] {
+  return [...(partly.get(result) ?? new Map<number, Map<number, { text: string; faint: boolean }>>())]
     .sort(([p], [q]) => p - q)
-    .map(([page, words]) => ({ page, words: [...words].sort(([i], [j]) => i - j).map(([, w]) => w) }));
+    .map(([page, words]) => {
+      const all = [...words].sort(([i], [j]) => i - j).map(([, w]) => w);
+      const faint = all.filter((w) => w.faint).length;
+      return { page, words: all.map((w) => w.text), ...(faint ? { faint } : {}) };
+    });
+}
+
+/**
+ * Whether a line through or under the word `t` on `X`, at pixel rows
+ * `rows`, runs on past an end of the word's line of text for 12 pt or more
+ * at about its own darkness: a rule of a table or a fill's edge that the
+ * text moved against, not a line drawn over the words. The line's darkness
+ * is that of the columns of the word's box it darkens least (the gaps
+ * between the glyphs), and past the line it must reach 0.6 of that in 85 %
+ * of the columns, on the pages' lowest channel (see lowest).
+ */
+function runsOn(X: Prepared, lines: DocModel['lines'], t: Token, rows: [number, number]): boolean {
+  const l = lines.find((x) => x.id === t.line);
+  if (!l) return false;
+  const s = X.r.scale;
+  const W = X.r.width;
+  const sum = (x: number) => {
+    let v = 0;
+    for (let y = Math.max(0, rows[0] - 1); y <= Math.min(X.r.height - 1, rows[1] + 1); y++) v += (255 - X.low[y * W + x]) / 255;
+    return v;
+  };
+  const r = t.rects[0];
+  const under: number[] = [];
+  for (let x = Math.max(0, Math.round(r.x * s)); x < Math.min(W, Math.round((r.x + r.w) * s)); x++) under.push(sum(x));
+  if (!under.length) return false;
+  under.sort((p, q) => p - q);
+  const ref = under[Math.floor(under.length / 4)];
+  if (ref <= 0.05) return false;
+  const dark = (x0: number, x1: number) => {
+    let n = 0;
+    let m = 0;
+    for (let x = Math.max(0, Math.round(x0 * s)); x < Math.min(W, Math.round(x1 * s)); x++) {
+      m++;
+      if (sum(x) >= 0.6 * ref) n++;
+    }
+    return m > 0 && n >= 0.85 * m;
+  };
+  return dark(l.rect.x - 13, l.rect.x - 1) || dark(l.rect.x + l.rect.w + 1, l.rect.x + l.rect.w + 13);
 }
 
 /**
@@ -3000,7 +3214,12 @@ function appearanceChanges(
     }
     return found;
   };
-  type Hit = { a: Token; b: Token; colour: boolean; line?: { line: 'strike' | 'underline'; added: boolean; rows: [number, number] }; ink?: Ink; p: number; bold?: boolean };
+  type Line = { line: 'strike' | 'underline'; added: boolean; rows: [number, number] };
+  type Hit = { a: Token; b: Token; colour: boolean; line?: Line; ink?: Ink; p: number; bold?: boolean };
+  // Words with a line too thin or too light to be found on its own (see
+  // LineOptions.faint), by token index (new side); `alone`: nothing else
+  // found to change at the word could have drawn it.
+  const faints = new Map<number, { a: Token; b: Token; p: number; line: Line; alone: boolean }>();
   // A word that a form field's widget draws over again in one version only
   // (a form flattened with its widgets kept, see TextRun.overdrawn): drawn
   // twice, its glyphs' edges are darker, as if drawn a little heavier.
@@ -3075,12 +3294,21 @@ function appearanceChanges(
     // slant (see level and crosses).
     const g = near(a, b);
     const opts = { drift: b.kind !== 'cjk', cjk: b.kind === 'cjk', rows: own(a, b), exact, level: !!(ca || cb), crossing: g || graphicAt(a, b) ? differs : undefined };
-    const lines = (ga: Cover | null, gb: Cover | null, o: LineOptions = opts, [ta, tb] = [a, b]) => {
-      const added = framed(rowEdge(addedLine(A, ta.rects[0], B, tb.rects[0], few, ga, gb, o), B, pageLines.new, tb, ta), B, A, tb, ta);
-      const removed = added ? null : framed(rowEdge(addedLine(B, tb.rects[0], A, ta.rects[0], few, gb, ga, o), A, pageLines.old, ta, tb), A, B, ta, tb);
+    // `weigh`: keep a fainter line found where no line is (see
+    // LineOptions.faint), checked as a line is, in `faint`.
+    let faint: Line | null = null;
+    const lines = (ga: Cover | null, gb: Cover | null, o: LineOptions = opts, [ta, tb] = [a, b], weigh = false): Line | null => {
+      const [fa, fr]: { line?: FoundLine }[] = [{}, {}];
+      const added = framed(rowEdge(addedLine(A, ta.rects[0], B, tb.rects[0], few, ga, gb, weigh ? { ...o, faint: fa } : o), B, pageLines.new, tb, ta), B, A, tb, ta);
+      const removed = added ? null : framed(rowEdge(addedLine(B, tb.rects[0], A, ta.rects[0], few, gb, ga, weigh ? { ...o, faint: fr } : o), A, pageLines.old, ta, tb), A, B, ta, tb);
+      if (weigh && !added && !removed) {
+        const f = fa.line ? framed(rowEdge(fa.line, B, pageLines.new, tb, ta), B, A, tb, ta) : null;
+        const g = !f && fr.line ? framed(rowEdge(fr.line, A, pageLines.old, ta, tb), A, B, ta, tb) : null;
+        faint = f ? { line: f.line, added: true, rows: f.rows } : g ? { line: g.line, added: false, rows: g.rows } : null;
+      }
       return added ? { line: added.line, added: true, rows: added.rows } : removed ? { line: removed.line, added: false, rows: removed.rows } : null;
     };
-    let line = turned ? null : lines(ca, cb);
+    let line = turned ? null : lines(ca, cb, opts, [a, b], true);
     // A graphic that changed next to (or behind) the word explains its ink
     // where it lies: the word is measured outside the graphic's ink, or not
     // at all where that ink cannot be told apart. So is a line looked for
@@ -3143,6 +3371,16 @@ function appearanceChanges(
       hits.push({ a, b, colour: false, line, p });
       continue;
     }
+    // A fainter line, weighed below with the words next to it. Only where
+    // nothing else that changed at the word could have drawn it: no text
+    // over it (a stamp, a watermark), no graphic that changed next to it or
+    // around it other than a fill behind the text (a table's stripes that
+    // a re-flow by a row flipped, taken off the word's darkness; a fill's
+    // edge in the box is no line, see goesOn).
+    const filled = (side: 'old' | 'new') => !!fillAround(side, (side === 'old' ? a : b).rects[0]);
+    const behind = (c: Cover | null, side: 'old' | 'new') => !c || (c.clear && filled(side));
+    const quiet = !ca && !cb && !(t && (t[0] || t[1])) && (!g || (g !== 'skip' && behind(g[0], 'old') && behind(g[1], 'new'))) && (!graphicAt(a, b) || filled('old') || filled('new'));
+    if (faint && !closes(a, b, faint)) faints.set(b.i, { a, b, p, line: faint, alone: quiet });
     if (g === 'skip') {
       notePartly(result, newPage, b);
       continue;
@@ -3321,6 +3559,36 @@ function appearanceChanges(
   // word): such a word, next to it (one punctuation mark may lie between),
   // with a fainter line at the same rows (within a pixel), is struck or
   // underlined as well, not only recoloured. Followed along the line.
+  // A fainter line (see faints) on two words next to each other (one
+  // punctuation mark may lie between), or on a word next to one where a
+  // line was found, at the same rows (within a pixel) and of the same kind,
+  // is a line through or under both: a thin strike drawn over a phrase.
+  // Elsewhere it is no more than a likeness: the word is counted as
+  // compared in part, not listed and not dropped. Not one that runs on
+  // past either end of its line of text, as a table's rule does.
+  {
+    const lineAt = new Map(hits.filter((h) => h.line).map((h) => [h.b.i, h.line!]));
+    const same = (u: Line, v: Line) => u.line === v.line && u.added === v.added && Math.abs(u.rows[0] + u.rows[1] - v.rows[0] - v.rows[1]) <= 2;
+    const promoted: Hit[] = [];
+    for (const [i, f] of faints) {
+      const next = [-2, -1, 1, 2].some((d) => {
+        const o = faints.get(i + d);
+        if (o) return o.alone && o.b.line === f.b.line && same(o.line, f.line);
+        const l = lineAt.get(i + d);
+        return !!l && TB[i + d].line === f.b.line && same(l, f.line);
+      });
+      // A rule along the row (see runsOn) is compared as a graphic where it
+      // runs on outside the text: neither the word's line nor in doubt.
+      if (runsOn(f.line.added ? B : A, f.line.added ? pageLines.new : pageLines.old, f.line.added ? f.b : f.a, f.line.rows)) continue;
+      if (f.alone && next) promoted.push({ a: f.a, b: f.b, colour: false, line: f.line, p: f.p });
+      else if (!hits.some((h) => h.b.i === i)) notePartly(result, newPage, f.b, true);
+    }
+    for (const h of promoted) {
+      const k = hits.findIndex((x) => x.b.i === h.b.i);
+      if (k >= 0) hits[k] = h;
+      else hits.push(h);
+    }
+  }
   const byToken = new Map(hits.map((h) => [h.b.i, h]));
   const queue = hits.filter((h) => h.line);
   while (queue.length) {

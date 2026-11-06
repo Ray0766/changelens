@@ -362,9 +362,9 @@ export async function addVisualChanges(
   for (const side of ['old', 'new'] as const) {
     if (skipped[side].size && result.coverage?.[side]) result.coverage[side].visualSkipped = [...skipped[side]].sort((x, y) => x - y);
   }
-  // Words next to an overlay compared only in part (see partlyCompared).
+  // Words next to an overlay, or with a faint line, compared only in part (see partlyCompared).
   const partly = partlyCompared(result);
-  if (partly.length && result.coverage) result.coverage.new.partlyCompared = partly.map((u) => ({ page: u.page, count: u.words.length, words: u.words.slice(0, 3) }));
+  if (partly.length && result.coverage) result.coverage.new.partlyCompared = partly.map((u) => ({ page: u.page, count: u.words.length, words: u.words.slice(0, 3), ...(u.faint ? { faint: u.faint } : {}) }));
   result.changes.push(...visual);
   sortAndNumber(result.changes);
   return visual;

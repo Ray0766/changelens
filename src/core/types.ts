@@ -90,9 +90,10 @@ export interface Coverage {
    * (New version only) pages with words under or next to an overlay (a
    * stamp, a watermark, a fill, a graphic that changed) whose colour,
    * weight, strikethrough and underline could be compared only in part:
-   * how many, and the first few.
+   * how many, and the first few. `faint`: how many of them only because a
+   * line through or under them was too thin or too light to be sure of.
    */
-  partlyCompared?: { page: number; count: number; words: string[] }[];
+  partlyCompared?: { page: number; count: number; words: string[]; faint?: number }[];
   /** Pages with form fields whose values could not be compared as text (count -1: the page's form fields could not be read). */
   fieldsUnread?: { page: number; count: number }[];
 }

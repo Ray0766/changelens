@@ -277,9 +277,13 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
   if (partly.length) {
     const quote = (w: string) => (lang === 'zh' ? `「${w}」` : `“${w}”`);
     const words = partly.flatMap((u) => u.words).slice(0, 3);
+    const n = partly.reduce((n, u) => n + u.count, 0);
+    // Words counted only for a faint line, all of them or some.
+    const faint = partly.reduce((n, u) => n + (u.faint ?? 0), 0);
+    const key = !faint ? 'noticePartlyCompared' : faint === n ? 'noticePartlyFaint' : 'noticePartlyFaintToo';
     out.push({
       level: 'warn',
-      text: t(lang, 'noticePartlyCompared', { side: side('new'), pages: pageRuns(lang, partly.map((u) => u.page)), n: partly.reduce((n, u) => n + u.count, 0), words: words.map(quote).join(lang === 'zh' ? '、' : ', ') }),
+      text: t(lang, key, { side: side('new'), pages: pageRuns(lang, partly.map((u) => u.page)), n, words: words.map(quote).join(lang === 'zh' ? '、' : ', ') }),
     });
   }
   for (const u of r.coverage?.new.uncertain ?? []) out.push({ level: 'warn', text: t(lang, 'noticeUncertain', { pages: pageRuns(lang, [u.page]), pct: Math.round(u.matched * 100) + '%' }), action: 'pair' });
