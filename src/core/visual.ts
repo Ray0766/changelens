@@ -2283,9 +2283,13 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       for (let j = Math.max(0, k - 3); j <= Math.min(n - 1, e + 3) && over && !lies; j++) lies = over[j] === 1;
       if ((lies || opts.crossing) && !level(A, B, C, n, k, e) && (lies || crosses(a, b, A, B, C, k, e, opts.crossing!))) return null;
       // Nor, wherever it lies, one that rises or falls across the word as no
-      // strike does (see steep): the border of a stamp turned by 10° or more,
-      // drawn across the text where the graphics comparison does not look.
-      if (steep(A, B, C, n, k, e)) return null;
+      // strike does (see steep) and goes on so past the word's box (see
+      // runsOnSlanted): the border of a stamp turned by 10° or more, drawn
+      // across the text where the graphics comparison does not look. A
+      // strike drawn by hand over a short word ("30", "12") rises as steeply
+      // but ends a point or two past its glyphs: it is listed.
+      const slant = steep(A, B, C, n, k, e);
+      if (slant && runsOnSlanted(a, b, A, B, C, slant)) return null;
       let c0 = k;
       let c1 = e;
       let most = 0;
@@ -2458,8 +2462,8 @@ function level(A: Box, B: Box, C: number, n: number, k: number, e: number): bool
  * a point or two over a word (2.5 pt over "writing": a slope of 0.08); a
  * line drawn with the text is level.
  */
-function steep(A: Box, B: Box, C: number, n: number, k: number, e: number): boolean {
-  if (C < 6) return false;
+function steep(A: Box, B: Box, C: number, n: number, k: number, e: number): Slant | null {
+  if (C < 6) return null;
   const j0 = Math.max(0, k - 8);
   const j1 = Math.min(n - 1, e + 8);
   const pts: [number, number][] = [];
@@ -2473,14 +2477,81 @@ function steep(A: Box, B: Box, C: number, n: number, k: number, e: number): bool
     }
     if (first >= 0 && last - first <= e - k + 3) pts.push([c, (first + last) / 2]);
   }
-  if (pts.length < Math.max(6, C / 3)) return false;
+  if (pts.length < Math.max(6, C / 3)) return null;
   const slopes: number[] = [];
   for (let i = 0; i < pts.length; i++)
     for (let j = i + 1; j < pts.length; j++) if (pts[j][0] - pts[i][0] >= 3) slopes.push((pts[j][1] - pts[i][1]) / (pts[j][0] - pts[i][0]));
-  if (!slopes.length) return false;
+  if (!slopes.length) return null;
   slopes.sort((p, q) => p - q);
-  const m = Math.abs(slopes[slopes.length >> 1]);
-  return m >= 0.18 && m * (pts[pts.length - 1][0] - pts[0][0]) >= 3;
+  const slope = slopes[slopes.length >> 1];
+  const m = Math.abs(slope);
+  if (!(m >= 0.18 && m * (pts[pts.length - 1][0] - pts[0][0]) >= 3)) return null;
+  const at = pts.map(([c, y]) => y - slope * c).sort((p, q) => p - q);
+  return { slope, at: at[at.length >> 1], width: e - k + 1 };
+}
+
+/**
+ * A slanted line found by steep: its row in the box at column c is
+ * `at + slope · c`, `width` rows thick.
+ */
+type Slant = { slope: number; at: number; width: number };
+
+/**
+ * Whether the slanted line found across a word (see steep) goes on at the
+ * same slope past the word's box, on either side, from 3.5 to 10 pt beyond
+ * it: in seven in ten of the columns there that `a` leaves light at the
+ * line's course (glyphs of a neighbour are passed), `b` gained a third or
+ * more of a line within a row of it. The border of a turned stamp runs on
+ * across the page; a strike drawn by hand, with a line tool or as an ink
+ * annotation ends a point or two past the word's glyphs (and the box may
+ * lie a point beside them), and the next word's own strike starts again at
+ * its own height. Measured on the pages as the boxes are (lowest channel,
+ * or luminance on a light, saturated fill), each version at its own place
+ * of the word.
+ */
+function runsOnSlanted(a: Prepared, b: Prepared, A: Box, B: Box, C: number, slant: Slant): boolean {
+  const s = b.r.scale;
+  const q = a.r.scale / s;
+  const planeA = A.luma ? a.lum : a.low;
+  const planeB = B.luma ? b.lum : b.low;
+  const darkB = (c: number, j: number) => {
+    const x = B.x0 + c;
+    const y = Math.round(B.ys[0]) + j;
+    return x < 0 || y < 0 || x >= b.r.width || y >= b.r.height ? NaN : (255 - planeB[y * b.r.width + x]) / 255;
+  };
+  const darkA = (c: number, j: number) => {
+    const x = A.x0 + Math.round(c * q);
+    const y = A.ys[0] + j * q;
+    const i = Math.floor(y);
+    const t = y - i;
+    const at = (v: number) => (x < 0 || v < 0 || x >= a.r.width || v >= a.r.height ? NaN : (255 - planeA[v * a.r.width + x]) / 255);
+    return (1 - t) * at(i) + t * at(i + 1);
+  };
+  const near = Math.round(3.5 * s);
+  const far = Math.round(10 * s);
+  const half = Math.ceil(slant.width / 2) + 1;
+  for (const dir of [1, -1]) {
+    let open = 0;
+    let up = 0;
+    for (let step = near; step <= far; step++) {
+      const c = dir > 0 ? C - 1 + step : -step;
+      const y = slant.at + slant.slope * c;
+      let glyph = 0;
+      let gain = 0;
+      let off = false;
+      for (let j = Math.round(y) - half; j <= Math.round(y) + half; j++) {
+        const vb = darkB(c, j);
+        const va = darkA(c, j);
+        if (Number.isNaN(vb) || Number.isNaN(va)) off = true;
+        else [glyph, gain] = [Math.max(glyph, va), Math.max(gain, vb - va)];
+      }
+      if (off || glyph >= 0.3) continue;
+      open++;
+      if (gain >= 0.33) up++;
+    }
+    if (open >= 4 && up >= 0.7 * open) return true;
+  }
+  return false;
 }
 
 /**
