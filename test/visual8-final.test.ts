@@ -1,6 +1,7 @@
 // Visual stage, fix round 8, after the text and visual streams were merged:
 // interactions between the two streams and the problems the visual
-// re-verifiers left open (ids F0–F6 of the final pass).
+// re-verifiers left open (ids F0–F9 of the final pass, T-V1… for the text
+// verifier's round-9 problems).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -214,4 +215,32 @@ test('F9: the words of an auto-sized field value refitted after an edit are not 
   // Control (pypdf): the same value also drawn red (/DA): its colour is listed.
   const red = await run('probe8-R3-06-auto-before.pdf', 'probe8-F9-auto-after-red.pdf');
   assert.ok(red.changes.some((c) => c.format?.appearanceChanged && hits(c, 'new', 1, 260, 150)), list(red.changes).join(' | '));
+});
+
+test('T-V2: words under the letters of a translucent watermark drawn in front of them are not listed as lighter', { skip }, async () => {
+  // SYNTHETIC (reportlab memo, two pages; pypdf merge of a diagonal
+  // "CONFIDENTIAL", Helvetica-Bold 90 pt, grey 0.6 at alpha 0.5, as review
+  // 7 robust/p10-watermark). Merged over the page, the watermark lightens
+  // the glyphs under its letters; measured against its colour as if it lay
+  // behind them, "on" and "open" read "Text colour or weight changed" (24
+  // such items on the 34-page memo). They are counted as compared in part.
+  const partly = (r: CompareResult) => partlyCompared(r).flatMap((u) => u.words);
+  const over = await run('probe8-T-V2-memo.pdf', 'probe8-T-V2-wm-over.pdf');
+  assert.deepEqual(list(over.changes), ['Added “CONFIDENTIAL”', 'Added “CONFIDENTIAL”']);
+  assert.ok(partly(over).includes('open'), partly(over).join(' '));
+  // Merged under the page, its letters come before the words in the
+  // page's drawing order: the words are compared in full, nothing counted.
+  const under = await run('probe8-T-V2-memo.pdf', 'probe8-T-V2-wm-under.pdf');
+  assert.deepEqual([list(under.changes), partly(under)], [['Added “CONFIDENTIAL”', 'Added “CONFIDENTIAL”'], []]);
+  // Controls: "on" and "open" turned red under the letters in front, and
+  // turned grey over the letters behind them: listed. Turned grey under
+  // the letters in front, they are counted (a lighter word there is not
+  // told from the watermark's veil).
+  for (const file of ['probe8-T-V2-red-over.pdf', 'probe8-T-V2-grey-under.pdf']) {
+    const r = await run('probe8-T-V2-memo.pdf', file);
+    assert.ok(colourAt(r, 280, 460), `${file}: ${list(r.changes).join(' | ')}`);
+    assert.equal(r.changes.length, 3, `${file}: ${list(r.changes).join(' | ')}`);
+  }
+  const grey = await run('probe8-T-V2-memo.pdf', 'probe8-T-V2-grey-over.pdf');
+  assert.ok(colourAt(grey, 280, 460) || partly(grey).includes('open'), list(grey.changes).join(' | '));
 });

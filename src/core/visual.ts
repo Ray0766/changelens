@@ -2880,7 +2880,16 @@ function appearanceChanges(
     // show: the weight is measured on all of them, each pixel's darkness
     // against the fill or the paper behind it (a word made bold, or turned
     // grey, in a row that was given a fill).
-    const behindAll = [...oa, ...ob].every((c) => c.clear && (c.behind || c.kept));
+    // Letters drawn on one side only or set at a slant (a watermark, a
+    // stamp written as text) lie behind the glyphs where the glyph cores
+    // under them are as in the other version (see Cover.kept), or where the
+    // page draws them before the word (see lettersBehind): one of their
+    // letters covers half the word's box whether it lies in front or
+    // behind, and a translucent watermark in front of the words lightens
+    // their cores, which against its colour would pass for a lighter weight.
+    const inFront = (c: Cover) =>
+      c === ca || c === t?.[0] ? !lettersBehind(result.oldDoc, a) : c === cb || c === t?.[1] ? !lettersBehind(result.newDoc, b) : false;
+    const behindAll = [...oa, ...ob].every((c) => c.clear && (c.kept || (c.behind && !inFront(c))));
     let heavy = false;
     if (!outside && behindAll) {
       const behind = (own: Cover[]) => {
@@ -4118,6 +4127,43 @@ function wordAngle(doc: DocModel, t: Token, of: (run: TextRun) => boolean = () =
     if (!best || run.w * run.h < best.w * best.h) best = run;
   }
   return best?.angle ?? 0;
+}
+
+/**
+ * Whether the letters of text laid over a word (a watermark set at a slant
+ * whose band crosses the word's box, or a stamp written in a type half as
+ * large again whose box holds its centre) all come before the word's own run
+ * in the order the page draws its text (PDF.js reads it in that order): its
+ * glyphs are drawn over them. False where no such letters lie there, or the
+ * word's run is not known (a form field's value, whose runs are not in that
+ * order).
+ */
+function lettersBehind(doc: DocModel, t: Token): boolean {
+  if (t.field) return false;
+  const runs = doc.runs[t.page] ?? [];
+  const r = t.rects[0];
+  const x = r.x + r.w / 2;
+  const y = r.y + r.h / 2;
+  const holds = (u: TextRun) => x >= u.x - 0.5 && x <= u.x + u.w + 0.5 && y >= u.y - 0.5 && y <= u.y + u.h + 0.5;
+  const big = (u: TextRun) => u.fontSize > 1.5 * t.size;
+  let own = -1;
+  for (let k = 0; k < runs.length; k++) {
+    const u = runs[k];
+    if (!u.str.trim() || slantedRun(u) || big(u) || !holds(u)) continue;
+    if (own < 0 || u.w * u.h < runs[own].w * runs[own].h) own = k;
+  }
+  if (own < 0) return false;
+  const points: [number, number][] = [[x, y], [r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]];
+  let any = false;
+  for (let k = 0; k < runs.length; k++) {
+    const u = runs[k];
+    if (k === own || !u.str.trim()) continue;
+    const band = slantedRun(u) ? slantBand(u, 0) : null;
+    if (band ? !points.some(([px, py]) => band.inside(px, py)) : !(big(u) && holds(u))) continue;
+    if (k > own) return false;
+    any = true;
+  }
+  return any;
 }
 
 /**
