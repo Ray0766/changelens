@@ -111,6 +111,12 @@ if __name__ == '__main__':
     overlay(before, 'before-red', lambda pg, r: pg.draw_line((r.x0, r.y0), (r.x1, r.y0), color=(0.85, 0, 0), width=0.9))
     overlay(before, 'before-thick', lambda pg, r: pg.draw_line((r.x0, r.y0), (r.x1, r.y0), color=(0, 0, 0), width=2.4))
     overlay(before, 'before-double', lambda pg, r: pg.draw_line((r.x0, r.y0 + 4.2), (r.x1, r.y0 + 4.2), color=(0, 0, 0), width=0.9))
+    # Second pass: the closing rule changed over a part of it only: a 20 pt
+    # red segment drawn over it between two columns, a 12 pt gap cut out of
+    # it (a white segment), or the rule drawn 11 pt longer at each end.
+    overlay(before, 'before-rule-red-seg', lambda pg, r: pg.draw_line((288, r.y0), (308, r.y0), color=(0.85, 0, 0), width=0.9))
+    overlay(before, 'before-rule-gap', lambda pg, r: pg.draw_line((292, r.y0), (304, r.y0), color=(1, 1, 1), width=1.6))
+    overlay(before, 'before-rule-wide', lambda pg, r: [pg.draw_line((x0, r.y0), (x1, r.y0), color=(0, 0, 0), width=0.9) for x0, x1 in ((r.x0 - 11, r.x0 + 1), (r.x1 - 1, r.x1 + 11))])
     # Second pass: a colour put on one word of the last row (70.8) and a
     # real line of another word's own, a 1.6 pt black segment centred on the
     # closing rule, under the next word (62.9) or two words away (58.7).

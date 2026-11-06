@@ -4738,6 +4738,52 @@ function ruleLook(P: Prepared, x0: number, x1: number, y0: number, y1: number): 
 }
 
 /**
+ * A line of word `t`'s own besides a rule along pixel rows `rows` of `S`
+ * right under it, of weight `weight` (see closingRules), in either version
+ * (an underline drawn just above the rule, whose rows the rule's may join):
+ * what the word in `S` gains over its counterpart `u` in `O`, summed down
+ * each of its columns from its lower part to the rule's last row, goes
+ * beyond the rule's weight (by 0.3 of a dark pixel), or what it loses
+ * reaches 0.3 (a line under `u`). `O` is sampled where its word puts each
+ * pixel (see boxDarkness), so the glyphs cancel out; the median of the
+ * columns is taken.
+ */
+function ownLineBy(S: Prepared, O: Prepared, rows: [number, number], weight: number, t: Token, u: Token): boolean {
+  const s = S.r.scale;
+  const so = O.r.scale;
+  const r = t.rects[0];
+  const q = u.rects[0];
+  const at = (x: number, y: number) => sampleDark(O, ((x + 0.5) / s - r.x + q.x) * so - 0.5, ((y + 0.5) / s - r.y + q.y) * so - 0.5);
+  const gains: number[] = [];
+  const losses: number[] = [];
+  for (let x = Math.round(r.x * s); x < Math.round((r.x + r.w) * s); x++) {
+    let g = 0;
+    let l = 0;
+    for (let y = Math.floor((r.y + 0.7 * r.h) * s); y <= rows[1] + 1; y++) {
+      const d = darkAt(S, x, y) - at(x, y);
+      if (d > 0) g += d;
+      else l -= d;
+    }
+    gains.push(g);
+    losses.push(l);
+  }
+  const median = (v: number[]) => v.sort((a, b) => a - b)[v.length >> 1] ?? 0;
+  return median(gains) > weight + 0.3 || median(losses) > 0.3;
+}
+
+/** The darkness of a pixel of `P` (0 outside the page). */
+function darkAt(P: Prepared, x: number, y: number): number {
+  return x < 0 || y < 0 || x >= P.r.width || y >= P.r.height ? 0 : (255 - P.lum[y * P.r.width + x]) / 255;
+}
+
+/** The darkness of `P` at a point between pixel centres (pixel units), interpolated. */
+function sampleDark(P: Prepared, fx: number, fy: number): number {
+  const [i, j] = [Math.floor(fx), Math.floor(fy)];
+  const [u0, v0] = [fx - i, fy - j];
+  return (1 - u0) * (1 - v0) * darkAt(P, i, j) + u0 * (1 - v0) * darkAt(P, i + 1, j) + (1 - u0) * v0 * darkAt(P, i, j + 1) + u0 * v0 * darkAt(P, i + 1, j + 1);
+}
+
+/**
  * Rules that close a table fragment at a page break that moved, on the
  * page pair compared (see ClosingRule). Where a header row repeated at the
  * top of page p + 1 of one version came or went only because the page
@@ -4753,10 +4799,13 @@ function ruleLook(P: Prepared, x0: number, x1: number, y0: number, y1: number): 
  *   same extent (within 2 pt at each end), weight (within a quarter: a thin
  *   line's anti-aliased darkness varies with its sub-pixel place) and hue,
  *   right under a line that this version has after the break: the table's
- *   end, or the fragment's end at its own page break.
- * A rule recoloured, thickened or doubled, or drawn where the other version
- * closes the table with none, so stays a change; and one at a page foot
- * where no page break moved is not looked at.
+ *   end, or the fragment's end at its own page break;
+ * - and it is alike that rule along its whole length, column by column (but
+ *   under a word with a line of its own, listed on the word).
+ * A rule recoloured, thickened or doubled, over the whole of it or a part,
+ * broken, drawn longer, or drawn where the other version closes the table
+ * with none, so stays a change; and one at a page foot where no page break
+ * moved is not looked at.
  */
 function closingRules(result: CompareResult, oldPage: number, newPage: number, A: Prepared, B: Prepared): ClosingRule[] {
   const out: ClosingRule[] = [];
@@ -4849,6 +4898,50 @@ function closingRules(result: CompareResult, oldPage: number, newPage: number, A
       const wa = rule.weight / s;
       const wb = ref.weight / so;
       if (Math.abs(wa - wb) > 0.25 * Math.max(wa, wb) || Math.hypot(rule.hue[0] - ref.hue[0], rule.hue[1] - ref.hue[1], rule.hue[2] - ref.hue[2]) > 30) continue;
+      // Alike along the whole rule, not only on the whole (a red segment
+      // drawn over a part of it, a gap cut out of it, a rule drawn longer at
+      // its ends): the other version's rule runs on from its middle to the
+      // ends of this one (within 2 pt), and down each column of this rule
+      // what this version gains over the other at the same place under the
+      // row (where it has no line, so that the glyphs of the row, a
+      // descender, cancel out) is the other rule's weight within 40 % and
+      // hue. Columns unlike it in a run of 3 pixels or more make it a
+      // change, but under a word with a line of its own (see ownLineBy),
+      // which is listed on the word.
+      const omid = (ref.rows[0] + ref.rows[1]) >> 1;
+      const colO = (x: number) => darkAt(Q, x, omid - 1) + darkAt(Q, x, omid) + darkAt(Q, x, omid + 1) >= 0.5;
+      let [oa, ob] = [(ca + cb) >> 1, (ca + cb) >> 1];
+      if (!colO(oa)) continue;
+      while (oa > 0 && colO(oa - 1)) oa--;
+      while (ob < W - 1 && colO(ob + 1)) ob++;
+      if (Math.abs(oa - ca) > 2 * so || Math.abs(ob - cb) > 2 * so) continue;
+      const lined = words
+        .filter((t) => ownLineBy(P, Q, rule.rows, rule.weight, t, odoc.tokens[mate[t.i]]))
+        .map((t) => [t.rects[0].x * s - 2, (t.rects[0].x + t.rects[0].w) * s + 2]);
+      const wRef = (ref.weight / so) * s;
+      // The longest run of columns unlike the other rule.
+      let run = 0;
+      let longest = 0;
+      for (let x = rule.ext[0] + 2; x <= rule.ext[1] - 2; x++) {
+        let g = 0;
+        let hw = 0;
+        const hue = [0, 0, 0];
+        for (let y = rule.rows[0]; y <= rule.rows[1]; y++) {
+          const d = darkAt(P, x, y) - sampleDark(Q, ox(x + 0.5) - 0.5, oy(y + 0.5) - 0.5);
+          if (d <= 0) continue;
+          g += d;
+          if (d < 40 / 255) continue;
+          const i = y * P.r.width + x;
+          const px = rgb(P.r, i);
+          for (let k = 0; k < 3; k++) hue[k] += (px[k] - P.lum[i]) * d;
+          hw += d;
+        }
+        const h = hw ? hue.map((v) => v / hw) : [0, 0, 0];
+        const off = g < 0.6 * wRef || g > 1.4 * wRef || (hw >= 0.3 && Math.hypot(h[0] - ref.hue[0], h[1] - ref.hue[1], h[2] - ref.hue[2]) > 30);
+        run = off && !lined.some(([u, v]) => x >= u && x <= v) ? run + 1 : 0;
+        if (run > longest) longest = run;
+      }
+      if (longest >= 3) continue;
       out.push({
         side,
         page,
@@ -4928,44 +5021,8 @@ function compareAligned(
     R.change = { id: '', kind: 'graphic', category: 'visual', minor: true, consequence: 'closingRule', old: R.side === 'old' ? place : none, new: R.side === 'new' ? place : none, size: 0, cjk: false, contextBefore: '', contextAfter: '', order: R.order };
     return R.change;
   };
-  // A line of the word's own besides such a rule, in either version (an
-  // underline drawn just above the rule, whose rows the rule's may join):
-  // what the word in one version gains over the other, summed down each of
-  // its columns from its lower part to the rule's last row, goes beyond the
-  // rule's weight (by 0.3 of a dark pixel) in the version that has the rule,
-  // or reaches 0.3 in the other. The other version is sampled where its word
-  // puts each pixel (see boxDarkness), so the glyphs cancel out; the median
-  // of the columns is taken.
-  const ownLine = (R: ClosingRule, t: Token, u: Token) => {
-    const [S, O] = R.side === 'old' ? [A, B] : [B, A];
-    const s = S.r.scale;
-    const so = O.r.scale;
-    const r = t.rects[0];
-    const q = u.rects[0];
-    const dark = (P: Prepared, x: number, y: number) => (x < 0 || y < 0 || x >= P.r.width || y >= P.r.height ? 0 : (255 - P.lum[y * P.r.width + x]) / 255);
-    const at = (x: number, y: number) => {
-      const fx = ((x + 0.5) / s - r.x + q.x) * so - 0.5;
-      const fy = ((y + 0.5) / s - r.y + q.y) * so - 0.5;
-      const [i, j] = [Math.floor(fx), Math.floor(fy)];
-      const [u0, v0] = [fx - i, fy - j];
-      return (1 - u0) * (1 - v0) * dark(O, i, j) + u0 * (1 - v0) * dark(O, i + 1, j) + (1 - u0) * v0 * dark(O, i, j + 1) + u0 * v0 * dark(O, i + 1, j + 1);
-    };
-    const gains: number[] = [];
-    const losses: number[] = [];
-    for (let x = Math.round(r.x * s); x < Math.round((r.x + r.w) * s); x++) {
-      let g = 0;
-      let l = 0;
-      for (let y = Math.floor((r.y + 0.7 * r.h) * s); y <= R.rows[1] + 1; y++) {
-        const d = dark(S, x, y) - at(x, y);
-        if (d > 0) g += d;
-        else l -= d;
-      }
-      gains.push(g);
-      losses.push(l);
-    }
-    const median = (v: number[]) => v.sort((a, b) => a - b)[v.length >> 1] ?? 0;
-    return median(gains) > R.weight + 0.3 || median(losses) > 0.3;
-  };
+  // A line of the word's own besides such a rule (see ownLineBy).
+  const ownLine = (R: ClosingRule, t: Token, u: Token) => (R.side === 'old' ? ownLineBy(A, B, R.rows, R.weight, t, u) : ownLineBy(B, A, R.rows, R.weight, t, u));
   // An underline found on a word of the fragment's last row that is that
   // rule (its rows meet the rule's), and no line of the word's own: part of
   // the consequence, not a change (see appearanceChanges).

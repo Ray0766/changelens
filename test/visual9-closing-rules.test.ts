@@ -154,6 +154,23 @@ test('V1-closing-rules: a closing rule recoloured, thickened or doubled stays li
   assert.ok(at(r.changes[1], 'old', 1, 300, RULE_Y + 4.2), JSON.stringify(r.changes[1].old.rects));
 });
 
+test('V1-closing-rules: a closing rule changed over a part of it only stays listed', { skip }, async () => {
+  // A 20 pt red segment drawn over the rule between two columns, a 12 pt gap
+  // cut out of it, or the rule drawn 11 pt longer at each end. Its weight
+  // and hue on the whole, and 95 % of its columns, were alike the other
+  // version's end rule, so it was folded and counted as having only moved.
+  for (const b of ['before-rule-red-seg', 'before-rule-gap']) {
+    const r = await probe(b, 'after');
+    assert.deepEqual(list(r.changes), ['Added 49 words', 'Underline removed: “January 88.6 58.7 37.7 70.8 62.9”'], b);
+    assert.ok(at(r.changes[1], 'old', 1, 298, RULE_Y), `${b}: ${JSON.stringify(r.changes[1].old.rects)}`);
+    assert.equal(r.ignored.closingRules ?? 0, 0, b);
+  }
+  const wide = await probe('before-rule-wide', 'after');
+  assert.ok(list(wide.changes).includes('Underline removed: “January 88.6 58.7 37.7 70.8 62.9”'), list(wide.changes).join(' | '));
+  assert.ok(wide.changes.some((c) => at(c, 'old', 1, 78, RULE_Y)) && wide.changes.some((c) => at(c, 'old', 1, 517, RULE_Y)), list(wide.changes).join(' | '));
+  assert.equal(wide.ignored.closingRules ?? 0, 0);
+});
+
 test('V1-closing-rules: where the other version closes the table with no rule, the rule at the moved break stays listed', { skip }, async () => {
   // "after-noend-rule" draws the table without its end rule, and a
   // full-width 0.9 pt rule a paragraph's space below the next paragraph,
