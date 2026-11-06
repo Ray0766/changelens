@@ -311,6 +311,26 @@ test('T1: a late value below the text drawn before the footer is joined only wit
   assert.deepEqual(listed(r).sort(), ['Deleted “Filter cartridge 45.00”', 'Number changed: 60.00 → 65.00 (+8.3%)']);
 });
 
+test('T1: a note of two lines appended under the last line is one insertion, as when it is written before the footer', () => {
+  const intro = 'The SYNTHETIC service order covers the parts listed below and one visit by a technician.';
+  const footer: [string, number, number] = ['Synthetic sample · Page 1 of 1', 56, 810];
+  const body: [string, number, number][] = [
+    ['Order summary', 56, 100],
+    [intro, 56, 116],
+    ['All prices exclude VAT at the standard rate.', 56, 140],
+  ];
+  const note: [string, number, number][] = [
+    ['Note: this copy replaces the draft of', 56, 180],
+    ['1 October and the quote of 3 October.', 56, 194],
+  ];
+  const old = buildDocModel(page([...body, footer]));
+  const late = compareDocs(old, buildDocModel(page([...body, footer, ...note])));
+  assert.ok(late.newDoc.tokens.some((t) => t.late));
+  assert.deepEqual(listed(late), ['Added a paragraph']);
+  // Control: the same note written before the footer.
+  assert.deepEqual(listed(compareDocs(old, buildDocModel(page([...body, ...note, footer])))), ['Added a paragraph']);
+});
+
 // ------------------------------------------------------ account numbers ---
 
 test('T1: an account number re-typed in its digit groups is one change without a percentage; in reading order, as before', async () => {

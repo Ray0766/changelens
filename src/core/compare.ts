@@ -1580,7 +1580,10 @@ function inPlaceTokens(ctx: Ctx, hunks: Hunk[], keep: Set<Hunk>, oldToNew: numbe
       touched.add(part);
     }
   }
-  // Late text drawn as several lines is one insertion (or deletion) per line.
+  // Late text drawn as several lines is one insertion (or deletion) per
+  // line, to be joined line by line below; a hunk none of whose lines is
+  // joined is put back whole.
+  const pieceOf = new Map<Hunk, Hunk>();
   const perLine = (T: Token[], h: Hunk, side: 'a' | 'b'): Hunk[] => {
     const [s, e] = side === 'a' ? [h.a0, h.a1] : [h.b0, h.b1];
     if (!allLate(T, s, e) || T[s].line === T[e - 1].line) return [h];
@@ -1594,7 +1597,11 @@ function inPlaceTokens(ctx: Ctx, hunks: Hunk[], keep: Set<Hunk>, oldToNew: numbe
     return out;
   };
   if (late) {
-    const split = rest.flatMap((h) => (h.b0 === h.b1 ? perLine(A, h, 'a') : h.a0 === h.a1 ? perLine(B, h, 'b') : [h]));
+    const split = rest.flatMap((h) => {
+      const pieces = h.b0 === h.b1 ? perLine(A, h, 'a') : h.a0 === h.a1 ? perLine(B, h, 'b') : [h];
+      if (pieces.length > 1) for (const piece of pieces) pieceOf.set(piece, h);
+      return pieces;
+    });
     rest.length = 0;
     rest.push(...split);
   }
@@ -1668,7 +1675,17 @@ function inPlaceTokens(ctx: Ctx, hunks: Hunk[], keep: Set<Hunk>, oldToNew: numbe
       break;
     }
   }
-  const out = rest.filter((h) => !joined.has(h)).map((h) => replaced.get(h) ?? h);
+  const used = new Set([...joined, ...replaced.keys()].map((h) => pieceOf.get(h)).filter((h) => h !== undefined));
+  const whole = new Set<Hunk>();
+  const out = rest
+    .filter((h) => !joined.has(h))
+    .flatMap((h) => {
+      const from = pieceOf.get(h);
+      if (!from || used.has(from)) return [replaced.get(h) ?? h];
+      if (whole.has(from)) return [];
+      whole.add(from);
+      return [from];
+    });
   return { rest: out, pairs, edits: new Set(replaced.values()) };
 }
 
