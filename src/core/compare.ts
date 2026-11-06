@@ -108,6 +108,9 @@ function foldRule(ctx: Ctx, initial?: DiffOp[]): (eq: Span, before: Span, after:
     // Structure on both sides (a heading, the end of a paragraph, a row that
     // is its own block) stays visible and keeps the edits around it apart.
     if (crosses(A, eq.a0, eq.a1) && crosses(B, eq.b0, eq.b1)) return false;
+    // Figures of one date written with 年月日, also where a line break puts
+    // its unit at the start of a line ("2026年11" / "月30日"): one change.
+    if (cjkDateEdit(A, B, { a0: before.a0, a1: after.a1, b0: before.b0, b1: after.b1 })) return true;
     // A row label: starts a line in both versions.
     const label = lineStart(A, eq.a0) && lineStart(B, eq.b0);
     let words = 0;

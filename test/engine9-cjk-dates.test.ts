@@ -75,7 +75,14 @@ test('T3: a Chinese date, with or without its day, or a time is a number change 
     // Controls: a term of days and of years keep their percentage.
     'Number changed: 45 → 60 (+33%)',
     'Number changed: 3 → 5 (+67%)',
+    // A date broken over two lines (2026年11 / 月30日): one change, not the same date twice.
+    'Number changed: 2026年11月30日 → 2026年12月31日',
+    // Control: two dates side by side, both changed, stay two changes.
+    'Number changed: 11月30日 → 12月1日',
+    'Number changed: 12月2日 → 12月3日',
   ]);
+  // The broken date's highlight runs from the month figure over the line break to the day.
+  assert.deepEqual(r.changes[5].new.rects.length, 2);
   const html = await probe('html');
   assert.deepEqual(numbers(html), ['Number changed: 2026年11月30日 → 2026年12月31日', 'Number changed: 4 → 6 (+50%)']);
   assert.ok(html.changes[0].contextBefore.endsWith('有效期至：'), html.changes[0].contextBefore);

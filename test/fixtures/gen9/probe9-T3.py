@@ -19,7 +19,9 @@ insert_htmlbox with WenQuanYi Zen Hei (holdout5-j-zh-quote-htmlbox).
                                          to terms that keep their percentage (30日以内, 3年, 2時間, 200 枚),
                                          and a date followed by a changed word (納品 -> 出荷)
   probe9-T3-zhdate-before / -after       fpdf2, Chinese: 2026年11月20日下午3点 -> 下午5点, 17时30分 ->
-                                         18时30分, 11月 -> 12月 in 2026年11月, next to 45 天内 and 3年
+                                         18时30分, 11月 -> 12月 in 2026年11月, next to 45 天内 and 3年; a
+                                         date broken over two lines (2026年11 / 月30日 -> 2026年12 / 月31日);
+                                         two dates side by side, both changed
 """
 import os
 import sys
@@ -121,6 +123,15 @@ def zhdate(after):
     y = para(pdf, "WQY", y, "投标文件的递交截止时间为当日 " + ("18时30分" if after else "17时30分") + "，逾期不予受理。")
     y = para(pdf, "WQY", y, "首批设备计划于 2026年" + ("12月" if after else "11月") + "完成安装调试。")
     y = para(pdf, "WQY", y, "交货期：合同生效后 " + ("60" if after else "45") + " 天内交货，质保期 " + ("5年" if after else "3年") + "。")
+    # A date broken over two lines between its month figure and 月 (fpdf2 wraps the line there).
+    wrapped = ("本协议经双方授权代表签字并加盖公章后生效，并报送甲方合同管理部门及财务部门备案，有效期至"
+               + ("2026年12月31日" if after else "2026年11月30日") + "止，期满前一个月双方协商续签。")
+    pdf.set_font("WQY", "", 10)
+    lines = pdf.multi_cell(174, 6, wrapped, dry_run=True, output="LINES")
+    assert lines[0].endswith("2026年12" if after else "2026年11"), lines
+    y = para(pdf, "WQY", y, wrapped)
+    # Two dates side by side, both changed.
+    y = para(pdf, "WQY", y, "培训于" + ("12月1日至12月3日" if after else "11月30日至12月2日") + "在总部举行。")
     return pdf
 
 
