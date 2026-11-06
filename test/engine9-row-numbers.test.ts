@@ -194,6 +194,22 @@ test('T2: in a table drawn as one text block, a crossing row edited or numbered 
   assert.deepEqual(minor(edited), [...shifted(3, 37), ...shifted(39, 40)]);
 });
 
+test('T2: a table row moved to the top below a header row that is a block of its own reads "Moved"', async () => {
+  // Pos. 10 moved to the top (now Pos. 1) and Pos. 3 deleted. The header row is a text block of its own,
+  // the rows another (as Chromium sets them): the moved row's number "10" → "1" was cut into
+  // "Deleted “10”" + "Added “1”" at the block boundary before the moved row, outside the move.
+  const r = await probeB('move-before', 'move-after');
+  assert.deepEqual(listed(r), ['Moved “1 KX-5002 Installationsrohr 25 …”', 'Deleted 9 words', 'Number changed: 222,65 → 206,75 (-7.1%)']);
+  assert.equal(r.changes[0].moveEdits, undefined);
+  assert.deepEqual(minor(r), ['10 → 1', '1 → 2', '2 → 3']);
+  // Controls: the moved row's price edited, or its number typed by hand ("4"): listed, row and number.
+  const price = await probeB('move-before', 'movep-after');
+  assert.deepEqual(listed(price), ['Added “1 KX-5002 Installationsrohr 25 mm 9 2,55 22,95”', 'Deleted 9 words', 'Deleted “10 KX-5002 Installationsrohr 25 mm 9 2,35 21,15”', 'Number changed: 222,65 → 208,55 (-6.3%)']);
+  const hand = await probeB('move-before', 'movex-after');
+  assert.equal(listed(hand)[0], 'Added “4 KX-5002 Installationsrohr 25 mm 9 2,35 21,15”');
+  assert.equal(hand.ignored.renumbered, 0);
+});
+
 test('T2: the rows renumbered after a row number typed by hand get no percentage, and none is counted', async () => {
   // Pos. 7 deleted; the next row keeps its number 8 by hand; the two after it are renumbered 8 and 9.
   const r = await probeB('ins-before', 'dup-after');

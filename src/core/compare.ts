@@ -424,7 +424,7 @@ function splitFigure(ctx: Ctx, h: Hunk): Hunk[] {
   return [h];
 }
 
-/** (`blocks` false: an edit in place whose two sides stand at different points of the reading order, see inPlaceTokens.) */
+/** (`blocks` false: an edit in place whose two sides stand at different points of the reading order, see inPlaceTokens; an edit at the edge of a moved passage, see detectMoves.) */
 function splitHunk(ctx: Ctx, h: Hunk, blocks = true): Hunk[] {
   return (blocks ? splitAtBlocks(ctx, h) : [h])
     .flatMap((p) => splitFigure(ctx, p))
@@ -1375,9 +1375,17 @@ function detectMoves(ctx: Ctx, hunks: Hunk[], fold: (eq: Span, before: Span, aft
       (h.a0 === h.a1 && h.b1 === ins.h.b1 && sameMarks(ctx.B, h.b0, h.b1, ctx.A, d.h.a1)) ||
       (h.b0 === h.b1 && h.a0 === d.h.a0 && sameMarks(ctx.A, h.a0, h.a1, ctx.B, ins.h.b0 - (h.a1 - h.a0))) ||
       (h.a0 === h.a1 && h.b0 === ins.h.b0 && sameMarks(ctx.B, h.b0, h.b1, ctx.A, d.h.a0 - (h.b1 - h.b0)));
+    // An edit at the head (or the foot) of both sides of the moved text,
+    // each side in one block (a moved table row's number, "10" → "1"):
+    // the text before (or after) the passage is not part of the move, so a
+    // paragraph boundary there does not cut it into a deletion and an
+    // insertion.
+    const oneBlock = (T: Token[], s: number, e: number) => e > s && T[s].block === T[e - 1].block;
+    const atEdge = (h: Hunk) =>
+      ((h.a0 === d.h.a0 && h.b0 === ins.h.b0) || (h.a1 === d.h.a1 && h.b1 === ins.h.b1)) && oneBlock(ctx.A, h.a0, h.a1) && oneBlock(ctx.B, h.b0, h.b1);
     const edits = hunksOf(ops)
       .filter((h) => !edgeMark(h))
-      .flatMap((h) => splitHunk(ctx, h))
+      .flatMap((h) => splitHunk(ctx, h, !atEdge(h)))
       .map((h) => textChange(ctx, h));
     if (inPlace(d.h, ins.h, c.matches, ops)) {
       for (const o of ops) if (o.type === 'equal') for (let k = 0; k < o.a1 - o.a0; k++) out.inPlace.push(o.a0 + k, o.b0 + k);
