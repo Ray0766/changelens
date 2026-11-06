@@ -6676,6 +6676,87 @@ function markupExplains(c: Change, a: Token, b: Token, rows: [number, number] | 
 }
 
 /**
+ * Whether the word `ra` of `A` and `rb` of `B` show the same glyphs once
+ * the highlights on them (`ma`, `mb`) are taken off, where every highlight
+ * there is drawn see-through: the opacity α that its tint over the paper
+ * shows (the median of its pixels in the word's box, against its /C) is
+ * below 85 % (an opaque highlight in multiply blend is weighed by
+ * markupExplains). A pixel within a highlight's quadrilaterals is taken
+ * back as drawn in normal blend, p = (1 − α)·q + α·C, or in multiply blend
+ * at that opacity, p = q·(1 − α + α·C/255), whichever fits the word best;
+ * in 97 % of the word's pixels (those within a pixel of a quadrilateral's
+ * edge left out) both versions are then within 24 levels. Grey glyphs under
+ * a highlight that were black are not.
+ */
+function seeThroughAlike(A: Prepared, ra: Rect, B: Prepared, rb: Rect, ma: Markup[], mb: Markup[]): boolean {
+  type Side = { quads: Rect[]; c: number[]; alpha: number } | null;
+  const sideOf = (X: Prepared, t: Rect, list: Markup[]): Side | false => {
+    const lit = list.filter((m) => m.kind === 'highlight');
+    if (!lit.length) return null;
+    const c = markupColour(lit[0]);
+    if (lit.some((m) => markupColour(m).some((v, k) => Math.abs(v - c[k]) > 8))) return false;
+    const quads = lit.flatMap((m) => m.quads);
+    const s = X.r.scale;
+    const px: number[][] = [];
+    for (let y = Math.max(0, Math.floor(t.y * s)); y < Math.min(X.r.height, Math.ceil((t.y + t.h) * s)); y++)
+      for (let x = Math.max(0, Math.floor(t.x * s)); x < Math.min(X.r.width, Math.ceil((t.x + t.w) * s)); x++) {
+        const [fx, fy] = [(x + 0.5) / s, (y + 0.5) / s];
+        if (!quads.some((q) => fx >= q.x && fx <= q.x + q.w && fy >= q.y && fy <= q.y + q.h)) continue;
+        const i = (y * X.r.width + x) * 4;
+        px.push([X.r.data[i], X.r.data[i + 1], X.r.data[i + 2]]);
+      }
+    const ks = [0, 1, 2].filter((k) => c[k] < 200);
+    if (px.length < 30 || !ks.length) return false;
+    const tint = [0, 1, 2].map((k) => px.map((p) => p[k]).sort((u, v) => u - v)[px.length >> 1]);
+    const alpha = ks.reduce((sum, k) => sum + (255 - tint[k]) / (255 - c[k]), 0) / ks.length;
+    return alpha < 0.85 && alpha > 0.05 ? { quads, c, alpha } : false;
+  };
+  const sa = sideOf(A, ra, ma);
+  const sb = sideOf(B, rb, mb);
+  if (sa === false || sb === false || (!sa && !sb)) return false;
+  // A pixel taken back from under a side's highlight, by blend: 0 normal, 1 multiply.
+  const back = (S: Side, s: number, x: number, y: number, p: number[], blend: number): number[] | null => {
+    if (!S) return p;
+    const [fx, fy] = [(x + 0.5) / s, (y + 0.5) / s];
+    const e = 1 / s;
+    const q = S.quads.find((q) => fx >= q.x && fx <= q.x + q.w && fy >= q.y && fy <= q.y + q.h);
+    if (!q) return S.quads.some((q) => fx >= q.x - e && fx <= q.x + q.w + e && fy >= q.y - e && fy <= q.y + q.h + e) ? null : p;
+    if (fx < q.x + e || fx > q.x + q.w - e || fy < q.y + e || fy > q.y + q.h - e) return null;
+    const a = S.alpha;
+    return p.map((v, k) => (blend === 0 ? (v - a * S.c[k]) / (1 - a) : v / (1 - a + (a * S.c[k]) / 255)));
+  };
+  const s = A.r.scale;
+  const so = B.r.scale;
+  let best = Infinity;
+  let all = 0;
+  for (const [ba, bb] of [
+    [0, 0],
+    [0, 1],
+    [1, 0],
+    [1, 1],
+  ]) {
+    if ((!sa && ba) || (!sb && bb)) continue;
+    let n = 0;
+    let bad = 0;
+    for (let y = Math.max(0, Math.floor(ra.y * s)); y < Math.min(A.r.height, Math.ceil((ra.y + ra.h) * s)); y++)
+      for (let x = Math.max(0, Math.floor(ra.x * s)); x < Math.min(A.r.width, Math.ceil((ra.x + ra.w) * s)); x++) {
+        const xo = Math.round(((x + 0.5) / s - ra.x + rb.x) * so - 0.5);
+        const yo = Math.round(((y + 0.5) / s - ra.y + rb.y) * so - 0.5);
+        if (xo < 0 || yo < 0 || xo >= B.r.width || yo >= B.r.height) continue;
+        const i = (y * A.r.width + x) * 4;
+        const j = (yo * B.r.width + xo) * 4;
+        const u = back(sa, s, x, y, [A.r.data[i], A.r.data[i + 1], A.r.data[i + 2]], ba);
+        const v = back(sb, so, xo, yo, [B.r.data[j], B.r.data[j + 1], B.r.data[j + 2]], bb);
+        if (!u || !v) continue;
+        n++;
+        if (u.some((w, k) => Math.abs(w - v[k]) > 24)) bad++;
+      }
+    if (bad < best) [best, all] = [bad, n];
+  }
+  return all >= 30 && best <= 0.03 * all;
+}
+
+/**
  * Whether the glyphs of the word `a` → `b` outside the ink of the markup
  * annotations that changed (`on`) on it are the same in both versions (see
  * markupExplains).
@@ -6685,6 +6766,8 @@ function sameBesideMarkup(a: Token, b: Token, A: Prepared, B: Prepared, on: { ol
   const ma = on.old.filter((m) => markedShare(a, m, 3) > 0);
   const mb = on.new.filter((m) => markedShare(b, m, 3) > 0);
   if (!ma.length && !mb.length) return false;
+  // Highlights drawn see-through (see seeThroughAlike).
+  if ([...ma, ...mb].every((m) => m.kind === 'highlight') && seeThroughAlike(A, a.rects[0], B, b.rects[0], ma, mb)) return true;
   // The rows of the annotations' lines over the word, in both versions:
   // rows where the line of an annotation of `X` lies (a strike-out's
   // through the middle of its quadrilateral, an underline's in its lower

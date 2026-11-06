@@ -148,3 +148,11 @@ test('V3-markup refix N5: marks flattened into the page content are not listed a
   // Control: the highlight removed, and not drawn.
   assert.deepEqual(list(await probe('hl', 'before')), ['Highlight removed (annotation): “Calibration records for two tor…”']);
 });
+
+test('V3-markup refix N8: a see-through highlight (normal blend, 40 %) is listed once; a recolour under it stays', { skip }, async () => {
+  // Before: "Text colour or weight changed" as well.
+  assert.deepEqual(list(await probe('before', 'hl-normal')), [HL]);
+  assert.deepEqual(list(await probe('hl-normal', 'hl-normal-pink')), ['Highlight colour changed (annotation): “Calibration records for two tor…”']);
+  // Control: the phrase printed in red under it.
+  assert.deepEqual(list(await probe('red-before', 'red-hl-normal')), ['Text colour or weight changed', HL]);
+});
