@@ -5964,8 +5964,8 @@ function compareAligned(
     // markupChanges): listed on those words, and not found again in their
     // pixels (see withoutMarkup). On running headers and footers, a
     // difference in them, counted with the others (see furnitureMarks).
-    const body = markupChanges(result, oldPage, newPage, result.matches);
-    const atFurniture = result.options.ignoreFurniture && result.oldToNew[oldPage] === newPage ? markupChanges(result, oldPage, newPage, furniturePairs(result, oldPage, newPage)) : null;
+    const body = markupChanges(result, oldPage, newPage, result.matches, A, B);
+    const atFurniture = result.options.ignoreFurniture && result.oldToNew[oldPage] === newPage ? markupChanges(result, oldPage, newPage, furniturePairs(result, oldPage, newPage), A, B) : null;
     markupOn = { old: [...body.areas.old, ...(atFurniture?.areas.old ?? [])], new: [...body.areas.new, ...(atFurniture?.areas.new ?? [])] };
     if (markupOn.old.length || markupOn.new.length) {
       appearance.splice(0, appearance.length, ...withoutMarkup(result, oldPage, newPage, appearance, A, B, markupOn), ...body.items);
@@ -6433,13 +6433,16 @@ function markupEvents(a: Token, b: Token, ma: { m: Markup; box: Rect }[], mb: { 
  * pages; and `areas`, the annotations that changed, per side, which
  * explain the pixels they draw (see markupExplains and compareAligned). A
  * word marked alike in both versions (the annotation moved with it) gives
- * nothing.
+ * nothing, nor does one that shows the same pixels in both (`A`, `B`: the
+ * pages' rasters; see sameOutside).
  */
 function markupChanges(
   result: CompareResult,
   oldPage: number,
   newPage: number,
   pairs: ArrayLike<number>,
+  A?: Prepared,
+  B?: Prepared,
 ): { items: Change[]; areas: { old: Markup[]; new: Markup[] } } {
   const areas = { old: [] as Markup[], new: [] as Markup[] };
   const ma = markupOf(result.oldDoc, oldPage);
@@ -6453,6 +6456,10 @@ function markupChanges(
     const b = TB[pairs[p + 1]];
     if (!a || !b || a.page !== oldPage || b.page !== newPage || !a.rects.length || !b.rects.length) continue;
     const es = markupEvents(a, b, ma, mb);
+    // The word shows the same pixels in both versions (the marks flattened
+    // into the page content, or drawn there in the other version): nothing
+    // to see changed on it.
+    if (es.length && A && B && a.rects.length === 1 && b.rects.length === 1 && sameOutside(A, a.rects[0], B, b.rects[0], [-1e6, -1e6])) continue;
     for (const e of es) {
       found.push({ a, b, e });
       if (e.old && !areas.old.includes(e.old)) areas.old.push(e.old);

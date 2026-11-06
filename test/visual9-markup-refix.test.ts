@@ -140,3 +140,11 @@ test('V3-markup refix N7: identical annotated files are compared in full; a chan
     ['warn', 'warn'],
   );
 });
+
+test('V3-markup refix N5: marks flattened into the page content are not listed as removed', { skip }, async () => {
+  // Before: "Highlight removed (annotation)", the mark still on the page.
+  const baked = await probe('hl', 'hl-baked');
+  assert.deepEqual(list(baked), []);
+  // Control: the highlight removed, and not drawn.
+  assert.deepEqual(list(await probe('hl', 'before')), ['Highlight removed (annotation): “Calibration records for two tor…”']);
+});
