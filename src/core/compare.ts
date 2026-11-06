@@ -2889,7 +2889,7 @@ function labelAt(doc: DocModel, k: number | undefined): Label | null {
   const blockStart = k === 0 || doc.tokens[k - 1].block !== t.block;
   if (/^\d{1,3}$/.test(text)) {
     if (mark) return { parts: [Number(text)], style: 'list', line: t.line, len: 2 };
-    if (blockStart && gap >= t.size) return { parts: [Number(text)], style: 'cell', line: t.line, len: 1 };
+    if (blockStart && (gap >= t.size || tightRowNumbers(doc).has(k))) return { parts: [Number(text)], style: 'cell', line: t.line, len: 1 };
     return null;
   }
   const m = /^(\d{1,3}(?:\.\d{1,3}){1,4})\.?$/.exec(text);
@@ -3008,9 +3008,10 @@ interface Sibling {
 
 /**
  * A bare integer that starts a line and stands in a cell of its own (the
- * next text is at least an em away, or there is none): a row number, also
- * where the table's text blocks do not start at the row (labelAt asks for
- * that). Used with labelAt to read a column of row numbers as a whole (see
+ * next text is at least an em away, there is none, or it is in a column of
+ * row numbers set closer: see tightRowNumbers): a row number, also where
+ * the table's text blocks do not start at the row (labelAt asks for that).
+ * Used with labelAt to read a column of row numbers as a whole (see
  * labelSequences); whether it is one is decided by numberedRun.
  */
 function rowNumberAt(doc: DocModel, k: number): Label | null {
@@ -3020,8 +3021,134 @@ function rowNumberAt(doc: DocModel, k: number): Label | null {
   const line = doc.lines[t.line];
   const next = k + 1 < line.end ? doc.tokens[k + 1] : undefined;
   const r = t.rects[t.rects.length - 1];
-  if (next && next.rects[0].x - (r.x + r.w) < t.size) return null;
+  if (next && next.rects[0].x - (r.x + r.w) < t.size && !tightRowNumbers(doc).has(k)) return null;
   return { parts: [Number(text)], style: 'cell', line: t.line, len: 1 };
+}
+
+/** Per document: the row numbers of tight columns (see tightRowNumbers). */
+const tightRows = new WeakMap<DocModel, Set<number>>();
+
+/**
+ * Row numbers set closer than an em to the next cell, by document token
+ * index: fpdf2 sets a right-aligned "Pos." column 0.67 em before the
+ * article number. A gap that narrow is also a wide word space, so the
+ * column itself is the evidence. Each number:
+ * - is a bare integer of up to 3 digits that starts a line (no "." or ")"
+ *   after it: that is a list label, see labelAt), at least 0.4 em before
+ *   the next text on its line;
+ * - with the rows around it, counts on by one over at least 3 consecutive
+ *   rows (n, n + 1, n + 2 …), at the same size and with the same right or
+ *   left edge (within 1.5 pt). Rows are consecutive when no other line of
+ *   the page starts in the column or left of it between them (a wrapped
+ *   cell to the right does not break them). A column continues on the next
+ *   page, below whatever stands above it there (a running header, the
+ *   repeated header row);
+ * - stands apart from the next text by at least 1.5 times the narrowest
+ *   word space after it on its line, or its next text starts where it
+ *   starts on such a row of the column (within 1 pt: the next cell of a row
+ *   that has only figures and column gaps). At least 3 rows of the column
+ *   must be set apart this way. In a sentence or a justified line that
+ *   starts with a figure ("5 boards were …"), the figure is set like the
+ *   other words;
+ * - is not in a column headed as quantities ("Qty", "Menge"; see
+ *   quantityHeaderAbove): its figures are amounts that happen to count on.
+ * A number set like these right after the last row of such a column that
+ * does not count on from it (a row number typed by hand, "31" for 27) is a
+ * row number too, so that it is listed like any row number changed by hand
+ * (without a percentage) and the rows after it are not taken for
+ * renumbered rows (see numberedRun).
+ * Numbers set an em or more apart are row numbers anyway (see labelAt and
+ * rowNumberAt); they count as rows of the column too. Whether a row number
+ * was renumbered is still decided by its siblings (see extractRenumbering).
+ */
+function tightRowNumbers(doc: DocModel): Set<number> {
+  let found = tightRows.get(doc);
+  if (found) return found;
+  const rows = new Set<number>();
+  tightRows.set(doc, rows);
+  interface Row {
+    k: number;
+    value: number;
+    x0: number;
+    x1: number;
+    size: number;
+    page: number;
+    /** Where the next text on the line starts (NaN: none). */
+    next: number;
+    /** Set apart from the next text by more than the line's word spacing, or alone on its line. */
+    spaced: boolean;
+  }
+  const sameEdge = (p: Row, q: Row) => Math.abs(p.size - q.size) <= 0.06 * Math.max(p.size, q.size) && (Math.abs(p.x1 - q.x1) <= 1.5 || Math.abs(p.x0 - q.x0) <= 1.5);
+  /** The row on a line that starts with a bare integer at least 0.4 em before the next text, or null. */
+  const rowOf = (line: Line): Row | null => {
+    const k = line.start;
+    const t = doc.tokens[k];
+    const text = t.text.normalize('NFKC');
+    if (t.kind !== 'number' || !/^\d{1,3}$/.test(text)) return null;
+    const r = t.rects[t.rects.length - 1];
+    const row: Row = { k, value: Number(text), x0: t.rects[0].x, x1: r.x + r.w, size: t.size, page: line.page, next: NaN, spaced: true };
+    const next = k + 1 < line.end ? doc.tokens[k + 1] : undefined;
+    if (!next) return row;
+    if (!next.spaceBefore && /^[.)、]$/.test(next.text.normalize('NFKC'))) return null;
+    row.next = next.rects[0].x;
+    const gap = row.next - row.x1;
+    if (gap < 0.4 * t.size) return null;
+    // The narrowest word space after the number on its line.
+    let space = Infinity;
+    for (let j = k + 2; j < line.end; j++) {
+      if (!doc.tokens[j].spaceBefore) continue;
+      const p = doc.tokens[j - 1].rects[doc.tokens[j - 1].rects.length - 1];
+      const w = doc.tokens[j].rects[0].x - (p.x + p.w);
+      if (w > 0.05 * t.size && w < space) space = w;
+    }
+    row.spaced = gap >= 1.5 * space;
+    return row;
+  };
+  /** Where the next cell starts on the rows of each column that is one of row numbers. */
+  const accepted = new Map<Row[], number[]>();
+  const inColumn = (r: Row, cells: number[]) => r.spaced || cells.some((x) => Math.abs(x - r.next) <= 1);
+  /** A column with at least 3 rows set apart (see spaced), not headed as quantities: the numbers of its rows that are set apart, or whose next cell starts where theirs does, are row numbers. */
+  const close = (column: Row[]) => {
+    if (column.filter((r) => r.spaced).length < 3 || quantityHeaderAbove(doc, column[0].k)) return;
+    const cells = column.filter((r) => r.spaced && !Number.isNaN(r.next)).map((r) => r.next);
+    accepted.set(column, cells);
+    for (const r of column) if (inColumn(r, cells)) rows.add(r.k);
+  };
+  /** Rows that do not count on from the last row of the column right above them. */
+  const outOfSequence: { row: Row; column: Row[] }[] = [];
+  const followed = new Set<Row[]>();
+  /** The columns that may still go on: their last row is on this page or the one before. */
+  let open: Row[][] = [];
+  for (const line of doc.lines) {
+    if (line.furniture || line.end <= line.start || doc.pages[line.page]?.textAngle) continue;
+    const row = rowOf(line);
+    /** The column's last row stands right above this row, at the same edge, on this page or the one before. */
+    const near = (column: Row[]) => column[column.length - 1].page >= line.page - 1 && sameEdge(column[column.length - 1], row!);
+    const into = row ? open.find((column) => column[column.length - 1].value + 1 === row.value && near(column)) : undefined;
+    // Only the first such row after a column: it ends the column on its page, but not on the next.
+    const above = row && !into ? open.find((column) => !followed.has(column) && near(column)) : undefined;
+    if (above) {
+      outOfSequence.push({ row: row!, column: above });
+      followed.add(above);
+    }
+    const x0 = doc.tokens[line.start].rects[0].x;
+    const ended = (column: Row[]) => {
+      if (column === into) return false;
+      const last = column[column.length - 1];
+      // Too far back to go on; or another line of the page starts in the column, or left of it.
+      return last.page < line.page - 1 || (last.page === line.page && x0 <= last.x1 + 1);
+    };
+    for (const column of open) if (ended(column)) close(column);
+    open = open.filter((column) => !ended(column));
+    if (into) into.push(row!);
+    else if (row) open.push([row]);
+  }
+  for (const column of open) close(column);
+  for (const { row, column } of outOfSequence) {
+    const cells = accepted.get(column);
+    if (cells && inColumn(row, cells)) rows.add(row.k);
+  }
+  return rows;
 }
 
 /** Where a label stands on its page: its left and right edge (the mark included), its font size, and its weight and slant ("b", "i", "bi" or ""). */
@@ -3169,19 +3296,22 @@ const runStart = (s: Sibling, run: Sibling[]) => lastLevel(run[0] ?? s);
 const QUANTITY_HEADER = /^(?:qty|qtys|quantity|quantities|menge|anzahl|stk|pcs|units?|qté|quantité|cantidad|cant|quantità|aantal|数量|件数|台数)$/i;
 
 /** The header cell above a run's first row number (the nearest line above that starts in its column) names a column of quantities. */
-function quantityColumn(doc: DocModel, first: Sibling): boolean {
-  const t = doc.tokens[first.tok];
+const quantityColumn = (doc: DocModel, first: Sibling) => quantityHeaderAbove(doc, first.tok);
+
+/** The nearest line above the line-start token k (document token index) that starts in its column names a column of quantities (see QUANTITY_HEADER). */
+function quantityHeaderAbove(doc: DocModel, k: number): boolean {
+  const t = doc.tokens[k];
   const r = t.rects[0];
-  for (let j = first.label.line - 1; j >= Math.max(0, first.label.line - 8); j--) {
+  for (let j = t.line - 1; j >= Math.max(0, t.line - 8); j--) {
     const l = doc.lines[j];
     if (l.page !== t.page) break;
     if (l.end <= l.start) continue;
     const q = doc.tokens[l.start].rects[0];
     if (q.x >= r.x + r.w + 2 || r.x >= q.x + q.w + 2) continue;
     // Its first word (CJK characters are tokens of their own: 数|量).
-    let k = l.start + 1;
-    while (k < l.end && !doc.tokens[k].spaceBefore && doc.tokens[k].kind !== 'punct') k++;
-    return QUANTITY_HEADER.test(doc.tokens.slice(l.start, k).map((x) => x.text).join(''));
+    let e = l.start + 1;
+    while (e < l.end && !doc.tokens[e].spaceBefore && doc.tokens[e].kind !== 'punct') e++;
+    return QUANTITY_HEADER.test(doc.tokens.slice(l.start, e).map((x) => x.text).join(''));
   }
   return false;
 }
