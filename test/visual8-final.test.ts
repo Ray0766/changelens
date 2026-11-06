@@ -244,3 +244,18 @@ test('T-V2: words under the letters of a translucent watermark drawn in front of
   const grey = await run('probe8-T-V2-memo.pdf', 'probe8-T-V2-grey-over.pdf');
   assert.ok(colourAt(grey, 280, 460) || partly(grey).includes('open'), list(grey.changes).join(' | '));
 });
+
+test('T-V4: a form field whose fill alone changed colour does not recolour its value', { skip }, async () => {
+  // SYNTHETIC (reportlab AcroForm, values written by pypdf; verify9-text
+  // cpf/F7-ctl): the amount field's fill turned from #dbeafe to #fecaca,
+  // its value right-aligned. The field's border, a line above and below
+  // the fill, was taken for a panel enclosing the fill, so the fill counted
+  // as a highlight around the value and "1,250.00" read "Text colour or
+  // weight changed" as well.
+  const r = await run('probe8-T-V4-before.pdf', 'probe8-T-V4-fill-red.pdf');
+  assert.deepEqual(list(r.changes), ['Graphic or image changed']);
+  // Control: the value drawn red as well (/DA): listed.
+  const ink = await run('probe8-T-V4-before.pdf', 'probe8-T-V4-fill-red-ink-red.pdf');
+  assert.deepEqual(list(ink.changes), ['Graphic or image changed', 'Text colour or weight changed']);
+  assert.ok(colourAt(ink, 270, 160), JSON.stringify(ink.changes.map((c) => c.new.rects)));
+});

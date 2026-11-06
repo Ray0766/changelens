@@ -3529,11 +3529,14 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
     }
   // Which of its colours reach the edges of the word's surroundings (a
   // fill, a tint, a stamp), and do not lie inside another of them, which
-  // goes on above and below them (a highlight in a tinted panel).
+  // goes on above and below them (a highlight in a tinted panel) for a
+  // point and a half or more: not a frame's stroke (a form field's border
+  // around its fill).
   let rim = 0;
   const rimInk = inks.map(() => 0);
   const top = inks.map(() => h);
   const bottom = inks.map(() => -1);
+  const rowsOf = inks.map(() => new Uint8Array(h));
   for (let k = 0; k < n; k++) {
     if (state[k] !== INK) continue;
     const i = k % w;
@@ -3543,10 +3546,17 @@ function overlayInk(X: Prepared, x: Rect, Y: Prepared, y: Rect, shapes: Shape[],
     if (c < 0) continue;
     top[c] = Math.min(top[c], j);
     bottom[c] = Math.max(bottom[c], j);
+    rowsOf[c][j] = 1;
     if (i === 0 || j === 0 || i === w - 1 || j === h - 1) rimInk[c]++;
   }
   for (let k = 0; k < n; k++) if (k % w === 0 || k < w || k % w === w - 1 || k >= n - w) rim++;
-  const inside = (c: number) => inks.some((_, o) => o !== c && top[o] < top[c] && bottom[o] > bottom[c]);
+  const deep = Math.max(2, Math.round(1.5 * sx));
+  const goesOn = (o: number, from: number, to: number) => {
+    let rows = 0;
+    for (let j = Math.max(0, from); j < Math.min(h, to); j++) rows += rowsOf[o][j];
+    return rows >= deep;
+  };
+  const inside = (c: number) => inks.some((_, o) => o !== c && top[o] < top[c] && bottom[o] > bottom[c] && goesOn(o, 0, top[c]) && goesOn(o, bottom[c] + 1, h));
   return {
     wide: inks.filter((_, c) => !beyond || (rimInk[c] > 0.02 * rim && !inside(c))),
     behind: boxed > 0 && inked >= 0.5 * boxed,
