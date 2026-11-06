@@ -61,3 +61,19 @@ test('V3-markup refix N1/N2: an underline of the page’s own under a new highli
   assert.equal(others(so), 'The finding is considered minor');
   assert.ok(so.changes.filter((c) => !c.format?.markup).every((c) => describeChange('en', c) === 'Text colour or weight changed'));
 });
+
+test('V3-markup refix N4: a graphic under a new highlight is dropped on both sides alike, and only where the highlight draws all that differs', { skip }, async () => {
+  // Control: the dot recoloured, red → green, without an annotation.
+  assert.deepEqual(list(await probe('dot-red', 'dot-green')), ['Graphic or image changed']);
+  // An area highlight over the line and the unchanged dot. Before: a
+  // "Graphic or image changed" (and, as the dot region was dropped on the
+  // highlighted side only, "removed" where it lay apart) for the dot's
+  // pixels under the tint. They are the old ones multiplied by it: nothing.
+  const same = await probe('dot-red', 'dot-red-hl');
+  assert.deepEqual(list(same), ['Highlighted (annotation): “Calibration records for two tor…”']);
+  // The dot recoloured under the highlight: its pixels are not the tint
+  // over the old ones. Listed, with its place on both pages.
+  const recoloured = await probe('dot-red', 'dot-green-hl');
+  assert.deepEqual(list(recoloured), ['Graphic or image changed', 'Highlighted (annotation): “Calibration records for two tor…”']);
+  assert.ok(recoloured.changes[0].old.rects.length > 0 && recoloured.changes[0].new.rects.length > 0);
+});

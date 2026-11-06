@@ -10,9 +10,14 @@
 #   ulc-hl: the same, and a highlight annotation over the phrase;
 # - ulc-so: a black 0.8 pt underline drawn in the page content under the
 #   strike-out phrase, and a red strike-out annotation over it;
-#   so-dark: the red strike-out alone, drawn with a 0.8 pt dark red line in
-#   the page content over the phrase's words at the strike's height as
-#   well (a content strike in another red under the annotation's).
+# - dot-red, dot-green: a status dot drawn in the page content in the right
+#   margin of the highlight phrase's line, red or green; dot-red-hl,
+#   dot-green-hl: the same, and a highlight annotation from the phrase to
+#   the dot (an area highlight over the rest of the line too);
+# - logo-blue, logo-red: a vector logo (a filled rounded box) at the top
+#   right of page 1, blue or red; logo-blue-stamp, logo-red-stamp: the same,
+#   and a "FOR COMMENT" stamp annotation over the logo; logo-red-near: the
+#   red logo and an "APPROVED" stamp 10 pt to the left of it.
 #
 # Run with a Python that has pymupdf (2.1), from test/fixtures:
 #   python gen9/v3-markup-refix.py .
@@ -58,10 +63,43 @@ def so(p, text):
     a.update()
 
 
+def dot(p, colour, area=False):
+    # A dot 3.6 pt in radius in the right margin of the phrase's line (the
+    # paragraph is 0.8 of the text width, from 56 pt), on its middle.
+    q = quads(p, HL)[-1].rect
+    c = pymupdf.Point(56 + 0.8 * (p.rect.width - 112) + 12, (q.y0 + q.y1) / 2)
+    p.draw_circle(c, 3.6, color=None, fill=colour)
+    if area:
+        # A highlight over the line's words and the dot, as one quadrilateral.
+        p.add_highlight_annot(pymupdf.Rect(q.x0, q.y0, c.x + 8, q.y1))
+
+
+def logo(p, colour):
+    p.draw_rect(pymupdf.Rect(470, 74, 540, 108), color=None, fill=colour, radius=0.15)
+
+
+def stamp(p, rect, kind):
+    p.add_stamp_annot(pymupdf.Rect(*rect), stamp=kind)
+
+
+RED, GREEN, BLUE = (0.8, 0.1, 0.1), (0.1, 0.65, 0.2), (0.1, 0.3, 0.7)
+OVER = (440, 80, 560, 120)
+NEAR = (330, 75, 460, 115)
+
+
 def main():
     make('ulc', lambda d: underline(d[0], HL))
     make('ulc-hl', lambda d: (underline(d[0], HL), hl(d[0], HL)))
     make('ulc-so', lambda d: (underline(d[0], SO), so(d[0], SO)))
+    make('dot-red', lambda d: dot(d[0], RED))
+    make('dot-green', lambda d: dot(d[0], GREEN))
+    make('dot-red-hl', lambda d: dot(d[0], RED, True))
+    make('dot-green-hl', lambda d: dot(d[0], GREEN, True))
+    make('logo-blue', lambda d: logo(d[0], BLUE))
+    make('logo-red', lambda d: logo(d[0], RED))
+    make('logo-blue-stamp', lambda d: (logo(d[0], BLUE), stamp(d[0], OVER, pymupdf.STAMP_ForComment)))
+    make('logo-red-stamp', lambda d: (logo(d[0], RED), stamp(d[0], OVER, pymupdf.STAMP_ForComment)))
+    make('logo-red-near', lambda d: (logo(d[0], RED), stamp(d[0], NEAR, pymupdf.STAMP_Approved)))
 
 
 main()

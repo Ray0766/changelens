@@ -5978,8 +5978,17 @@ function compareAligned(
     }
   }
   // What those annotations draw, a few points around their quadrilaterals
-  // (a highlight's rounded ends): shown with their items, not as graphics.
+  // (a highlight's rounded ends): shown with their items, not as graphics
+  // (see drawnByMarkup).
   const markupDrawn = { old: markupOn.old.flatMap((m) => m.quads.map((q) => expand(q, 3))), new: markupOn.new.flatMap((m) => m.quads.map((q) => expand(q, 3))) };
+  const byMarkup = (side: 'old' | 'new', r: Rect, map: (r: Rect) => Rect): boolean => {
+    const o = side === 'old' ? 'new' : 'old';
+    const mine = markupDrawn[side].length > 0 && coveredShare(r, markupDrawn[side]) >= 0.6;
+    const m = map(r);
+    if (!mine && !(markupDrawn[o].length > 0 && coveredShare(m, markupDrawn[o]) >= 0.6)) return false;
+    const [X, Y] = side === 'old' ? [A, B] : [B, A];
+    return mine ? drawnByMarkup(X, r, Y, m, markupOn[side]) : drawnByMarkup(Y, m, X, r, markupOn[o]);
+  };
 
   // Regions explained by text changes on the same page. Text that moved
   // sideways explains the spot it left and where it went, and a frame or
@@ -6115,8 +6124,9 @@ function compareAligned(
     const [src, dst] = side === 'old' ? [A, B] : [B, A];
     const [map, mapBelow] = side === 'old' ? [toNew, toNewBelow] : [toOld, toOldBelow];
     const rest = (r: Rect): boolean => {
-      // What a markup annotation that changed draws (see markupChanges).
-      if (markupDrawn[side].length && coveredShare(r, markupDrawn[side]) >= 0.6) return false;
+      // What a markup annotation that changed draws (see markupChanges), on
+      // the side that has it and at the same place on the other side alike.
+      if (byMarkup(side, r, map)) return false;
       // A change bar in the margin beside the lines of a change.
       const bar = real ? changeBar(result, side, page, r, src.r.scale, appearance) : null;
       if (bar) {
@@ -6540,6 +6550,38 @@ function overDrawn(p: number[], q: number[], c: readonly number[]): boolean {
   const w = [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
   const k = vv > 0 ? Math.max(0, Math.min(1, (w[0] * v[0] + w[1] * v[1] + w[2] * v[2]) / vv)) : 0;
   return Math.hypot(w[0] - k * v[0], w[1] - k * v[1], w[2] - k * v[2]) <= 40;
+}
+
+/**
+ * Whether what differs in the region `rx` of `X` from `ry` of `Y` (the same
+ * place in the other version) is what markup annotations of `X` (`list`)
+ * draw there: in 97 % of the pixels that differ by more than 24 levels, the
+ * pixel of `X` is an annotation's colour drawn over that of `Y` (see
+ * overDrawn), or multiplied with it (the blend mode of highlights). A
+ * graphic of the page's own that changed under a highlight (a dot
+ * recoloured) is not.
+ */
+function drawnByMarkup(X: Prepared, rx: Rect, Y: Prepared, ry: Rect, list: Markup[]): boolean {
+  const colours = list.filter((m) => m.quads.some((q) => intersects(expand(q, 3), rx))).map(markupColour);
+  if (!colours.length) return false;
+  const s = X.r.scale;
+  const so = Y.r.scale;
+  let n = 0;
+  let ok = 0;
+  for (let y = Math.max(0, Math.floor(rx.y * s)); y < Math.min(X.r.height, Math.ceil((rx.y + rx.h) * s)); y++)
+    for (let x = Math.max(0, Math.floor(rx.x * s)); x < Math.min(X.r.width, Math.ceil((rx.x + rx.w) * s)); x++) {
+      const xo = Math.round(((x + 0.5) / s - rx.x + ry.x) * so - 0.5);
+      const yo = Math.round(((y + 0.5) / s - rx.y + ry.y) * so - 0.5);
+      if (xo < 0 || yo < 0 || xo >= Y.r.width || yo >= Y.r.height) continue;
+      const i = (y * X.r.width + x) * 4;
+      const j = (yo * Y.r.width + xo) * 4;
+      const p = [X.r.data[i], X.r.data[i + 1], X.r.data[i + 2]];
+      const q = [Y.r.data[j], Y.r.data[j + 1], Y.r.data[j + 2]];
+      if (Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Math.abs(p[2] - q[2])) <= 24) continue;
+      n++;
+      if (colours.some((c) => overDrawn(p, q, c) || [0, 1, 2].every((k) => Math.abs(p[k] - (q[k] * c[k]) / 255) <= 24))) ok++;
+    }
+  return ok >= 0.97 * n;
 }
 
 /**
