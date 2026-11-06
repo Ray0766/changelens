@@ -549,6 +549,7 @@ export function buildDocModel(doc: DocText): DocModel {
         unmapped: p.unmapped ?? 0,
         ...(angle ? { textAngle: angle } : {}),
         ...(p.fieldsUnread ? { fieldsUnread: p.fieldsUnread } : {}),
+        ...(p.annotations ? { annotations: p.annotations } : {}),
       };
     }),
     tokens: joined.tokens,

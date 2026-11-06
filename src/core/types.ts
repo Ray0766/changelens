@@ -73,6 +73,48 @@ export interface PageText {
    * not be read at all.
    */
   fieldsUnread?: number;
+  /** The annotations the page shows other than form fields' widgets and links (see PageAnnotations). */
+  annotations?: PageAnnotations;
+}
+
+/**
+ * PDF annotations a page shows (drawn over its content by a viewer), other
+ * than form fields' widgets, links and pop-ups: read so that a mark put on
+ * words as an annotation is listed on them, and so that a notice can say
+ * that the file has annotations.
+ */
+export interface PageAnnotations {
+  /** How many, by PDF subtype ("Highlight", "Stamp", "FreeText", "Ink"…). */
+  counts: Record<string, number>;
+  /** Highlights, strike-outs, underlines and squiggly underlines (text markup). */
+  markup: Markup[];
+  /** Text that stamps, free-text notes and comments show, where it could be read. */
+  notes: AnnotationNote[];
+  /** Annotations that show or carry text (contents, a pop-up comment, a stamp's or a note's own text). */
+  withText: number;
+  /** Text-markup annotations past the bound read per page, not compared on their words. */
+  unread?: number;
+}
+
+export type MarkupKind = 'strike' | 'underline' | 'squiggly' | 'highlight';
+
+/** A text-markup annotation: what it marks, where and in what colour. */
+export interface Markup {
+  kind: MarkupKind;
+  /** The boxes it marks, from its QuadPoints (page space; each quadrilateral's bounding box). */
+  quads: Rect[];
+  /** Its colour (/C, 0–255); null where it has none (a viewer then draws its default). */
+  colour: [number, number, number] | null;
+  /** The box it is drawn in (/Rect, page space). */
+  rect: Rect;
+}
+
+/** A stamp, a free-text note or a comment (sticky note), with the text it shows. */
+export interface AnnotationNote {
+  kind: 'stamp' | 'freetext' | 'comment';
+  rect: Rect;
+  /** A stamp's or a note's own text as drawn, a comment's contents; '' where none could be read. */
+  text: string;
 }
 
 export interface Coverage {
@@ -164,7 +206,7 @@ export interface DocModel {
    * word boxes follow that direction; positions are in page space, so they are
    * not comparable with a page of the other version that has another angle.
    */
-  pages: { index: number; width: number; height: number; unmapped: number; textAngle?: number; fieldsUnread?: number }[];
+  pages: { index: number; width: number; height: number; unmapped: number; textAngle?: number; fieldsUnread?: number; annotations?: PageAnnotations }[];
   /** All tokens, including furniture, in reading order. */
   tokens: Token[];
   lines: Line[];

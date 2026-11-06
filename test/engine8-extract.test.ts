@@ -59,6 +59,7 @@ test('T3-forms-N2: the widgets are drawn only on a page whose fields name their 
     setFont: OPS.setFont,
     setTextRenderingMode: OPS.setTextRenderingMode,
     showText: [OPS.showText, OPS.showSpacedText, OPS.nextLineShowText, OPS.nextLineSetSpacingShowText],
+    placeText: [OPS.beginText, OPS.moveText, OPS.setLeadingMoveText, OPS.setTextMatrix, OPS.nextLine],
     paintFormXObjectBegin: OPS.paintFormXObjectBegin,
     paintFormXObjectEnd: OPS.paintFormXObjectEnd,
     beginAnnotation: OPS.beginAnnotation,
