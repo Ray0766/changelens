@@ -163,6 +163,37 @@ async function probeB(before: string, after: string): Promise<CompareResult> {
   return compareDocs(await load(`${fixtures}probe9-T2b-${before}.pdf`), await load(`${fixtures}probe9-T2b-${after}.pdf`));
 }
 
+test('T2: in a table drawn as one text block, an inserted row starts at its own number and a row that crosses a page break is not moved', async () => {
+  // A row inserted as Pos. 3; next to it, the price and amount of the row below changed.
+  const ins = await probeB('ins-before', 'ins-after');
+  assert.deepEqual(listed(ins), ['Added 9 words', 'Number changed: 7,95 → 8,95 (+13%)', 'Number changed: 15,90 → 17,90 (+13%)', 'Number changed: 222,65 → 245,35 (+10%)']);
+  // Not "KX-2212 … 20,70 4": the old row 3 is paired with the new row 4.
+  assert.equal(ins.changes[0].new.text, '3 KX-2212 Schrumpfschlauch 4 mm, gelb 3 6,90 20,70');
+  assert.deepEqual(minor(ins), shifted(3, 10));
+  // 40 rows over two pages; the row inserted as Pos. 3 pushes Pos. 38 (KX-9970) to the top of p. 2 as 39.
+  // Before, a false "Moved and edited" + "Deleted “38”" + "Added “40”".
+  const cross = await probeB('cross-before', 'cross-after');
+  assert.deepEqual(listed(cross), ['Added 9 words', 'Number changed: 908,46 → 929,16 (+2.3%)']);
+  assert.equal(cross.changes[0].new.text, '3 KX-2212 Schrumpfschlauch 4 mm, gelb 3 6,90 20,70');
+  assert.deepEqual(minor(cross), shifted(3, 40));
+  const back = await probeB('cross-after', 'cross-before');
+  assert.deepEqual(listed(back), ['Deleted 9 words', 'Number changed: 929,16 → 908,46 (-2.2%)']);
+  assert.deepEqual(minor(back), shifted(4, 41, -1));
+});
+
+test('T2: in a table drawn as one text block, a crossing row edited or numbered by hand stays listed (controls)', async () => {
+  // The crossing row numbered "41" by hand (39 expected): listed on both pages, its number with it.
+  const hand = await probeB('cross-before', 'crossx-after');
+  assert.deepEqual(listed(hand).slice(0, 3), ['Added 9 words', 'Deleted “38 KX-9970 Blindabdeckung 6 0,70 4,20”', 'Added “41 KX-9970 Blindabdeckung 6 0,70 4,20”']);
+  assert.ok(minor(hand).every((m) => !m.startsWith('38 ')), JSON.stringify(minor(hand)));
+  // The rows after it: renumbered, but after a number typed by hand; listed.
+  assert.deepEqual(listed(hand).slice(3), ['Number changed: 39 → 40', 'Number changed: 40 → 41', 'Number changed: 908,46 → 929,16 (+2.3%)']);
+  // The crossing row's description edited ("grau" added): listed on both pages.
+  const edited = await probeB('cross-before', 'crosse-after');
+  assert.deepEqual(listed(edited), ['Added 9 words', 'Deleted “38 KX-9970 Blindabdeckung 6 0,70 4,20”', 'Added “39 KX-9970 Blindabdeckung grau 6 0,70 4,20”', 'Number changed: 908,46 → 929,16 (+2.3%)']);
+  assert.deepEqual(minor(edited), [...shifted(3, 37), ...shifted(39, 40)]);
+});
+
 test('T2: the rows renumbered after a row number typed by hand get no percentage, and none is counted', async () => {
   // Pos. 7 deleted; the next row keeps its number 8 by hand; the two after it are renumbered 8 and 9.
   const r = await probeB('ins-before', 'dup-after');

@@ -913,14 +913,25 @@ function slideToBoundaries(ops: DiffOp[], A: Token[], B: Token[]): void {
 
 // ------------------------------------------------------------ relabel ---
 
+/**
+ * The label that document token k starts its line with (see labelAt), or
+ * the row number it is (see rowNumberAt): a table whose rows share one text
+ * block (reportlab draws a whole table as one) has its row numbers in the
+ * middle of the block.
+ */
+function lineLabelAt(doc: DocModel, k: number): Label | null {
+  const t = doc.tokens[k];
+  if (!t || doc.lines[t.line]?.start !== k) return null;
+  return labelAt(doc, k) ?? rowNumberAt(doc, k);
+}
+
 /** The line-start labels in T[s, e) of the kind and role of label `like` (document token k). */
 function itemsIn(doc: DocModel, T: Token[], s: number, e: number, like: Label, k: number): number {
   const box = labelBox(doc, k, like);
   const parent = like.parts.slice(0, -1).join('.');
   let n = 0;
   for (let j = s; j < e; j++) {
-    if (doc.lines[T[j].line].start !== T[j].i) continue;
-    const l = labelAt(doc, T[j].i);
+    const l = lineLabelAt(doc, T[j].i);
     if (l && l.style === like.style && l.parts.length === like.parts.length && l.parts.slice(0, -1).join('.') === parent && sameRole(labelBox(doc, T[j].i, l), box)) n++;
   }
   return n;
@@ -936,6 +947,8 @@ function itemsIn(doc: DocModel, T: Token[], s: number, e: number, like: Label, k
  * followed by the old clause's own text, the old label is paired with the
  * last one instead ("4.3" → "4.4", a renumbering for extractRenumbering) and
  * the insertion starts at the inserted clause's label. Deletions likewise.
+ * A table's row numbers are such labels also where the whole table is one
+ * text block (see lineLabelAt).
  * The tokens on its line that both items start with after the number (up
  * to 8) move with it: the mark of a label "4." ("4" + "."), an opening
  * quote ("1.3 “Change”"), the words of a CJK item ("２． 従業員は、"). The
@@ -980,9 +993,9 @@ function relabel(ctx: Ctx, hunks: Hunk[], pairs: Int32Array): { hunks: Hunk[]; p
       for (let j = 0; j <= m; j++) if (toU[s - 1 - m + j] !== x - m + j) return false;
       const [p, q] = [T[s - 1 - m], T[e - 1 - m]];
       if (p.line === q.line || T[s - 1].line !== p.line || T[e - 1].line !== q.line) return false;
-      const first = labelAt(tDoc, p.i);
-      const last = labelAt(tDoc, q.i);
-      const before = labelAt(uDoc, U[x - m].i);
+      const first = lineLabelAt(tDoc, p.i);
+      const last = lineLabelAt(tDoc, q.i);
+      const before = lineLabelAt(uDoc, U[x - m].i);
       if (!same(first, last) || !before || !last) return false;
       const shift = ins ? labelShift(before, last, Infinity) : labelShift(last, before, Infinity);
       if (!shift || !sameColumn(labelBox(uDoc, U[x - m].i, before), labelBox(tDoc, q.i, last))) return false;
