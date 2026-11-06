@@ -140,6 +140,187 @@ function groupLines(page: number, runs: TextRun[]): RawLine[] {
   return lines;
 }
 
+// ---------------------------------------------------- text out of order ---
+
+/** Geometry of a raw line on an upright page, worked out from its visible runs. */
+interface LineBox {
+  x0: number;
+  x1: number;
+  top: number;
+  bottom: number;
+  baseline: number;
+  size: number;
+  zone?: 'top' | 'bottom';
+  /** The visible runs (blank runs only separate words). */
+  inked: TextRun[];
+}
+
+function lineBox(line: RawLine, pageBox: Rect): LineBox | null {
+  const inked = line.runs.filter((r) => r.str.trim() !== '');
+  if (!inked.length) return null;
+  const x0 = Math.min(...inked.map((r) => r.x));
+  const x1 = Math.max(...inked.map((r) => r.x + r.w));
+  const top = Math.min(...inked.map((r) => r.y));
+  const bottom = Math.max(...inked.map((r) => r.y + r.h));
+  const size = Math.max(1, mostCommon(inked.map((r) => r.fontSize)));
+  const zone = marginZone({ x: x0, y: top, w: x1 - x0, h: bottom - top }, pageBox);
+  return { x0, x1, top, bottom, baseline: inked[0].baseline, size, ...(zone ? { zone } : {}), inked };
+}
+
+const overlapX = (a: { x0: number; x1: number }, b: { x0: number; x1: number }) => Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
+
+/** Lines of one page put back in reading order (see restoreReadingOrder). */
+interface Reordered {
+  lines: RawLine[];
+  /** Lines drawn after the footer that were placed by their position. */
+  placed: number;
+}
+
+/**
+ * PDF editors that redact text and write the new text in its place
+ * (PyMuPDF's insert_text, insert_htmlbox and redaction replacement text)
+ * append that text to the end of the page's content, after the footer. In
+ * stream order, the new value then follows the footer, and a re-typed amount
+ * reads as a deletion in place plus an insertion at the end of the page.
+ *
+ * Such lines are put back where they stand on the page. The rule applies
+ * only to upright lines (turned text, such as a turned page, a margin note
+ * or a watermark, is neither moved nor moved into) on a page without form
+ * field values, where
+ *  - a footer was drawn after the body: a line in the bottom margin, below
+ *    every line drawn before it and at least one line height under the
+ *    lowest of them, with body text (outside the margins) before it.
+ * A line drawn after that footer, outside the bottom margin, is placed
+ *  - into a line drawn before the footer whose baseline it shares, at its x,
+ *    where it does not overprint that line's glyphs, and either fills a gap
+ *    inside the line, or the lines just before and after that line in the
+ *    stream reach across its whole width (a cell of the same table or a word
+ *    of the same paragraph, not another column); or else
+ *  - between two lines drawn one after the other before the footer, one
+ *    under the other, that it fits between and overlaps horizontally.
+ * Anything else stays where the stream has it: a right column, a sidebar
+ * or a margin note drawn last does not share its baseline with a line whose
+ * neighbours reach across it, a page number drawn last lies in the bottom
+ * margin, and on a page whose footer comes first nothing follows the footer.
+ * Pages without such a footer, and pages in reading order, are unchanged.
+ * Lines left out (blank or turned) keep their place in the stream.
+ */
+function restoreReadingOrder(lines: RawLine[], width: number, height: number): Reordered {
+  const none: Reordered = { lines, placed: 0 };
+  if (lines.some((l) => l.runs.some((r) => r.field))) return none;
+  const boxes = lines.map((l) => (l.runs.some((r) => r.angle !== 0) ? null : lineBox(l, { x: 0, y: 0, w: width, h: height })));
+  let footer = -1;
+  let lowest = -Infinity;
+  let body = false;
+  for (let k = 0; k < lines.length; k++) {
+    const b = boxes[k];
+    if (!b) continue;
+    if (b.zone === 'bottom' && body && b.top >= lowest + b.size) {
+      footer = k;
+      break;
+    }
+    if (!b.zone) body = true;
+    lowest = Math.max(lowest, b.bottom);
+  }
+  if (footer < 0) return none;
+  // Lines drawn before the footer, in stream order (blank lines skipped).
+  const before: number[] = [];
+  for (let k = 0; k < footer; k++) if (boxes[k]) before.push(k);
+  /** Late lines merged into a line drawn before the footer, by that line. */
+  const into = new Map<number, number[]>();
+  /** Late lines put after a line drawn before the footer, by that line. */
+  const after = new Map<number, number[]>();
+  const add = (m: Map<number, number[]>, at: number, k: number) => {
+    const list = m.get(at);
+    if (list) list.push(k);
+    else m.set(at, [k]);
+  };
+  const moved = new Set<number>();
+  for (let k = footer + 1; k < lines.length; k++) {
+    const late = boxes[k];
+    if (!late || late.zone === 'bottom') continue;
+    const target = sharedBaseline(late, before, boxes);
+    const gap = target < 0 ? gapAbove(late, before, boxes) : -1;
+    if (target >= 0) add(into, target, k);
+    else if (gap >= 0) add(after, gap, k);
+    else continue;
+    moved.add(k);
+  }
+  if (!moved.size) return none;
+  const out: RawLine[] = [];
+  lines.forEach((line, k) => {
+    if (moved.has(k)) return;
+    const extra = into.get(k);
+    out.push(extra ? { page: line.page, runs: mergeRuns(line.runs, extra.flatMap((j) => lines[j].runs)) } : line);
+    for (const j of (after.get(k) ?? []).sort((a, b) => boxes[a]!.top - boxes[b]!.top)) out.push(lines[j]);
+  });
+  return { lines: out, placed: moved.size };
+}
+
+/**
+ * The line drawn before the footer that a late line belongs to (-1 if
+ * none): the same baseline, no glyphs overprinted, and either inside the
+ * line's span or within the width of the lines just before and after it in
+ * the stream.
+ */
+function sharedBaseline(late: LineBox, before: number[], boxes: (LineBox | null)[]): number {
+  let best = -1;
+  let bestD = Infinity;
+  for (let n = 0; n < before.length; n++) {
+    const e = boxes[before[n]]!;
+    const size = Math.max(e.size, late.size);
+    const d = Math.abs(e.baseline - late.baseline);
+    if (d > 0.35 * size || d >= bestD) continue;
+    if (e.inked.some((r) => overlapX({ x0: r.x, x1: r.x + r.w }, late) > 0.25 * Math.min(e.size, late.size))) continue;
+    const inside = late.x0 >= e.x0 && late.x1 <= e.x1;
+    if (!inside) {
+      const width = late.x1 - late.x0;
+      const reaches = (j: number) => {
+        const o = j >= 0 && j < before.length ? boxes[before[j]]! : null;
+        return !!o && Math.abs(o.baseline - e.baseline) <= 2.5 * size && overlapX(o, late) >= 0.8 * width;
+      };
+      if (!reaches(n - 1) || !reaches(n + 1)) continue;
+    }
+    best = before[n];
+    bestD = d;
+  }
+  return best;
+}
+
+/**
+ * The line after which a late line goes (-1 if none): the first of two
+ * lines drawn one after the other, one under the other, that the late line
+ * fits between and overlaps horizontally.
+ */
+function gapAbove(late: LineBox, before: number[], boxes: (LineBox | null)[]): number {
+  const tol = 0.25 * late.size;
+  for (let n = 0; n + 1 < before.length; n++) {
+    const a = boxes[before[n]]!;
+    const b = boxes[before[n + 1]]!;
+    if (b.top < a.bottom - tol) continue;
+    if (late.top < a.bottom - tol || late.bottom > b.top + tol) continue;
+    if (overlapX(a, late) <= 0 || overlapX(b, late) <= 0) continue;
+    return before[n];
+  }
+  return -1;
+}
+
+/** A line's runs with late runs put in at their x (a blank run stays after the run before it). */
+function mergeRuns(runs: TextRun[], extra: TextRun[]): TextRun[] {
+  const out = runs.slice();
+  let last = -1;
+  for (const r of extra) {
+    if (r.str.trim() === '') {
+      if (last >= 0) out.splice(++last, 0, r);
+      continue;
+    }
+    last = out.findIndex((o) => o.x >= r.x);
+    if (last < 0) last = out.length;
+    out.splice(last, 0, r);
+  }
+  return out;
+}
+
 /** Expand a line's runs into positioned characters. */
 function lineChars(line: RawLine): Char[] {
   const chars: Char[] = [];
@@ -469,8 +650,11 @@ export function buildDocModel(doc: DocText): DocModel {
   const lines: Line[] = [];
   let blockId = -1;
 
+  const outOfOrder = new Map<number, number>();
   for (const page of doc.pages) {
-    const raw = groupLines(page.index, page.runs.map(upright));
+    const order = restoreReadingOrder(groupLines(page.index, page.runs.map(upright)), page.width, page.height);
+    const raw = order.lines;
+    if (order.placed) outOfOrder.set(page.index, order.placed);
     let prev: { rect: Rect; size: number; angle: number; last: Tok } | null = null;
     for (const rl of raw) {
       const chars = lineChars(rl);
@@ -549,6 +733,7 @@ export function buildDocModel(doc: DocText): DocModel {
         unmapped: p.unmapped ?? 0,
         ...(angle ? { textAngle: angle } : {}),
         ...(p.fieldsUnread ? { fieldsUnread: p.fieldsUnread } : {}),
+        ...(outOfOrder.has(p.index) ? { outOfOrder: outOfOrder.get(p.index) } : {}),
       };
     }),
     tokens: joined.tokens,

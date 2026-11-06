@@ -267,6 +267,9 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
       out.push({ level: 'warn', text: t(lang, 'noticeFieldsUnread', { side: side(s), pages: pageRuns(lang, fields.map((u) => u.page)), n: fields.reduce((n, u) => n + u.count, 0) }) });
     const unreadable = (cov.fieldsUnread ?? []).filter((u) => u.count < 0);
     if (unreadable.length) out.push({ level: 'warn', text: t(lang, 'noticeFieldsUnreadable', { side: side(s), pages: pageRuns(lang, unreadable.map((u) => u.page)) }) });
+    // Text stored after the footer (re-typed by a PDF editor), placed by its position.
+    if (cov.outOfOrder?.length)
+      out.push({ level: 'info', text: t(lang, 'noticeOutOfOrder', { side: side(s), pages: pageRuns(lang, cov.outOfOrder.map((u) => u.page)), n: cov.outOfOrder.reduce((n, u) => n + u.count, 0) }) });
   }
   for (const s of ['old', 'new'] as const) {
     const skipped = r.coverage?.[s]?.visualSkipped ?? [];

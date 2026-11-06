@@ -342,6 +342,7 @@ export function buildJson(input: ReportInput): unknown {
     ...(c.uncertain ? { uncertain: c.uncertain.map(page1) } : {}),
     ...(c.partlyCompared ? { partlyCompared: c.partlyCompared.map(page1) } : {}),
     ...(c.fieldsUnread ? { fieldsUnread: c.fieldsUnread.map(page1) } : {}),
+    ...(c.outOfOrder ? { outOfOrder: c.outOfOrder.map(page1) } : {}),
   });
   return {
     generator: 'ChangeLens',
