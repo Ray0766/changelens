@@ -5982,6 +5982,7 @@ function compareAligned(
   // (see drawnByMarkup).
   const markupDrawn = { old: markupOn.old.flatMap((m) => m.quads.map((q) => expand(q, 3))), new: markupOn.new.flatMap((m) => m.quads.map((q) => expand(q, 3))) };
   const byMarkup = (side: 'old' | 'new', r: Rect, map: (r: Rect) => Rect): boolean => {
+    if (!markupDrawn.old.length && !markupDrawn.new.length) return false;
     const o = side === 'old' ? 'new' : 'old';
     const mine = markupDrawn[side].length > 0 && coveredShare(r, markupDrawn[side]) >= 0.6;
     const m = map(r);
