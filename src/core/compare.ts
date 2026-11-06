@@ -3056,7 +3056,9 @@ const tightRows = new WeakMap<DocModel, Set<number>>();
  * does not count on from it (a row number typed by hand, "31" for 27) is a
  * row number too, so that it is listed like any row number changed by hand
  * (without a percentage) and the rows after it are not taken for
- * renumbered rows (see numberedRun).
+ * renumbered rows (see numberedRun). So are the rows that count on from it,
+ * also when they are too few to make a column of their own ("28" kept, then
+ * "28", "29"), and a number typed by hand after those.
  * Numbers set an em or more apart are row numbers anyway (see labelAt and
  * rowNumberAt); they count as rows of the column too. Whether a row number
  * was renumbered is still decided by its siblings (see extractRenumbering).
@@ -3114,9 +3116,11 @@ function tightRowNumbers(doc: DocModel): Set<number> {
     accepted.set(column, cells);
     for (const r of column) if (inColumn(r, cells)) rows.add(r.k);
   };
-  /** Rows that do not count on from the last row of the column right above them. */
-  const outOfSequence: { row: Row; column: Row[] }[] = [];
+  /** Columns started by a row that does not count on from the last row of the column right above it: that column. */
+  const after = new Map<Row[], Row[]>();
   const followed = new Set<Row[]>();
+  /** Every column, in the order they start. */
+  const columns: Row[][] = [];
   /** The columns that may still go on: their last row is on this page or the one before. */
   let open: Row[][] = [];
   for (const line of doc.lines) {
@@ -3127,10 +3131,7 @@ function tightRowNumbers(doc: DocModel): Set<number> {
     const into = row ? open.find((column) => column[column.length - 1].value + 1 === row.value && near(column)) : undefined;
     // Only the first such row after a column: it ends the column on its page, but not on the next.
     const above = row && !into ? open.find((column) => !followed.has(column) && near(column)) : undefined;
-    if (above) {
-      outOfSequence.push({ row: row!, column: above });
-      followed.add(above);
-    }
+    if (above) followed.add(above);
     const x0 = doc.tokens[line.start].rects[0].x;
     const ended = (column: Row[]) => {
       if (column === into) return false;
@@ -3141,12 +3142,25 @@ function tightRowNumbers(doc: DocModel): Set<number> {
     for (const column of open) if (ended(column)) close(column);
     open = open.filter((column) => !ended(column));
     if (into) into.push(row!);
-    else if (row) open.push([row]);
+    else if (row) {
+      const column = [row];
+      open.push(column);
+      columns.push(column);
+      if (above) after.set(column, above);
+    }
   }
   for (const column of open) close(column);
-  for (const { row, column } of outOfSequence) {
-    const cells = accepted.get(column);
-    if (cells && inColumn(row, cells)) rows.add(row.k);
+  // A number typed by hand right after a column of row numbers, and the
+  // rows that count on from it: rows of that column, when set like them.
+  // In reading order, so that a column carries on past several such numbers.
+  for (const column of columns) {
+    const parent = after.get(column);
+    const cells = parent && accepted.get(parent);
+    if (!cells || !inColumn(column[0], cells)) continue;
+    rows.add(column[0].k);
+    if (accepted.has(column)) continue;
+    accepted.set(column, cells);
+    for (const r of column) if (inColumn(r, cells)) rows.add(r.k);
   }
   return rows;
 }

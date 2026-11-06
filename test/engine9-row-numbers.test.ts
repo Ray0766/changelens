@@ -154,3 +154,18 @@ test('T2: holdout5-i-rechnung-eur: the renumbered positions are counted, not lis
   assert.deepEqual(listed(back).slice(0, 4), ['Deleted a paragraph', 'Number changed: 12 → 10 (-17%)', 'Number changed: 586,80 → 489,00 (-17%)', 'Moved a paragraph']);
   assert.equal(back.changes.length, 9, JSON.stringify(listed(back)));
 });
+
+// Second pass. reportlab draws a table as one text block, so its row numbers do not start a
+// block (fpdf2's do): the SYNTHETIC reportlab 5.0.1 probes made by
+// test/fixtures/gen9/probe9-T2b.py, with the right-aligned "Pos." column 0.78 em before the next cell.
+/** Compares probe9-T2b-<before>.pdf with probe9-T2b-<after>.pdf. */
+async function probeB(before: string, after: string): Promise<CompareResult> {
+  return compareDocs(await load(`${fixtures}probe9-T2b-${before}.pdf`), await load(`${fixtures}probe9-T2b-${after}.pdf`));
+}
+
+test('T2: the rows renumbered after a row number typed by hand get no percentage, and none is counted', async () => {
+  // Pos. 7 deleted; the next row keeps its number 8 by hand; the two after it are renumbered 8 and 9.
+  const r = await probeB('ins-before', 'dup-after');
+  assert.deepEqual(listed(r), ['Deleted “7 KX-4400 Klemmleiste 12-polig 6 5,75 34,50”', 'Number changed: 9 → 8', 'Number changed: 10 → 9', 'Number changed: 222,65 → 188,15 (-15%)']);
+  assert.equal(r.ignored.renumbered, 0);
+});
