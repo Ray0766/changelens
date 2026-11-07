@@ -553,6 +553,14 @@ const contextCost = (t: Token) => (isWideToken(t) ? 1 : 3);
 const SENTENCE_END = /^[。！？]$/;
 /** Opening brackets and quotation marks of Chinese and Japanese text. */
 const OPENING_MARK = /^[（［｛〔【〖〘〚「『《〈]$/;
+/**
+ * The closing brackets and quotation marks of Chinese and Japanese text,
+ * and the marks that end or separate its sentences, clauses, fields and
+ * items. Signs (－, ＋, ～, ±) are not among them.
+ */
+const CLOSING_MARK = /^[，、。．：；！？）］｝〕】〗〙〛」』》〉…‥]$/;
+/** Signs and range marks written before a figure in Chinese and Japanese text, where they are tokens of their own ("－20℃", "～11月30日"). */
+const FIGURE_SIGN = /^[－＋～〜±−+-]$/;
 
 /**
  * The context around toks[s, e): within its paragraph, or within `within`
@@ -566,12 +574,18 @@ function context(toks: Token[], s: number, e: number, within?: [number, number])
   const before: Token[] = [];
   const anchorB = within ? undefined : toks[s - 1];
   let used = 0;
+  /** Token k is a sign written before the figure that follows it (not a dash between two figures). */
+  const sign = (k: number) => FIGURE_SIGN.test(toks[k].text) && toks[k + 1]?.kind === 'number' && !(k > lo && toks[k - 1].kind === 'number' && toks[k - 1].block === toks[k].block);
   for (let k = s - 1; k >= lo; k--) {
     const t = toks[k];
     if (anchorB && t.block !== anchorB.block) break;
     if (SENTENCE_END.test(t.text) && before.some((b) => b.kind !== 'punct')) break;
     used += contextCost(t);
-    if (used > CONTEXT_BUDGET) break;
+    if (used > CONTEXT_BUDGET) {
+      // The budget does not cut a sign from its figure.
+      if (before.length && sign(k)) before.unshift(t);
+      break;
+    }
     before.unshift(t);
   }
   const after: Token[] = [];
@@ -586,12 +600,15 @@ function context(toks: Token[], s: number, e: number, within?: [number, number])
     after.push(t);
     if (end) break;
   }
-  // A full-width mark cut from the text before the context (the colon of
-  // the field before it, "：2026年11月4日 有效期至："; the comma of the clause
-  // before it) is left out, and so is an opening bracket cut from the text
-  // after it.
+  // A full-width closing or separating mark cut from the text before the
+  // context (the colon of the field before it, "：2026年11月4日 有效期至："; the
+  // comma of the clause before it) is left out, and so is an opening bracket
+  // cut from the text after it. A sign that starts the context stays, so
+  // that the context of "－20℃以下时" or "＋5%以内" quotes the figure with its
+  // sign; a dash cut from the figure before it ("10－20℃") is left out.
   const wideMark = (t: Token | undefined) => !!t && t.kind === 'punct' && isWideToken(t);
-  while (wideMark(before[0]) && !OPENING_MARK.test(before[0].text)) before.shift();
+  const first = () => s - before.length;
+  while (wideMark(before[0]) && (CLOSING_MARK.test(before[0].text) || (FIGURE_SIGN.test(before[0].text) && !sign(first())))) before.shift();
   while (wideMark(after[after.length - 1]) && OPENING_MARK.test(after[after.length - 1].text)) after.pop();
   return [joinTokens(before), joinTokens(after)];
 }

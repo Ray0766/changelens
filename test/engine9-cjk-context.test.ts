@@ -101,3 +101,30 @@ test('T3: the context leaves out a full-width mark cut from the text around it',
   assert.equal(days.contextBefore, '（二）乙方应于');
   assert.equal(days.contextAfter, '日内完成全部设备的安装接线调试工作');
 });
+
+test('T3: the context keeps a full-width sign that starts it', async () => {
+  // Chromium (gen9/probe9-T3c.mjs): each sentence starts right after a
+  // sentence end with a sign or a range mark; the figure changed later in
+  // the sentence has its context start at that sign.
+  const r = await probe('sign');
+  assert.deepEqual(
+    r.changes.map((c) => [describeChange('en', c), c.contextBefore]),
+    [
+      ['Number changed: 30 → 45 (+50%)', '－20℃以下时，泵的启动时间为'],
+      ['Number changed: 3 → 5 (+67%)', '＋5%以内的偏差，由乙方在'],
+      ['Number changed: 2 → 4 (+100%)', '～11月30日まで延長分は'],
+      ['Number changed: 8,800 → 9,600 (+9.1%)', '－1,200元为本期扣款，实发金额为'],
+    ],
+  );
+  // Synthetic text runs: the context's budget ends at the comma before the
+  // sign (the comma is left out, the sign stays), or at the sign itself (it
+  // is not cut from its figure). Control: with a shorter sentence, the
+  // comma inside the context stays.
+  const ctx = (filler: string) => {
+    const doc = (name: string, t: string) => makeDoc(name, [[[`本合同另有约定的按约定执行，－20℃以下时泵的启动时间${filler}${t}秒。`]]]);
+    return compareDocs(model(doc('a', '30')), model(doc('b', '45'))).changes.map((c) => c.contextBefore);
+  };
+  assert.deepEqual(ctx('延'), ['－20℃以下时泵的启动时间延']);
+  assert.deepEqual(ctx('延长到'), ['－20℃以下时泵的启动时间延长到']);
+  assert.deepEqual(ctx(''), ['行，－20℃以下时泵的启动时间']);
+});
