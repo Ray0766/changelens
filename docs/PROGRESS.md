@@ -14,12 +14,12 @@ Short running notes for whoever continues (people or agents). Newest first.
   - round 3: 73 / 73 / 1;
   - round 4: 119 / 119 / 3, and 109 / 109 / 9 with the registered rules (was 118 / 118 / 4 and 108 / 108 / 10);
   - round 5 (not blind any more): 139 / 139 / 16 (138), 133 / 133 / 17 registered, 89 / 86 / 61 strict (first run: 115 / 115 / 78, 111 / 111 / 79, 72 / 70 / 118); text line diff 110 / 109 / 95, pixel page diff 144 / 132 / 59;
-  - visual stage about 5 % (demo) and 6.5 % (24 pages) slower than `25e9ffe`, idle A/B (EVALUATION, Performance).
+  - visual stage about 5 % (demo) and 6.6 % (24 pages) slower than `25e9ffe`, idle A/B (EVALUATION, Performance).
 - **Open, as facts** (all in the README limits):
   - round-5 causes 5, 7, 10 and 12 are not fixed, cause 8 only in part, and causes 9 and 11 are scoring only; the 5 misses left are 4 correct reports the scorer does not credit and the Débit → Crédit column move (not checked, documented);
   - re-typed text on footer-first pages is still compared in stream order, with no notice;
   - markup annotations are listed only in the visual check, on matched words of compared pages;
-  - regressions against `25e9ffe`, low or medium: thin grey strikes on bold mid-saturated headings counted, not listed; a strike on a figure under an unmoved translucent stamp counted; look-alikes of a closing rule counted with it; a first column counting up from 1 set close to the next cell read as row numbers; CJK range dashes after a long unit read as minus; a false colour item on an unchanged re-typed CJK date under a highlight; positioned text placed in one version only listed as deleted and added;
+  - regressions against `25e9ffe`, low or medium: thin grey strikes on bold mid-saturated headings counted, not listed; a strike on a figure under an unmoved translucent stamp counted; look-alikes of a closing rule counted with it; a first column counting up from 1 set close to the next cell read as row numbers; CJK range dashes after a long unit read as minus; a false colour item on an unchanged re-typed CJK date under a highlight; positioned text placed in one version only listed as deleted and added; a steep hand strike running on 10 pt or more past a short figure counted, not listed as "Struck through";
   - a reportlab sub- or superscript change ("CO2" → "CO₂") is listed as misleading text changes, at `25e9ffe` too;
   - credited items that still mislead: percentages between negative values, on account digits and on the day of a date ("1 → 15 (+1400%)"), △ dropped, a sign change written in words.
 - **Next, proposed** (not started):
@@ -57,7 +57,7 @@ Short running notes for whoever continues (people or agents). Newest first.
   - Twelve causes, ranked in EVALUATION ("Held-out round 5: first run"); the README limits now name the eleven that affect a reviewer (cause 9 is scoring only).
 - **Next, proposed** (not started; fixing with these cases would end round 5's status as held out):
   1. PyMuPDF re-typed text: merge runs drawn after the footer into the body line they share a baseline with; widen the same-place join; add a notice for text out of reading order.
-  2. Row numbers closer than one em to the next cell; never a percentage on a row number.
+  2. Row numbers closer than one em to the next cell (at least about 0.4 em, three rows or more); never a percentage on a row number.
   3. Table closing rules at moved page breaks folded into the page-break count.
   4. Thin and light lines measured by colour distance, not luminance; strike-out, underline and highlight annotations read from `getAnnotations`; a notice that a file has annotations.
   5. CJK context by a character budget; 年月日 date changes that take in 月 read as numbers.

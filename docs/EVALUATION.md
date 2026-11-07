@@ -134,7 +134,7 @@ Where the baselines lose:
 **Fix round 9** used the 18 cases of round 5, and their first-run analysis, to fix causes 1–4 and 6 below and to read PDF markup annotations. Round 5 is therefore no longer held out, and nothing in this section is a blind result. The round ran in two streams, each through five or six passes of fix and independent verification, merged in `7fbce04`:
 - **Text** (`b35fcaf` to `29ec513`):
   - Lines drawn after the page footer are put back in reading order by their position on the page (`restoreReadingOrder` in `src/core/tokenize.ts`) and compared there. PDF editors store re-typed text that way, and so do browsers for positioned text. An info notice names the pages ("New version p. 1, 3: 5 lines of text are stored after the page footer, out of reading order …"), and the JSON coverage has `outOfOrder`. This is done only where the footer is drawn after the body.
-  - Row numbers set closer than one em to the next cell are recognised as row numbers (cause 2).
+  - Row numbers set closer than one em to the next cell, but at least about 0.4 em, are recognised as row numbers when at least three rows leave that gap (cause 2).
   - The excerpt context in Chinese and Japanese is sized by a character budget instead of six characters, and dates written with 年, 月 and 日 are compared as one date, without a percentage (cause 4).
   - A full-width minus right after a Chinese character is read as the sign of its figure, with exceptions for range dashes.
 - **Visual** (`a10bc75` to `823b442`):
@@ -143,7 +143,7 @@ Where the baselines lose:
   - Highlight, strike-out, underline and squiggly annotations are read from the file with PDF.js `getAnnotations` (`src/pdf/extract.ts`) and listed by name on the words they cover ("Highlighted (annotation): …"). Stamps and free-text notes are named with their text ("Stamp added (annotation): “FOR COMMENT”"). A notice counts a file's annotations by kind.
 - After the merge: `b5332f4` corrects one test expectation, `e275c10` fixes two web layout problems the final check found (below), and `107364f` corrects the wording of the annotation notice.
 
-The fixes come with regression tests built from SYNTHETIC probe PDFs (`test/engine9-*`, `test/visual9-*`, fixtures `test/fixtures/probe9-*`). In passes 5 and 6 the fixers followed one rule for every new problem a verifier found: fix it narrowly or restore the behaviour of the published engine (`25e9ffe`), and hide an item only with evidence that it follows from a listed change (DECISIONS D13).
+The fixes come with regression tests built from SYNTHETIC probe PDFs (`test/engine9-*`, `test/visual9-*`, fixtures `test/fixtures/probe9-*`). In passes 5 and 6 the fixers followed one rule for every new problem a verifier found: fix it narrowly or restore the behaviour of the published engine (`25e9ffe`), or, where neither was possible without a new heuristic, leave it and document it; and hide an item only with evidence that it follows from a listed change (DECISIONS D13).
 
 Run on 2026-11-07 on the merged engine (`b5332f4`, whose `src/` equals the merge `7fbce04`). `107364f` changes only one notice text and the web layout; the 12 cases with residuals, re-run on it, give the same items. Found / located / extra (separate):
 
@@ -216,14 +216,14 @@ Notes on the table:
 - the CLI on all 79 evaluation pairs on four trees (316 runs): in every case the merged result equals the published engine's plus the text stream's changes plus the visual stream's changes, and nothing appears that neither stream produces;
 - 1,782 text probe pairs identical between the merged engine and the text stream, and 473 visual probe pairs whose visual items are identical between the merged engine and the visual stream;
 - 58 SYNTHETIC counter-probes where the streams meet (re-typed text under or next to annotations, closing rules beside re-typed cells, CJK dates and signed figures under a highlight). Every real edit is listed. One false item was found: "Text colour or weight changed" on an unchanged CJK date that a PDF editor re-typed under an unchanged highlight (low; the text stream gives it too, the published engine does not);
-- the web app (en and zh, at 1280 px, 390 px and 200 % zoom, keyboard order, reduced motion) and 12 HTML reports. Its two problems were fixed after this check, in `e275c10`. At 200 % zoom (640 × 400) the new notices had squeezed the change list of an annotated file to 16 px (published engine: 142 px); the summary panel now scrolls on its own past 40 % of the sidebar, and the list keeps 100 px, measured after the fix. On the landing page at 391–900 px, the arrow between the drop zones covered the centre of the BEFORE zone and of the Compare button and took their clicks (also in the published engine); it no longer does.
+- the web app (en and zh, at 1280 px, 390 px and 200 % zoom, keyboard order, reduced motion) and 12 HTML reports. It listed five problems. Its two layout problems were fixed after this check, in `e275c10` (below); the "Their text" wording was fixed in `107364f`, and the annotations it found without a name (ink initials, an edited free-text note) are README limits; the out-of-date README is updated by this documentation; highlight boxes drawn slightly off in a Chinese quote, also at `25e9ffe`, are not fixed. At 200 % zoom (640 × 400) the new notices had squeezed the change list of an annotated file to 16 px (published engine: 142 px); the summary panel now scrolls on its own past 40 % of the sidebar, and the list keeps 100 px, measured after the fix. On the landing page at 391–900 px, the arrow between the drop zones covered the centre of the BEFORE zone and of the Compare button and took their clicks (also in the published engine); it no longer does.
 
 `npm run typecheck` passes on the merged engine, and `npm test` passes 576 of 576 on `107364f`. The other sets: 31 non-blind pairs 117 / 117 / 0; round 3 73 / 73 / 1; round 4 119 / 119 / 3 (119), and 109 / 109 / 9 with the registered rules (see the round-4 section). Speed: [Performance](#performance).
 
 **What this does not show.**
-- **These are not blind results.** The fixes were made with these 18 cases and with probes built for them, by the same kind of agent that verified them. Most of the gain is on the causes that were fixed; the causes outside the round are where they were.
+- **These are not blind results.** The fixes were made with these 18 cases and with probes built for them, by the same kind of agent that verified them. Most of the gain is on the causes that were fixed. The causes outside the round are mostly where they were: cause 8 lost the false "L" underline as an untraced side effect (4 → 3 items), and cause 7's invoice item now reads "Moved" instead of "Moved and edited".
 - **All the documents are synthetic.** The PyMuPDF cases imitate what PDF editors do; no file from a real editor such as Acrobat was tested.
-- **Re-typed text is placed only where the footer is drawn after the body.** Where the footer is drawn first (a reportlab canvas, office suites) the text is compared in stream order as before, with no notice (README: Reading order).
+- **Re-typed text is placed only where the footer is drawn after the body.** Where the footer is drawn first (seen with a reportlab canvas probe; LibreOffice Writer draws it last; Microsoft Office's own export is untested) the text is compared in stream order as before, with no notice (README: Reading order).
 - **Annotations were tested only as written by PyMuPDF 2.1 and pypdf.**
 - A claim about new documents needs a new held-out round.
 
@@ -609,16 +609,16 @@ The checks added in fix rounds 5 and 6 cost about 5–10 % in the visual stage, 
 
 Fix round 8 costs about 12–15 % in the visual stage on ordinary pages, and nothing measurable in the text stage. On watermark pages the visual stage takes about 1.7 times as long. A profile of the memo found no single hot spot: the appearance checks (8.1 → 18.4 s) and the line tests (2.7 → 8.3 s) are now run for each overlay, each nearby graphic and each slanted text, and the new watermark letter maps add about 6 s. A cache of ink per box gained nothing measurable and was not kept. The independent verifiers measured much the same on this machine: 1–17 % on the demo pair (median about 11 %) and 37.7 s against 22.5 s on the memo.
 
-**Fix round 9, A/B on one machine.** On 2026-11-07, on the 2.10 GHz machine of the first table (Node 22.23), with no other job running (1-minute load 0.2–1.5), runs alternated between `25e9ffe` (before fix round 9) and the merged engine (`b5332f4`; `107364f` changes only the web layout and one notice text). 3 runs each:
+**Fix round 9, A/B on one machine.** On 2026-11-07, on the 2.10 GHz machine of the first table (Node 22.23), with no other job running (1-minute load 0.2–1.5), runs alternated between `25e9ffe` (before fix round 9) and `107364f`, whose engine equals the merged `b5332f4` apart from one notice string (it also changes the web layout). 3 runs each:
 
-| Pair | `25e9ffe` | `b5332f4` |
+| Pair | `25e9ffe` | `107364f` |
 |---|---|---|
 | Demo, text only | 0.54–0.57 s · 190–196 MB | 0.53–0.64 s · 196 MB |
 | Demo, text + visual | 5.80–6.33 s (median 5.93) · 341–368 MB | 6.13–6.24 s (median 6.22) · 330–371 MB |
 | 24 → 24 pages, text only | 0.73–0.82 s · 198–203 MB | 0.77–0.86 s · 202–207 MB |
 | 24 → 24 pages, text + visual | 12.25–12.66 s (median 12.35) · 356–385 MB | 12.84–13.39 s (median 13.16) · 366–396 MB |
 
-Fix round 9 costs about 5 % (demo) and 6.5 % (24 pages) in the visual stage, by the medians. In the text stage the ranges overlap (medians 0.57 → 0.62 s and 0.75 → 0.79 s), too close to tell apart in three runs. An earlier A/B run of the same pairs, while another agent was running (1-minute load 4–6), gave +9.7 % and +6.8 %; its absolute times are higher and not comparable. In that run the 2-page audit case with annotations took about 0.27 s (13 %) longer. The slanted-watermark memo was not re-measured.
+Fix round 9 costs about 5 % (demo) and 6.6 % (24 pages) in the visual stage, by the medians. In the text stage the ranges overlap (medians 0.57 → 0.62 s and 0.75 → 0.79 s), too close to tell apart in three runs. An earlier A/B run of the same pairs, on `b5332f4` while another agent was running (1-minute load 4–6), gave +9.7 % and +6.8 %; its absolute times are higher and not comparable. In that run the 2-page audit case with annotations took about 0.27 s (13 %) longer. The slanted-watermark memo was not re-measured.
 
 The extra time comes from the checks that were added for missed changes: strikethrough and underline, faint fills and hairlines, ink balance for shifts, and re-checking regions against neighbouring pages. Most of the time is spent in the per-pixel comparison (`unmatched`, 23 %), the 3 × 3 min/max planes (13 %) and the blur (10 %). Text comparison takes about 0.6 s of the total.
 
