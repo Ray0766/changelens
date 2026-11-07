@@ -5660,9 +5660,13 @@ function closingRules(result: CompareResult, oldPage: number, newPage: number, A
         .filter((t) => ownLineBy(P, Q, rule.rows, rule.weight, t, odoc.tokens[mate[t.i]]))
         .map((t) => [t.rects[0].x * s - 2, (t.rects[0].x + t.rects[0].w) * s + 2]);
       const wRef = (ref.weight / so) * s;
-      // The longest run of columns unlike the other rule.
+      const under = (x: number) => lined.some(([u, v]) => x >= u && x <= v);
+      // The longest run of columns unlike the other rule; and any column
+      // that gained half a dark pixel more than 1.4 times its weight (a thin
+      // tick drawn across it, one or two pixels wide).
       let run = 0;
       let longest = 0;
+      let tick = false;
       for (let x = rule.ext[0] + 2; x <= rule.ext[1] - 2; x++) {
         let g = 0;
         let hw = 0;
@@ -5679,10 +5683,11 @@ function closingRules(result: CompareResult, oldPage: number, newPage: number, A
         }
         const h = hw ? hue.map((v) => v / hw) : [0, 0, 0];
         const off = g < 0.6 * wRef || g > 1.4 * wRef || (hw >= 0.3 && Math.hypot(h[0] - ref.hue[0], h[1] - ref.hue[1], h[2] - ref.hue[2]) > 30);
-        run = off && !lined.some(([u, v]) => x >= u && x <= v) ? run + 1 : 0;
+        run = off && !under(x) ? run + 1 : 0;
         if (run > longest) longest = run;
+        if (g >= 1.4 * wRef + 0.5 && !under(x)) tick = true;
       }
-      if (longest >= 3) continue;
+      if (longest >= 3 || tick) continue;
       out.push({
         side,
         page,
@@ -5708,21 +5713,35 @@ function closingRules(result: CompareResult, oldPage: number, newPage: number, A
  * along pixel rows y0–y1: in every other pixel row of the region, past a
  * row of blur on each side of the line, under a tenth of the region's
  * columns hold dark ink outside the text's mask (a second rule a few points
- * below it is a graphic of its own).
+ * below it is a graphic of its own). With `gain` (how much darker than
+ * the other version at the same place each pixel is: a table's closing
+ * rule, see compareAligned's closesAt), only pixels a third of a dark pixel
+ * darker count, under three in a row (a short line a few points below the
+ * rule), and no column gains half a dark pixel or more over those rows (a
+ * thin tick beside it); the table's column rules, which both versions
+ * draw, do not count.
  */
-function lineOnly(P: Prepared, r: Rect, y0: number, y1: number): boolean {
+function lineOnly(P: Prepared, r: Rect, y0: number, y1: number, gain?: (x: number, y: number) => number): boolean {
   const s = P.r.scale;
   const [x0, x1] = [Math.max(0, Math.floor(r.x * s)), Math.min(P.r.width, Math.ceil((r.x + r.w) * s))];
+  const cols = gain ? new Float32Array(Math.max(0, x1 - x0)) : null;
   for (let y = Math.max(0, Math.floor(r.y * s)); y < Math.min(P.r.height, Math.ceil((r.y + r.h) * s)); y++) {
     if (y >= y0 - 1 && y <= y1 + 1) continue;
     let n = 0;
     for (let x = x0; x < x1; x++) {
       const i = y * P.r.width + x;
-      if (P.mask[i] !== GLYPH && P.mask[i] !== PAD && P.lum[i] <= DARK) n++;
+      if (P.mask[i] === GLYPH || P.mask[i] === PAD) continue;
+      if (!gain) {
+        if (P.lum[i] <= DARK) n++;
+        continue;
+      }
+      const d = gain(x, y);
+      if (d >= 0.15) cols![x - x0] += d;
+      if (d >= 0.3 && P.lum[i] <= DARK) n++;
     }
-    if (n >= Math.max(3, 0.1 * (x1 - x0))) return false;
+    if (n >= (gain ? 3 : Math.max(3, 0.1 * (x1 - x0)))) return false;
   }
-  return true;
+  return !cols || cols.every((g) => g < 0.5);
 }
 
 /** Compare one old page with one new page drawn in the same orientation (see compareRasters). */
@@ -5782,10 +5801,14 @@ function compareAligned(
   // (the regions are whole cells) and 6 pt at the ends, with nothing else
   // drawn there (see lineOnly).
   const closesAt = (R: ClosingRule, r: Rect) => {
-    const P = R.side === 'old' ? A : B;
+    const [P, Q] = R.side === 'old' ? [A, B] : [B, A];
     const c = CELL / P.r.scale;
     if (r.y < R.rect.y - c - 1 || r.y + r.h > R.rect.y + R.rect.h + c + 1 || r.x < R.rect.x - 6 || r.x + r.w > R.rect.x + R.rect.w + 6) return false;
-    return lineOnly(P, r, R.rows[0], R.rows[1]);
+    // Darker than the other version where the row lies there (see ClosingRule.away).
+    const [s, so] = [P.r.scale, Q.r.scale];
+    const [dx, dy] = [R.away.x - R.rect.x, R.away.y - R.rect.y];
+    const gain = (x: number, y: number) => darkAt(P, x, y) - sampleDark(Q, ((x + 0.5) / s + dx) * so - 0.5, ((y + 0.5) / s + dy) * so - 0.5);
+    return lineOnly(P, r, R.rows[0], R.rows[1], gain);
   };
   // The running header rows of a page compared with its counterpart (see
   // furnitureRows) are compared at the same place even where the text

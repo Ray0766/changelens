@@ -13,10 +13,15 @@
 // - Navy text under a new highlight in multiply blend at 50 %: the
 //   see-through model told the glyphs apart, and the opaque path then
 //   explained them by the tint. The see-through verdict now stands.
+// - A short line drawn 4 pt below the rule that closes a table fragment at
+//   a moved page break, or a thin tick across it, was folded with the rule.
+//   A tick across the rule now makes the rule a change; a mark beside it is
+//   listed as a graphic (the rule itself still a consequence).
 // Fixtures test/fixtures/probe9-V2-steep-SYNTHETIC-*.pdf and
 // probe9-V3-markup-*.pdf are SYNTHETIC: fpdf2 2.9 and PyMuPDF 2.1
 // (test/fixtures/gen9/v2-steep-strikes.py, v3-markup-refix.py and
-// v3-markup-third.py).
+// v3-markup-third.py); probe9-V1-closing-rules-*.pdf: Typst 0.15 and
+// PyMuPDF 2.1 (v1-closing-rules.py, v1-closing-rules-third.py).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openPdf } from '../src/node/pdf.ts';
@@ -40,6 +45,8 @@ async function run(before: string, after: string): Promise<CompareResult> {
 }
 const list = (cs: Change[]) => cs.map((c) => describeChange('en', c));
 const lines = (r: CompareResult) => list(r.changes.filter((c) => c.format?.decoration));
+/** The top of the rule closing the table's first fragment on page 1 of probe9-V1-closing-rules-before.pdf (see visual9-closing-rules.test.ts). */
+const RULE_Y = 757.2;
 
 test('visual9 third pass: a strike drawn by hand rising 3 pt across a two-digit number is listed', { skip }, async () => {
   // Before: "12" and "30" were neither listed nor counted (a slope of
@@ -79,4 +86,27 @@ test('visual9 third pass: text recoloured under a see-through highlight in multi
   assert.deepEqual(list((await run(M + 'before.pdf', M + 'navy-hl-m50.pdf')).changes), ['Text colour or weight changed', HL]);
   // Control: the same highlight over the black phrase.
   assert.deepEqual(list((await run(M + 'before.pdf', M + 'hl-m50.pdf')).changes), [HL]);
+});
+
+test('visual9 third pass: a mark drawn right next to a folded closing rule is listed', { skip }, async () => {
+  // Before: only "Added 49 words", the rule and the mark counted as "1 rule
+  // closing a table" in the notice.
+  const V = 'probe9-V1-closing-rules-';
+  // A short red line 4 pt below the rule: a graphic at its place, which
+  // takes in the rule's cells; the rule is still a consequence.
+  const below = await run(V + 'before-dash-below.pdf', V + 'after.pdf');
+  assert.deepEqual(list(below.changes), ['Added 49 words', 'Graphic or image removed']);
+  assert.ok(below.changes[1].old.rects.some((q) => q.page === 0 && q.rect.x <= 300 && q.rect.x + q.rect.w >= 320 && q.rect.y + q.rect.h >= RULE_Y + 4.5), JSON.stringify(below.changes[1].old.rects));
+  // A tick 3 pt tall across the rule: the rule is a change, listed as the
+  // row's underline with the rule's place, in both directions.
+  const tick = await run(V + 'before-tick.pdf', V + 'after.pdf');
+  assert.deepEqual(list(tick.changes), ['Added 49 words', 'Underline removed: “January 88.6 58.7 37.7 70.8 62.9”']);
+  assert.equal(tick.ignored.closingRules ?? 0, 0);
+  assert.ok(tick.changes[1].old.rects.some((q) => q.page === 0 && q.rect.x <= 310 && q.rect.x + q.rect.w >= 310 && Math.abs(q.rect.y - RULE_Y) <= 2), JSON.stringify(tick.changes[1].old.rects));
+  const rev = await run(V + 'after.pdf', V + 'before-tick.pdf');
+  assert.deepEqual(list(rev.changes), ['Deleted 49 words', 'Underlined: “January 88.6 58.7 37.7 70.8 62.9”']);
+  // Control: the rule alone is still folded.
+  const plain = await run(V + 'before.pdf', V + 'after.pdf');
+  assert.deepEqual(list(plain.changes), ['Added 49 words']);
+  assert.equal(plain.ignored.closingRules, 1);
 });
