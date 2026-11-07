@@ -6837,9 +6837,10 @@ function markupExplains(c: Change, a: Token, b: Token, rows: [number, number] | 
  * at that opacity, p = q·(1 − α + α·C/255), whichever fits the word best;
  * in 97 % of the word's pixels (those within a pixel of a quadrilateral's
  * edge left out) both versions are then within 24 levels. Grey glyphs under
- * a highlight that were black are not.
+ * a highlight that were black are not. Null where that cannot be told: a
+ * highlight there is opaque (or mixes colours), or too few pixels compare.
  */
-function seeThroughAlike(A: Prepared, ra: Rect, B: Prepared, rb: Rect, ma: Markup[], mb: Markup[]): boolean {
+function seeThroughAlike(A: Prepared, ra: Rect, B: Prepared, rb: Rect, ma: Markup[], mb: Markup[]): boolean | null {
   type Side = { quads: Rect[]; c: number[]; alpha: number } | null;
   const sideOf = (X: Prepared, t: Rect, list: Markup[]): Side | false => {
     const lit = list.filter((m) => m.kind === 'highlight');
@@ -6864,7 +6865,7 @@ function seeThroughAlike(A: Prepared, ra: Rect, B: Prepared, rb: Rect, ma: Marku
   };
   const sa = sideOf(A, ra, ma);
   const sb = sideOf(B, rb, mb);
-  if (sa === false || sb === false || (!sa && !sb)) return false;
+  if (sa === false || sb === false || (!sa && !sb)) return null;
   // A pixel taken back from under a side's highlight, by blend: 0 normal, 1 multiply.
   const back = (S: Side, s: number, x: number, y: number, p: number[], blend: number): number[] | null => {
     if (!S) return p;
@@ -6904,7 +6905,8 @@ function seeThroughAlike(A: Prepared, ra: Rect, B: Prepared, rb: Rect, ma: Marku
       }
     if (bad < best) [best, all] = [bad, n];
   }
-  return all >= 30 && best <= 0.03 * all;
+  if (all < 30) return null;
+  return best <= 0.03 * all;
 }
 
 /**
@@ -6917,8 +6919,15 @@ function sameBesideMarkup(a: Token, b: Token, A: Prepared, B: Prepared, on: { ol
   const ma = on.old.filter((m) => markedShare(a, m, 3) > 0);
   const mb = on.new.filter((m) => markedShare(b, m, 3) > 0);
   if (!ma.length && !mb.length) return false;
-  // Highlights drawn see-through (see seeThroughAlike).
-  if ([...ma, ...mb].every((m) => m.kind === 'highlight') && seeThroughAlike(A, a.rects[0], B, b.rects[0], ma, mb)) return true;
+  // Highlights drawn see-through (see seeThroughAlike): where every
+  // annotation on the word is one, their model tells, either way. The
+  // glyphs of navy text under a highlight in multiply blend at 50 % are
+  // as dark as black ones under it, which the opaque path below takes
+  // the highlight's tint to explain.
+  if ([...ma, ...mb].every((m) => m.kind === 'highlight')) {
+    const alike = seeThroughAlike(A, a.rects[0], B, b.rects[0], ma, mb);
+    if (alike !== null) return alike;
+  }
   // The rows of the annotations' lines over the word, in both versions:
   // rows where the line of an annotation of `X` lies (a strike-out's
   // through the middle of its quadrilateral, an underline's in its lower

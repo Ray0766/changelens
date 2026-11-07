@@ -10,6 +10,9 @@
 //   highlight's tint and dropped on both sides. A highlight is drawn in
 //   multiply blend: it explains only pixels that are the old ones times
 //   its tint, never lighter ones.
+// - Navy text under a new highlight in multiply blend at 50 %: the
+//   see-through model told the glyphs apart, and the opaque path then
+//   explained them by the tint. The see-through verdict now stands.
 // Fixtures test/fixtures/probe9-V2-steep-SYNTHETIC-*.pdf and
 // probe9-V3-markup-*.pdf are SYNTHETIC: fpdf2 2.9 and PyMuPDF 2.1
 // (test/fixtures/gen9/v2-steep-strikes.py, v3-markup-refix.py and
@@ -67,4 +70,13 @@ test('visual9 third pass: a dot recoloured toward a highlight’s yellow under a
   // highlight only; recoloured red → green it stays listed.
   assert.deepEqual(list((await run(M + 'dot-red.pdf', M + 'dot-red-hl.pdf')).changes), [HL]);
   assert.deepEqual(list((await run(M + 'dot-red.pdf', M + 'dot-green-hl.pdf')).changes), ['Graphic or image changed', HL]);
+});
+
+test('visual9 third pass: text recoloured under a see-through highlight in multiply blend is listed', { skip }, async () => {
+  // Before: only the highlight item.
+  const M = 'probe9-V3-markup-';
+  const HL = 'Highlighted (annotation): “Calibration records for two tor…”';
+  assert.deepEqual(list((await run(M + 'before.pdf', M + 'navy-hl-m50.pdf')).changes), ['Text colour or weight changed', HL]);
+  // Control: the same highlight over the black phrase.
+  assert.deepEqual(list((await run(M + 'before.pdf', M + 'hl-m50.pdf')).changes), [HL]);
 });
