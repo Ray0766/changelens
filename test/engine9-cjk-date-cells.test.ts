@@ -84,3 +84,13 @@ test('T3: a term in a table cell is not read as part of the date in the next cel
   ]);
   assert.ok(distinct(r));
 });
+
+test('T3: a date wrapped after 年 at the edge of a narrow column under a wider title is one date', async () => {
+  // fpdf2 (gen9/probe9-T3d.py): a 60 mm column wraps "…有效期至2026年" /
+  // "11月30日止…" at its edge. A 14 pt title wider than the column, or over
+  // two columns, does not set the column's edge.
+  assert.deepEqual(listed(await probe('wrapwide')), ['Number changed: 2026年11月30日 → 2026年12月30日']);
+  assert.deepEqual(listed(await probe('wrapcols')), ['Number changed: 2026年11月30日 → 2027年12月30日']);
+  // Control: under a title shorter than the column.
+  assert.deepEqual(listed(await probe('wrapshort')), ['Number changed: 2026年11月30日 → 2026年12月30日']);
+});

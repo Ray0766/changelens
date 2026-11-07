@@ -855,16 +855,19 @@ function writtenTogether(doc: DocModel, T: Token[], k: number): boolean {
   if (lb.rect.y < la.rect.y + 0.5 * la.rect.h) return false;
   if (unitFirst) return true;
   const right = (l: Line) => l.rect.x + l.rect.w;
+  const size = (l: Line) => doc.tokens[l.start]?.size ?? 0;
   // The right edge of the column: the lines of the paragraph that stand
   // above or below this one, and the lines nearby on the page that start
-  // where it starts (a short line or a table row in a column of text).
+  // where it starts in the same size (a short line or a table row in a
+  // column of text; not a heading or a title over two columns).
   let edge = right(la);
   for (const dir of [-1, 1]) {
     for (let j = la.id + dir; Math.abs(j - la.id) <= 40; j += dir) {
       const l = doc.lines[j];
       if (!l || l.page !== la.page) break;
       const above = l.block === la.block && l.rect.x < right(la) && right(l) > la.rect.x;
-      if (above || Math.abs(l.rect.x - la.rect.x) <= em) edge = Math.max(edge, right(l));
+      const column = Math.abs(l.rect.x - la.rect.x) <= em && Math.abs(size(l) - size(la)) <= 0.15 * Math.max(size(l), size(la));
+      if (above || column) edge = Math.max(edge, right(l));
     }
   }
   return right(la) >= edge - 2 * em;
