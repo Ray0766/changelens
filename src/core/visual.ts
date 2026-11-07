@@ -1672,6 +1672,31 @@ function onTint(side: Prepared, rect: Rect): boolean {
 }
 
 /**
+ * Whether the glyphs of a word are set in a light, saturated colour (an
+ * amber, a bright green, orange or sky blue heading): of the box's pixels
+ * dark in their lowest channel (64 or less, see luminance), a dozen or
+ * more, the median is lighter by 0.3 or more in luminance. In the lowest
+ * channel such glyphs are as dark as black ones, and a grey line through
+ * them reads as half a line (see lineIn's ink unit): a pair of boxes whose
+ * glyphs are so in both versions is measured by luminance, in which the
+ * glyphs are about as dark as the line. Not where only one version's are
+ * (a yellow strike drawn over black text has such pixels too).
+ */
+function inkTinted(side: Prepared, rect: Rect): boolean {
+  const { r, lum, low } = side;
+  const s = r.scale;
+  const lift: number[] = [];
+  for (let y = Math.max(0, Math.floor(rect.y * s)); y < Math.min(r.height, Math.ceil((rect.y + rect.h) * s)); y++)
+    for (let x = Math.max(0, Math.round(rect.x * s)); x < Math.min(r.width, Math.round((rect.x + rect.w) * s)); x++) {
+      const i = y * r.width + x;
+      if (low[i] <= 64) lift.push(lum[i] - low[i]);
+    }
+  if (lift.length < 12) return false;
+  lift.sort((p, q) => p - q);
+  return lift[lift.length >> 1] >= 77;
+}
+
+/**
  * A box measured against its own background: where no cell of it is
  * paper (the word stands on a pale fill or a stripe of a table, in one
  * version only after a re-flow by a row), each cell's darkness is taken
@@ -1832,11 +1857,27 @@ function addedLine(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, c
  * word does not, at whichever shift its strokes look most like a line.
  */
 function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: Cover | null, cb: Cover | null, opts: LineOptions, shifted = false): FoundLine | 'part' | null {
+  // On a light, saturated fill (see onTint), both boxes are measured by
+  // luminance. Where the glyphs are set in a light, saturated colour in
+  // both versions (see inkTinted), a line not found on the lowest channel
+  // is looked for by luminance too: a grey line through amber or sky-blue
+  // glyphs is half as dark as they are on the lowest channel, and as dark
+  // by luminance; a thin black one is clearer on the lowest channel. A line
+  // found so replaces a fainter one (see LineOptions.faint).
+  const tint = onTint(a, ra) || onTint(b, rb);
+  const first = lineBy(a, ra, b, rb, few, ca, cb, opts, shifted, tint);
+  if (tint || (first && first !== 'part') || !inkTinted(a, ra) || !inkTinted(b, rb)) return first;
+  const again = lineBy(a, ra, b, rb, few, ca, cb, { ...opts, faint: undefined }, shifted, true);
+  if (!again || again === 'part') return first;
+  if (opts.faint) delete opts.faint.line;
+  return again;
+}
+
+/** The test of lineIn on one plane: the pages' lowest channel, or by luminance (`luma`). */
+function lineBy(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: Cover | null, cb: Cover | null, opts: LineOptions, shifted: boolean, luma: boolean): FoundLine | 'part' | null {
   // Without an overlay found there, a fill under the word is taken off
   // (see offFill); an overlay's fill is measured against below.
-  // On a light, saturated fill (see onTint), both are measured by luminance.
   const plain = !ca && !cb;
-  const luma = onTint(a, ra) || onTint(b, rb);
   const A0 = boxDarkness(a, ra, { rect: rb, scale: b.r.scale }, luma);
   const B0 = boxDarkness(b, rb, undefined, luma);
   const A = plain ? offFill(A0) : A0;

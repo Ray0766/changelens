@@ -17,11 +17,15 @@
 //   a moved page break, or a thin tick across it, was folded with the rule.
 //   A tick across the rule now makes the rule a change; a mark beside it is
 //   listed as a graphic (the rule itself still a consequence).
+// - A grey strike through bold headings in light, saturated colours (amber,
+//   orange, sky blue) was lost, counted or taken for a colour change: on
+//   the lowest channel such glyphs are as dark as black ones. Where the
+//   glyphs are so in both versions, a line is also looked for by luminance.
 // Fixtures test/fixtures/probe9-V2-steep-SYNTHETIC-*.pdf and
 // probe9-V3-markup-*.pdf are SYNTHETIC: fpdf2 2.9 and PyMuPDF 2.1
 // (test/fixtures/gen9/v2-steep-strikes.py, v3-markup-refix.py and
-// v3-markup-third.py); probe9-V1-closing-rules-*.pdf: Typst 0.15 and
-// PyMuPDF 2.1 (v1-closing-rules.py, v1-closing-rules-third.py).
+// v3-markup-third.py, v2-tinted-headings.py); probe9-V1-closing-rules-*.pdf:
+// Typst 0.15 and PyMuPDF 2.1 (v1-closing-rules.py, v1-closing-rules-third.py).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openPdf } from '../src/node/pdf.ts';
@@ -109,4 +113,18 @@ test('visual9 third pass: a mark drawn right next to a folded closing rule is li
   const plain = await run(V + 'before.pdf', V + 'after.pdf');
   assert.deepEqual(list(plain.changes), ['Added 49 words']);
   assert.equal(plain.ignored.closingRules, 1);
+});
+
+test('visual9 third pass: a grey strike through a heading in a light, saturated colour is listed', { skip }, async () => {
+  // Before: "Approved" (#ffc000) listed as a colour change, "Blocked"
+  // (#ff8000) counted as too faint, "Review" (#00b0f0) neither listed nor
+  // counted. "Pending" (#00b050, darker) stays counted: missed before the
+  // fix round as well.
+  const T = 'probe9-V2-tint-SYNTHETIC-';
+  const grey = await run(T + 'before.pdf', T + 'grey.pdf');
+  assert.deepEqual(list(grey.changes), ['Struck through: “Approved”', 'Struck through: “Blocked”', 'Struck through: “Review”']);
+  assert.deepEqual(grey.coverage?.new.partlyCompared?.flatMap((u) => u.words), ['Pending']);
+  // Control: black 0.4 pt strikes, found on the lowest channel, all listed.
+  const black = await run(T + 'before.pdf', T + 'k04.pdf');
+  assert.deepEqual(list(black.changes), ['Struck through: “Approved”', 'Struck through: “Pending”', 'Struck through: “Blocked”', 'Struck through: “Review”']);
 });
