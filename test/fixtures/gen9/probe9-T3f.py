@@ -13,6 +13,7 @@ Fifth pass, from the independent check of the fourth (its S1 probes): a mark aft
 characters joins a range, and one after a word that names a numbered table is no sign:
   probe9-T3-minushours-before / -after "3小时－5小时" -> "3小时－6小时"
   probe9-T3-minusref-before / -after   "詳細は表－2" -> "表－3" (Japanese)
+  probe9-T3-minushours3-before / -after "3个小时－5个小时" -> "3个小时－6个小时" (a unit of three characters)
 """
 import os
 import sys
@@ -28,6 +29,7 @@ TEXTS = {
     "minusrange": ("水泵的检修期为3月－5月，期间暂停供水。", "水泵的检修期为3月－6月，期间暂停供水。"),
     "minushours": ("单次停机时间为3小时－5小时，期间暂停供水。", "单次停机时间为3小时－6小时，期间暂停供水。"),
     "minusref": ("詳細は表－2を参照してください。", "詳細は表－3を参照してください。"),
+    "minushours3": ("单次停机时间为3个小时－5个小时，期间暂停供水。", "单次停机时间为3个小时－6个小时，期间暂停供水。"),
 }
 
 

@@ -874,14 +874,16 @@ function tokenizeChars(chars: Char[]): Tok[] {
     // "−€62.40": a sign in front of a currency symbol belongs to the amount too.
     // Chinese and Japanese text has no space before it ("本期扣款－1,200元"):
     // after a character there it is a sign too, but not after a figure's
-    // unit of one or two characters, where it joins a range ("11月－12月",
-    // "3页-5页", "3小时－5小时", "3か月－6か月"), not after a word that
-    // names a numbered table or figure ("表－2", "図－3"), and not as an en
-    // dash.
+    // unit of one to three characters, where it joins a range ("11月－12月",
+    // "3页-5页", "3小时－5小时", "3か月－6か月", "3个小时－5个小时"), not
+    // after a word that names a numbered table or figure ("表－2", "図－3"),
+    // and not as an en dash.
     const viaCurrency = SIGNS.has(c.n) && CURRENCY.has(chars[k + 1]?.n ?? '') && DIGIT.test(chars[k + 2]?.n ?? '');
     if (SIGNS.has(c.n) && (viaCurrency || DIGIT.test(chars[k + 1]?.n ?? ''))) {
       const prev = chars[k - 1]?.n;
-      const unit = DIGIT.test(chars[k - 2]?.n ?? '') || (DIGIT.test(chars[k - 3]?.n ?? '') && classify(chars[k - 2]?.n ?? '') === 'cjk');
+      const digitAt = (j: number) => DIGIT.test(chars[j]?.n ?? '');
+      const cjkAt = (j: number) => classify(chars[j]?.n ?? '') === 'cjk';
+      const unit = digitAt(k - 2) || (cjkAt(k - 2) && (digitAt(k - 3) || (cjkAt(k - 3) && digitAt(k - 4))));
       const afterCJK = !!prev && classify(prev) === 'cjk' && c.n !== '\u2013' && !unit && !NUMBERED.has(prev);
       if (!prev || space || OPENERS.has(prev) || afterCJK) {
         const d = k + (viaCurrency ? 2 : 1);
