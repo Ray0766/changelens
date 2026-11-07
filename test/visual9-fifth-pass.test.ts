@@ -19,7 +19,9 @@
 //   placed beside it. Only a slanted line that goes on so 3.5–30 pt past
 //   the word, as every stamp border in the probes does, is dropped; one
 //   that goes on 10–30 pt is weighed as a fainter line (counted where it
-//   is not listed), at either placement.
+//   is not listed), at either placement. Then, as a strike running on
+//   26–30 pt over the next words was still dropped so, none is dropped:
+//   every one is weighed so (a stamp's border counts a word more).
 // - A grey strike through a bold heading in Office's light green #92d050
 //   was silent, with no item and no count: the glyphs' lowest channel (80)
 //   was above the bound under which they are looked at by luminance.
@@ -113,12 +115,13 @@ test('visual9 fifth pass: a pale dash or a light grey tick by a folded closing r
   assert.deepEqual(list(ty.changes), ['Added 49 words']);
 });
 
-test('visual9 fifth pass: a hand strike that overshoots a short figure by 13–18 pt over the next word is counted', { skip }, async () => {
+test('visual9 fifth pass: a hand strike that overshoots a short figure by 13–30 pt over the next word is counted', { skip }, async () => {
   // Straight strikes rising 3 pt over "30", "12", "48" and "18", running on
   // 16 or 18 pt to the right, or 13 pt to the left. Before: r16 counted
   // "18" only, r18 nothing, l13 listed "12" and "48" and counted "18".
   const S = 'probe9-V2-fifth-SYNTHETIC-stm-';
-  for (const after of ['r16', 'r18']) {
+  // (r30: running on 30 pt, silent before the second change.)
+  for (const after of ['r16', 'r18', 'r30']) {
     const r = await run(S + 'before.pdf', S + after + '.pdf');
     assert.deepEqual(list(r.changes), [], after);
     assert.equal(counted(r), 4, after);

@@ -1,4 +1,5 @@
-# Fix round 9, fifth pass: generator of the second verifier of the visual fourth pass, kept as written.
+# Fix round 9, fifth pass: generator of the second verifier of the visual fourth pass, with the
+# fixer's longer overshoots (L = 22 to 45 to the right, 22 and 30 to the left) added.
 # The fixtures test/fixtures/probe9-V2-fifth-SYNTHETIC-stm-*.pdf are OUT/SYNTHETIC-stm-*.pdf.
 # SYNTHETIC: reportlab 5.0 audit note with short figures mid-line ("30 days", "12 sites",
 # "48 units", "18 crates"); straight hand strikes rising 3 pt over the figure that run on
@@ -33,8 +34,8 @@ def strike(c, q, rise, ol, orr):
     c.setStrokeColorRGB(0, 0, 0); c.setLineWidth(0.9)
     c.line(q['x0'] - ol, ym - rise / 2 - m * ol, q['x1'] + orr, ym + rise / 2 + m * orr)
 page('before')
-for L in (6, 10, 13, 16, 18):
+for L in (6, 10, 13, 16, 18, 22, 26, 30, 35, 45):
     page(f'r{L}', lambda c, W, L=L: [strike(c, find(W, w), 3.0, 1.0, L) for w in ('30', '12', '48', '18')])
-for L in (13, 16):
+for L in (13, 16, 22, 30):
     page(f'l{L}', lambda c, W, L=L: [strike(c, find(W, w), 3.0, L, 1.0) for w in ('30', '12', '48', '18')])
 print('ok')

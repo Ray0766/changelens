@@ -2328,25 +2328,20 @@ function lineBy(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       let lies = !!opts.level;
       for (let j = Math.max(0, k - 3); j <= Math.min(n - 1, e + 3) && over && !lies; j++) lies = over[j] === 1;
       if ((lies || opts.crossing) && !level(A, B, C, n, k, e) && (lies || crosses(a, b, A, B, C, k, e, opts.crossing!))) return null;
-      // Nor, wherever it lies, one that rises or falls across the word as no
-      // strike does (see steep) and goes on so past the word's box (see
-      // runsOnSlanted) from 3.5 to 30 pt beyond it: the border of a stamp
-      // turned by 10° or more, drawn across the text where the graphics
-      // comparison does not look. A strike drawn by hand over a short word
-      // ("30", "12") rises as steeply but ends a point or two past its
-      // glyphs: it is listed. One that goes on from 3.5 to 10 pt past the
-      // box but not to 30 pt may be either (a hand strike overshooting the
-      // word over the next one by 10–20 pt, a stamp's side near its
-      // corner): it is handed to the caller as a fainter line (see
-      // LineOptions.faint), which counts the word as compared only in
+      // One that rises or falls across the word as no strike does (see
+      // steep) and goes on so past the word's box (see runsOnSlanted) from
+      // 3.5 to 10 pt beyond it, wherever it lies, may be the border of a
+      // stamp turned by 10° or more, drawn across the text where the
+      // graphics comparison does not look, or a strike drawn by hand that
+      // overshoots the word over the next one, by however much: nothing
+      // here tells them apart. It is handed to the caller as a fainter line
+      // (see LineOptions.faint), which counts the word as compared only in
       // part, or lists it with a line next to it; so is one found so at a
-      // placement of the boxes beside the word's (see addedLine).
+      // placement of the boxes beside the word's (see addedLine). A strike
+      // drawn by hand over a short word ("30", "12") rises as steeply but
+      // ends a point or two past its glyphs: it is listed.
       const slant = steep(A, B, C, n, k, e);
-      let doubt = false;
-      if (slant && runsOnSlanted(a, b, A, B, C, slant, 10)) {
-        if (runsOnSlanted(a, b, A, B, C, slant, 30)) return null;
-        doubt = true;
-      }
+      const doubt = !!slant && runsOnSlanted(a, b, A, B, C, slant, 10);
       let c0 = k;
       let c1 = e;
       let most = 0;
