@@ -22,11 +22,17 @@
 // - A grey strike through a bold heading in Office's light green #92d050
 //   was silent, with no item and no count: the glyphs' lowest channel (80)
 //   was above the bound under which they are looked at by luminance.
+// - A dark red underline drawn by the page under words that get a red
+//   strike-out annotation was hidden behind the annotation's item: its
+//   anti-aliased rows, as pale as the annotation's red, lie in the strike's
+//   band and were left out with it. An annotation draws one line over a
+//   word: only the run of rows where it draws the most is left out.
 // Fixtures test/fixtures/probe9-V3-fifth-SYNTHETIC-*.pdf are SYNTHETIC:
 // fpdf2 2.9, PyMuPDF 2.1 and pypdf 6 (test/fixtures/gen9/v3-markup-fifth-*.py);
 // probe9-V1-fifth-SYNTHETIC-*.pdf: reportlab 5.0, Typst 0.15 and PyMuPDF 2.1
 // (v1-closing-rules-fifth-*.py); probe9-V2-fifth-SYNTHETIC-stm-*.pdf and -tint*.pdf:
-// reportlab 5.0 (v2-steep-fifth.py, v2-tinted-fifth-*.py).
+// reportlab 5.0 (v2-steep-fifth.py, v2-tinted-fifth-*.py); probe9-V3-fifth-SYNTHETIC-ul-*.pdf:
+// reportlab 5.0 and PyMuPDF 2.1 (v3-markup-fifth-ul-*.py).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openPdf } from '../src/node/pdf.ts';
@@ -135,4 +141,18 @@ test('visual9 fifth pass: a grey strike through a heading in light green #92d050
   const shift = await run(T + 'tint-before.pdf', T + 'tint-shift04.pdf');
   assert.deepEqual(list(shift.changes), []);
   assert.equal(counted(shift), 0);
+});
+
+test('visual9 fifth pass: a page underline under words that get a strike-out annotation is listed', { skip }, async () => {
+  // Before: only the annotation's item. The words lie at (292–384, 149–161)
+  // on page 1; the underline is 1 pt below their baseline (y 160).
+  const U = 'probe9-V3-fifth-SYNTHETIC-ul-';
+  const SO = 'Struck through (annotation): “two closers remain”';
+  const r = await run(U + 'base.pdf', U + 'r06-soR.pdf');
+  assert.deepEqual(list(r.changes), ['Text colour or weight changed', SO]);
+  assert.ok(at(r.changes[0], 'new', 330, 160) && at(r.changes[0], 'old', 330, 160), JSON.stringify(r.changes[0].new.rects));
+  // Controls: the annotation alone, and the annotation over an underline
+  // both versions draw, give the annotation's item only.
+  assert.deepEqual(list((await run(U + 'base.pdf', U + 'base-soR.pdf')).changes), [SO]);
+  assert.deepEqual(list((await run(U + 'r06.pdf', U + 'r06-soR.pdf')).changes), [SO]);
 });

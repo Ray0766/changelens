@@ -7135,7 +7135,11 @@ function sameBesideMarkup(a: Token, b: Token, A: Prepared, B: Prepared, on: { ol
   // the other version, and where 70 % of those pixels are the annotation's
   // colour drawn over what the other version shows there (see overDrawn).
   // A line of the page's own in another colour there (a black underline
-  // under a red strike-out) is not one of them.
+  // under a red strike-out) is not one of them. An annotation draws one
+  // line over a word: of the runs of such rows apart from each other, only
+  // the one where it draws the most pixels is its line, not a line of the
+  // page's own in a near hue beside it (a dark red underline, its
+  // anti-aliased rows as pale as the red strike-out's, in the band).
   const ra = a.rects[0];
   const rb = b.rects[0];
   const skip = { old: new Set<number>(), new: new Set<number>() };
@@ -7158,7 +7162,7 @@ function sameBesideMarkup(a: Token, b: Token, A: Prepared, B: Prepared, on: { ol
       const yo = Math.round(((y + 0.5) / s - t.y + u.y) * so - 0.5);
       let n = 0;
       const drawn = here.map(() => 0);
-      if (y < 0 || y >= X.r.height || yo < 0 || yo >= Y.r.height) return { yo, n, drawn: 0 };
+      if (y < 0 || y >= X.r.height || yo < 0 || yo >= Y.r.height) return { yo, n, drawn: 0, by: here[0] };
       for (let x = x0; x < x1; x++) {
         const xo = Math.round(((x + 0.5) / s - t.x + u.x) * so - 0.5);
         if (xo < 0 || xo >= Y.r.width) continue;
@@ -7170,7 +7174,16 @@ function sameBesideMarkup(a: Token, b: Token, A: Prepared, B: Prepared, on: { ol
           if (overDrawn([d[i], d[i + 1], d[i + 2]], [e[j], e[j + 1], e[j + 2]], markupColour(m))) drawn[k]++;
         });
       }
-      return { yo, n, drawn: Math.max(...drawn) };
+      const most = Math.max(...drawn);
+      return { yo, n, drawn: most, by: here[drawn.indexOf(most)] };
+    };
+    // The rows found, by the annotation that draws the most of them.
+    const found = new Map<Markup, Map<number, { yo: number; drawn: number }>>();
+    const put = (m: Markup, y: number, yo: number, drawn: number) => {
+      let rows = found.get(m);
+      if (!rows) found.set(m, (rows = new Map()));
+      const was = rows.get(y);
+      if (!was || was.drawn < drawn) rows.set(y, { yo, drawn });
     };
     for (let y = y0; y < y1; y++) {
       const py = (y + 0.5) / s;
@@ -7178,8 +7191,7 @@ function sameBesideMarkup(a: Token, b: Token, A: Prepared, B: Prepared, on: { ol
       if (!here.length) continue;
       const row = rowOf(y, here);
       if (row.yo < 0 || row.yo >= Y.r.height || row.n < 0.4 * (x1 - x0) || row.drawn < 0.7 * row.n) continue;
-      own.add(y);
-      other.add(row.yo);
+      put(row.by, y, row.yo, row.drawn);
       // A row of blur on either side, where what differs there is the
       // annotation's too, or next to nothing: not a line of the page's own
       // in another colour right above or below the annotation's (a black
@@ -7187,8 +7199,24 @@ function sameBesideMarkup(a: Token, b: Token, A: Prepared, B: Prepared, on: { ol
       for (const k of [-1, 1]) {
         const next = rowOf(y + k, here);
         if (next.n > 3 && next.drawn < 0.7 * next.n) continue;
-        own.add(y + k);
-        other.add(next.yo);
+        put(row.by, y + k, next.yo, 0);
+      }
+    }
+    for (const rows of found.values()) {
+      const ys = [...rows.keys()].sort((p, q) => p - q);
+      let best: number[] = [];
+      let bestDrawn = -1;
+      for (let i = 0; i < ys.length; ) {
+        let j = i + 1;
+        while (j < ys.length && ys[j] === ys[j - 1] + 1) j++;
+        const run = ys.slice(i, j);
+        const drawn = run.reduce((sum, y) => sum + rows.get(y)!.drawn, 0);
+        if (drawn > bestDrawn) [best, bestDrawn] = [run, drawn];
+        i = j;
+      }
+      for (const y of best) {
+        own.add(y);
+        other.add(rows.get(y)!.yo);
       }
     }
   };
