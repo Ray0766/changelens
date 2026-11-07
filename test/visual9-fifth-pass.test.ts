@@ -12,10 +12,18 @@
 //   take little of the paper's luminance, which is what was measured.
 //   Beside a black or grey rule, what a pixel gains in the channel it
 //   darkens most now counts as well.
+// - A hand strike rising across a short figure that overshoots it by
+//   13–18 pt over the next word was taken for a turned stamp's border and
+//   dropped with no item and no count, at the word's box or at a box
+//   placed beside it. Only a slanted line that goes on so 3.5–30 pt past
+//   the word, as every stamp border in the probes does, is dropped; one
+//   that goes on 10–30 pt is weighed as a fainter line (counted where it
+//   is not listed), at either placement.
 // Fixtures test/fixtures/probe9-V3-fifth-SYNTHETIC-*.pdf are SYNTHETIC:
 // fpdf2 2.9, PyMuPDF 2.1 and pypdf 6 (test/fixtures/gen9/v3-markup-fifth-*.py);
 // probe9-V1-fifth-SYNTHETIC-*.pdf: reportlab 5.0, Typst 0.15 and PyMuPDF 2.1
-// (v1-closing-rules-fifth-*.py).
+// (v1-closing-rules-fifth-*.py); probe9-V2-fifth-SYNTHETIC-stm-*.pdf: reportlab 5.0
+// (v2-steep-fifth.py).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openPdf } from '../src/node/pdf.ts';
@@ -38,6 +46,8 @@ async function run(before: string, after: string): Promise<CompareResult> {
   return r;
 }
 const list = (cs: Change[]) => cs.map((c) => describeChange('en', c));
+const lines = (r: CompareResult) => list(r.changes.filter((c) => c.format?.decoration));
+const counted = (r: CompareResult) => (r.coverage?.new.partlyCompared ?? []).reduce((n, u) => n + u.count, 0);
 /** Whether a rect of `side` of the change takes in the point (x, y) on page 1. */
 const at = (c: Change, side: 'old' | 'new', x: number, y: number) => c[side].rects.some((q) => q.page === 0 && q.rect.x <= x && q.rect.x + q.rect.w >= x && q.rect.y <= y && q.rect.y + q.rect.h >= y);
 
@@ -85,4 +95,24 @@ test('visual9 fifth pass: a pale dash or a light grey tick by a folded closing r
   assert.equal(plain.ignored.closingRules, 2);
   const ty = await run('probe9-V1-closing-rules-before.pdf', 'probe9-V1-closing-rules-after.pdf');
   assert.deepEqual(list(ty.changes), ['Added 49 words']);
+});
+
+test('visual9 fifth pass: a hand strike that overshoots a short figure by 13–18 pt over the next word is counted', { skip }, async () => {
+  // Straight strikes rising 3 pt over "30", "12", "48" and "18", running on
+  // 16 or 18 pt to the right, or 13 pt to the left. Before: r16 counted
+  // "18" only, r18 nothing, l13 listed "12" and "48" and counted "18".
+  const S = 'probe9-V2-fifth-SYNTHETIC-stm-';
+  for (const after of ['r16', 'r18']) {
+    const r = await run(S + 'before.pdf', S + after + '.pdf');
+    assert.deepEqual(list(r.changes), [], after);
+    assert.equal(counted(r), 4, after);
+  }
+  const left = await run(S + 'before.pdf', S + 'l13.pdf');
+  assert.deepEqual(lines(left), ['Struck through: “12”', 'Struck through: “48”']);
+  assert.equal(counted(left), 2);
+  // Control: the border of a stamp turned by 18° goes on past the figures
+  // it crosses: still no line, and the same three words counted.
+  const stamp = await run('probe9-V2-refix-stamp-SYNTHETIC-before.pdf', 'probe9-V2-refix-stamp-SYNTHETIC-n25.pdf');
+  assert.deepEqual(lines(stamp), []);
+  assert.equal(counted(stamp), 3);
 });

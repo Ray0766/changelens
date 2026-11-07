@@ -2329,19 +2329,21 @@ function lineBy(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       if ((lies || opts.crossing) && !level(A, B, C, n, k, e) && (lies || crosses(a, b, A, B, C, k, e, opts.crossing!))) return null;
       // Nor, wherever it lies, one that rises or falls across the word as no
       // strike does (see steep) and goes on so past the word's box (see
-      // runsOnSlanted) from 3.5 to 20 pt beyond it: the border of a stamp
+      // runsOnSlanted) from 3.5 to 30 pt beyond it: the border of a stamp
       // turned by 10° or more, drawn across the text where the graphics
       // comparison does not look. A strike drawn by hand over a short word
       // ("30", "12") rises as steeply but ends a point or two past its
       // glyphs: it is listed. One that goes on from 3.5 to 10 pt past the
-      // box only may be either (a hand strike overshooting the word, a
-      // stamp's side near its corner): it is handed to the caller as a
-      // fainter line (see LineOptions.faint), which counts the word as
-      // compared only in part, or lists it with a line next to it.
+      // box but not to 30 pt may be either (a hand strike overshooting the
+      // word over the next one by 10–20 pt, a stamp's side near its
+      // corner): it is handed to the caller as a fainter line (see
+      // LineOptions.faint), which counts the word as compared only in
+      // part, or lists it with a line next to it; so is one found so at a
+      // placement of the boxes beside the word's (see addedLine).
       const slant = steep(A, B, C, n, k, e);
       let doubt = false;
       if (slant && runsOnSlanted(a, b, A, B, C, slant, 10)) {
-        if (runsOnSlanted(a, b, A, B, C, slant, 20)) return null;
+        if (runsOnSlanted(a, b, A, B, C, slant, 30)) return null;
         doubt = true;
       }
       let c0 = k;
@@ -2364,7 +2366,7 @@ function lineBy(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       while (c1 > c0 && pb[c1] - pa[c1] < 0.4 * most) c1--;
       const found: FoundLine = { line: rel >= 0.72 ? 'underline' : 'strike', rows: [Math.round(B.ys[k]), Math.round(B.ys[e])], core: [Math.round(B.ys[c0]), Math.round(B.ys[c1])] };
       if (!doubt) return found;
-      if (opts.faint && !shifted && !opts.weak) [opts.faint.line, opts.faint.slanted] = [found, true];
+      if (opts.faint && !opts.weak) [opts.faint.line, opts.faint.slanted] = [found, true];
       return null;
     }
     return undefined;
