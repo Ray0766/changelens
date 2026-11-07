@@ -212,11 +212,10 @@ interface Reordered {
  *  - into a line drawn before the footer that it stands on (its baseline,
  *    or for smaller text its height: see onLine), at its x, where it does
  *    not overprint that line's glyphs, and either fills a gap inside the
- *    line, is set smaller than the line against one of its glyph runs (a
- *    footnote marker after its word, see attached), or the lines just
- *    before and after that line in the stream reach across its whole width
- *    (a cell of the same table or a word of the same paragraph, not another
- *    column); or
+ *    line, is set against one of its glyph runs (a footnote marker after
+ *    its word, see attached), or the lines just before and after that line
+ *    in the stream reach across its whole width (a cell of the same table
+ *    or a word of the same paragraph, not another column); or
  *  - into a table row whose first cell is on its baseline, where another row
  *    of the same table has a cell under or over it (see rowCell); or else
  *  - between two lines drawn one after the other before the footer, one
@@ -402,16 +401,16 @@ function onLine(late: LineBox, e: LineBox): boolean {
 }
 
 /**
- * Whether a late run set smaller than line `e` is set against one of the
- * line's glyph runs: it starts within a word space (0.4 em of the line's
- * size) of the end of one, or ends that close to the start of one. A
- * footnote marker after its word, an exponent or an index stands there
- * because of the word it belongs to: a re-wrap moves it along with the
- * word, so it is read with that word in both versions, whatever lines stand
- * around it.
+ * Whether a late run is set against one of line `e`'s glyph runs: it starts
+ * within a word space (0.4 em of the line's size) of the end of one, or
+ * ends that close to the start of one. A footnote marker after its word, an
+ * exponent, an index, or a word of the paragraph styled position: relative
+ * (a badge, a tooltip anchor) stands there because of the text it belongs
+ * to: a re-wrap moves it along with that text, so it is read there in both
+ * versions, whatever lines stand around it. A column drawn last stands a
+ * column gap away from the lines beside it.
  */
 function attached(late: LineBox, e: LineBox): boolean {
-  if (late.size > 0.85 * e.size) return false;
   const tol = 0.4 * e.size;
   return e.inked.some((r) => Math.abs(late.x0 - (r.x + r.w)) <= tol || Math.abs(r.x - late.x1) <= tol);
 }
@@ -421,10 +420,10 @@ function attached(late: LineBox, e: LineBox): boolean {
  * none): on that line, no glyphs overprinted, and either inside the line's
  * span, set against one of its glyph runs (see attached), or within the
  * width of the lines just before and after it in the stream. It stands on
- * the line as onLine says, or, set against one of its runs, with a quarter
- * of its height inside the line's (a marker raised more than half an em).
- * Of several lines, one it is set against comes first, then the nearest
- * baseline.
+ * the line as onLine says, or, set smaller than the line and against one of
+ * its runs, with a quarter of its height inside the line's (a marker raised
+ * more than half an em). Of several lines, one it is set against comes
+ * first, then the nearest baseline.
  */
 function sharedBaseline(late: LineBox, before: number[], boxes: (LineBox | null)[]): number {
   let best = -1;
@@ -434,7 +433,7 @@ function sharedBaseline(late: LineBox, before: number[], boxes: (LineBox | null)
     const size = Math.max(e.size, late.size);
     const close = attached(late, e);
     const rank = (close ? 0 : 1e6) + Math.abs(e.baseline - late.baseline);
-    if (rank >= bestRank || !(onLine(late, e) || (close && heightIn(late, e) >= 0.25))) continue;
+    if (rank >= bestRank || !(onLine(late, e) || (close && late.size <= 0.85 * e.size && heightIn(late, e) >= 0.25))) continue;
     if (e.inked.some((r) => overlapX(runSpan(r), late) > 0.25 * Math.min(e.size, late.size))) continue;
     const inside = late.x0 >= e.x0 && late.x1 <= e.x1;
     if (!inside && !close) {

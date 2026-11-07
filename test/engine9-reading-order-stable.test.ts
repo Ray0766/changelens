@@ -95,6 +95,25 @@ test('T1: footnote markers read the same in both versions when a one-word edit r
   assert.equal(c.newDoc.pages[0].outOfOrder, undefined);
 });
 
+test('T1: a word drawn after the footer reads the same in both versions when an edit moves it to the end of a line', async () => {
+  // Words styled position: relative (at full size) are drawn after the
+  // footer. Deleting "outlet" or adding "new" moves "readings" or "years"
+  // between the end of a line and its middle. Set a word space after the
+  // word before it, each is read there in both versions.
+  assert.deepEqual(listed(await pair('word-before', 'word-outlet')), ['Deleted “outlet”']);
+  const r = await pair('word-before', 'word-new');
+  assert.deepEqual(listed(r), ['Added “new”']);
+  for (const d of [r.oldDoc, r.newDoc]) {
+    const t = lineTexts(d);
+    assert.ok(t.some((l) => /(^|The )readings( are|$)/.test(l)), JSON.stringify(t));
+    assert.ok(t.some((l) => /for ten years ?\.$/.test(l)), JSON.stringify(t));
+  }
+  // Each of the seven words is placed, in both versions: none is left as a
+  // line of its own.
+  const lone = /^(spring|visit|seals|plan|readings|years|service)$/;
+  for (const d of [r.oldDoc, r.newDoc]) assert.deepEqual(lineTexts(d).filter((l) => lone.test(l)), []);
+});
+
 test('T1: a marker raised 0.7 em at 85 % is read on its line in both versions, and a raised marker does not join two paragraphs', async () => {
   // Chromium rounds the raise to 6.0 pt in one version and 6.75 pt in the
   // other: about half the marker's height inside its line either way. Set

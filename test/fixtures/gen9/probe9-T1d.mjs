@@ -8,7 +8,8 @@
 // the page. As in probe9-T1c.mjs, each page has a position: fixed footer
 // declared first in the DOM, so that footnote markers styled as in
 // normalize.css and Tailwind (`sup { position: relative; top: -0.5em;
-// font-size: 75% }`) are drawn after the footer. Nothing was re-typed.
+// font-size: 75% }`), and words styled position: relative, are drawn after
+// the footer. Nothing was re-typed.
 //
 //   probe9-T1-rewrap-before / -april / -all
 //       four paragraphs with footnote markers in Liberation Sans; -april
@@ -20,6 +21,11 @@
 //   probe9-T1-raise7-before / -after, probe9-T1-raise8-before / -after
 //       markers at 85 % raised 0.7 em and 0.8 em (Liberation Serif); -after
 //       inserts a paragraph at the top and edits "March" -> "April"
+//   probe9-T1-word-before / -outlet / -new
+//       words styled position: relative (a badge or a tooltip anchor, at
+//       full size) inside paragraphs; -outlet deletes "outlet", -new adds
+//       "new", either of which moves "readings" from the end of its line
+//       into the line or back
 //   probe9-T1-punct-before / -late
 //       markers set right before a full stop ("out of service⁸."), where the
 //       text on either side of the marker is one text run, so the marker is
@@ -61,6 +67,13 @@ const punct = (season = 'autumn') => [
   `No leaks were found at the outlet manifold, and the gauges were calibrated in March<sup>5</sup>. The readings<sup>6</sup> are kept by the district office for ten years<sup>7</sup>.`,
   `The next inspection is planned for the ${season}, when the reservoir level is lowest and the pumps can be taken out of service<sup>8</sup>.`,
 ];
+const span = (s) => `<span style="position: relative">${s}</span>`;
+const words = (ed) => [
+  `The SYNTHETIC water board inspected the northern stations in ${span('spring')} and logged the flow at station 4 as 1,250 litres per minute on each ${span('visit')}.`,
+  `Crews replaced two worn ${span('seals')} on the dosing line and recorded the torque on each flange bolt, as the ${span('plan')} requires for the outlet manifold.`,
+  `No leaks were found at the ${ed === 'outlet' ? '' : 'outlet '}manifold, and the ${ed === 'new' ? 'new ' : ''}gauges were calibrated in March. The ${span('readings')} are kept by the district office for ten ${span('years')}.`,
+  `The next inspection is planned for the autumn, when the reservoir level is lowest and the pumps can be taken out of ${span('service')}.`,
+];
 const sans = "'Liberation Sans', sans-serif";
 const serif = "'Liberation Serif', serif";
 const docs = {
@@ -73,6 +86,9 @@ const docs = {
   'probe9-T1-raise7-after': page({ font: serif, size: 85, top: 0.7, insert: true, paras: station('April') }),
   'probe9-T1-raise8-before': page({ font: serif, size: 85, top: 0.8, paras: station() }),
   'probe9-T1-raise8-after': page({ font: serif, size: 85, top: 0.8, insert: true, paras: station('April') }),
+  'probe9-T1-word-before': page({ font: sans, paras: words() }),
+  'probe9-T1-word-outlet': page({ font: sans, paras: words('outlet') }),
+  'probe9-T1-word-new': page({ font: sans, paras: words('new') }),
   'probe9-T1-punct-before': page({ font: sans, paras: punct() }),
   'probe9-T1-punct-late': page({ font: sans, paras: punct('late autumn') }),
 };
