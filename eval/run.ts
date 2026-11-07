@@ -20,7 +20,8 @@
 //   held-out-3  third held-out round (independent authors), since used for fixes
 //   held-out-4  fourth held-out round (independent authors), since used for fixes
 //   held-out-5  fifth held-out round (independent authors), blind until its single
-//               recorded run (registered in docs/EVALUATION.md)
+//               recorded run (registered in docs/EVALUATION.md), since used for
+//               fixes (fix round 9)
 // Any other set name is reported under that name; a blind case without a
 // set under "blind". With --blind, the cases not marked blind are also
 // summed on their own, so the default selection's totals stay visible.
@@ -298,7 +299,7 @@ const SETS: Record<string, string> = {
   'held-out-2': 'Held-out round 2 (since used for fixes)',
   'held-out-3': 'Held-out round 3 (since used for fixes)',
   'held-out-4': 'Held-out round 4 (since used for fixes)',
-  'held-out-5': 'Held-out round 5 (blind, first run)',
+  'held-out-5': 'Held-out round 5 (since used for fixes)',
   extra: 'Extra pairs (demos, LibreOffice)',
   blind: 'Blind cases without a set (first run)',
 };

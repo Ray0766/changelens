@@ -2,6 +2,32 @@
 
 Short running notes for whoever continues (people or agents). Newest first.
 
+## 2026-11-07 (fix round 9)
+
+- **Fix round 9** used the 18 cases of blind round 5 for fixes, so round 5 is no longer held out. Two streams, each through five or six passes of fix and independent verification, merged in `7fbce04` (DECISIONS D13; EVALUATION, Held-out round 5 after fix round 9):
+  - text (`b35fcaf`..`29ec513`): lines drawn after the page footer put back in reading order by their position, with an info notice and `coverage.outOfOrder` in the JSON; row numbers set close to the next cell; the CJK excerpt sized by a character budget; 年月日 dates compared as dates, without a percentage; signs and range dashes in CJK text;
+  - visual (`a10bc75`..`823b442`): closing rules at moved page breaks counted with the repeated header rows (with Show); thin and light lines measured by colour distance; highlight, strike-out, underline and squiggly annotations read from the file and listed by name, stamps and free-text notes named with their text, and a notice that a file has annotations.
+- **After the merge**: `b5332f4` corrects a test expectation; `e275c10` keeps the change list in view beside several notices (100 px at 640 × 400, was 16 px) and stops the landing-page arrow from covering the drop zones; `107364f` corrects the annotation notice wording.
+- **Now** (merged engine `b5332f4`; `107364f` and this docs commit are local, not pushed):
+  - typecheck passes; `npm test` passes 576 of 576 on `107364f`; CI green on `b5332f4` (Node 22 and 24);
+  - 31 non-blind pairs: 117 / 117 / 0;
+  - round 3: 73 / 73 / 1;
+  - round 4: 119 / 119 / 3, and 109 / 109 / 9 with the registered rules (was 118 / 118 / 4 and 108 / 108 / 10);
+  - round 5 (not blind any more): 139 / 139 / 16 (138), 133 / 133 / 17 registered, 89 / 86 / 61 strict (first run: 115 / 115 / 78, 111 / 111 / 79, 72 / 70 / 118); text line diff 110 / 109 / 95, pixel page diff 144 / 132 / 59;
+  - visual stage about 5 % (demo) and 6.5 % (24 pages) slower than `25e9ffe`, idle A/B (EVALUATION, Performance).
+- **Open, as facts** (all in the README limits):
+  - round-5 causes 5, 7, 10 and 12 are not fixed, cause 8 only in part, and causes 9 and 11 are scoring only; the 5 misses left are 4 correct reports the scorer does not credit and the Débit → Crédit column move (not checked, documented);
+  - re-typed text on footer-first pages is still compared in stream order, with no notice;
+  - markup annotations are listed only in the visual check, on matched words of compared pages;
+  - regressions against `25e9ffe`, low or medium: thin grey strikes on bold mid-saturated headings counted, not listed; a strike on a figure under an unmoved translucent stamp counted; look-alikes of a closing rule counted with it; a first column counting up from 1 set close to the next cell read as row numbers; CJK range dashes after a long unit read as minus; a false colour item on an unchanged re-typed CJK date under a highlight; positioned text placed in one version only listed as deleted and added;
+  - a reportlab sub- or superscript change ("CO2" → "CO₂") is listed as misleading text changes, at `25e9ffe` too;
+  - credited items that still mislead: percentages between negative values, on account digits and on the day of a date ("1 → 15 (+1400%)"), △ dropped, a sign change written in words.
+- **Next, proposed** (not started):
+  1. Push `107364f` and this commit, and check CI.
+  2. A sixth held-out round with new authors and producers (including PDF editors other than PyMuPDF and annotations from other tools) before any further claim about new documents.
+  3. The causes left from round 5: split rewrites and context from both sides (5), moves past footnotes and later-pages-only headers (7), zebra shading (8), per-cell sideways moves (10), DR/CR, trailing-minus and △ signs (11), the justified-line footnote (12).
+  4. A cross-version check for positioned text placed in one version only, and re-typed text on footer-first pages.
+
 ## 2026-11-05 and 06 (review round 7, fix round 8)
 
 - **Review round 7** probed `a722e40` with seven lenses and about 1,970 SYNTHETIC probe PDFs. After independent verification there were 106 findings, 27 of them high. Details are in EVALUATION, Review round 7 and fix round 8.
