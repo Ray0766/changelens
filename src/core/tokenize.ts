@@ -887,9 +887,13 @@ function tokenizeChars(chars: Char[]): Tok[] {
     const viaCurrency = SIGNS.has(c.n) && CURRENCY.has(chars[k + 1]?.n ?? '') && DIGIT.test(chars[k + 2]?.n ?? '');
     if (SIGNS.has(c.n) && (viaCurrency || DIGIT.test(chars[k + 1]?.n ?? ''))) {
       const prev = chars[k - 1]?.n;
-      const digitAt = (j: number) => DIGIT.test(chars[j]?.n ?? '');
-      const cjkAt = (j: number) => classify(chars[j]?.n ?? '') === 'cjk';
-      const unit = digitAt(k - 2) || (cjkAt(k - 2) && (digitAt(k - 3) || (cjkAt(k - 3) && digitAt(k - 4))));
+      // Back over the unit (one to three characters) and one space between
+      // it and its figure ("3 小时－5 小时", as Typst spaces a figure from
+      // Chinese text).
+      let u = k - 1;
+      while (u > k - 4 && classify(chars[u]?.n ?? '') === 'cjk') u--;
+      if (u < k - 1 && classify(chars[u]?.n ?? '') === 'space') u--;
+      const unit = u < k - 1 && DIGIT.test(chars[u]?.n ?? '');
       const afterCJK = !!prev && classify(prev) === 'cjk' && c.n !== '\u2013' && !unit && !NUMBERED.has(prev);
       if (!prev || space || OPENERS.has(prev) || afterCJK) {
         const d = k + (viaCurrency ? 2 : 1);

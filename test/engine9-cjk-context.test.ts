@@ -163,3 +163,18 @@ test('T3: a mark after a unit of two or three characters joins a range, and one 
   assert.deepEqual(listed(await probe('minus')), ['Number changed: －1,200 → －1,500 (+25%)', 'Number changed: 8,800 → 8,500 (-3.4%)']);
   assert.deepEqual(listed(await probe('minussign')), ['Number changed: －20 → ＋20 (sign changed)']);
 });
+
+test('T3: a mark after a unit set a space from its figure joins a range too, as Typst sets it', async () => {
+  // gen9/probe9-T3g.py: typed spaces in fpdf2 ("为 3 小时－5 小时"), and
+  // Typst, which spaces a figure from the Chinese text around it although
+  // none is typed ("为3小时－5小时" is extracted as "为 3 小时－5 小时").
+  for (const n of ['minushourssp', 'minushoursty']) {
+    const h = await probe(n);
+    assert.deepEqual(listed(h), ['Number changed: 5 → 6 (+20%)'], n);
+    assert.deepEqual([h.changes[0].numeric?.fromValue, h.changes[0].numeric?.toValue], [5, 6], n);
+    assert.ok(h.changes[0].contextBefore?.endsWith('小时－'), h.changes[0].contextBefore);
+  }
+  // Control: in Typst too, a mark after a character with no figure before
+  // it is the sign of the figure.
+  assert.deepEqual(listed(await probe('minusty')), ['Number changed: －1,200 → －1,500 (+25%)']);
+});
