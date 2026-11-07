@@ -1673,9 +1673,10 @@ function onTint(side: Prepared, rect: Rect): boolean {
 
 /**
  * Whether the glyphs of a word are set in a light, saturated colour (an
- * amber, a bright green, orange or sky blue heading): of the box's pixels
- * dark in their lowest channel (64 or less, see luminance), a dozen or
- * more, the median is lighter by 0.3 or more in luminance. In the lowest
+ * amber, a bright green, orange or sky blue heading, Office's light green
+ * #92d050, whose lowest channel is 80): of the box's pixels dark in their
+ * lowest channel (96 or less, see luminance), a dozen or more, the median
+ * is lighter by 0.3 or more in luminance. In the lowest
  * channel such glyphs are as dark as black ones, and a grey line through
  * them reads as half a line (see lineIn's ink unit): a pair of boxes whose
  * glyphs are so in both versions is measured by luminance, in which the
@@ -1689,7 +1690,7 @@ function inkTinted(side: Prepared, rect: Rect): boolean {
   for (let y = Math.max(0, Math.floor(rect.y * s)); y < Math.min(r.height, Math.ceil((rect.y + rect.h) * s)); y++)
     for (let x = Math.max(0, Math.round(rect.x * s)); x < Math.min(r.width, Math.round((rect.x + rect.w) * s)); x++) {
       const i = y * r.width + x;
-      if (low[i] <= 64) lift.push(lum[i] - low[i]);
+      if (low[i] <= 96) lift.push(lum[i] - low[i]);
     }
   if (lift.length < 12) return false;
   lift.sort((p, q) => p - q);

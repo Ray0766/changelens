@@ -19,11 +19,14 @@
 //   the word, as every stamp border in the probes does, is dropped; one
 //   that goes on 10–30 pt is weighed as a fainter line (counted where it
 //   is not listed), at either placement.
+// - A grey strike through a bold heading in Office's light green #92d050
+//   was silent, with no item and no count: the glyphs' lowest channel (80)
+//   was above the bound under which they are looked at by luminance.
 // Fixtures test/fixtures/probe9-V3-fifth-SYNTHETIC-*.pdf are SYNTHETIC:
 // fpdf2 2.9, PyMuPDF 2.1 and pypdf 6 (test/fixtures/gen9/v3-markup-fifth-*.py);
 // probe9-V1-fifth-SYNTHETIC-*.pdf: reportlab 5.0, Typst 0.15 and PyMuPDF 2.1
-// (v1-closing-rules-fifth-*.py); probe9-V2-fifth-SYNTHETIC-stm-*.pdf: reportlab 5.0
-// (v2-steep-fifth.py).
+// (v1-closing-rules-fifth-*.py); probe9-V2-fifth-SYNTHETIC-stm-*.pdf and -tint*.pdf:
+// reportlab 5.0 (v2-steep-fifth.py, v2-tinted-fifth-*.py).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openPdf } from '../src/node/pdf.ts';
@@ -115,4 +118,21 @@ test('visual9 fifth pass: a hand strike that overshoots a short figure by 13–1
   const stamp = await run('probe9-V2-refix-stamp-SYNTHETIC-before.pdf', 'probe9-V2-refix-stamp-SYNTHETIC-n25.pdf');
   assert.deepEqual(lines(stamp), []);
   assert.equal(counted(stamp), 3);
+});
+
+test('visual9 fifth pass: a grey strike through a heading in light green #92d050 is listed', { skip }, async () => {
+  // Before: "Passed" neither listed nor counted, also after a 0.4 pt re-flow.
+  const T = 'probe9-V2-fifth-SYNTHETIC-';
+  const grey = await run(T + 'tint2-before.pdf', T + 'tint2-grey.pdf');
+  assert.deepEqual(lines(grey), ['Struck through: “Passed”', 'Struck through: “Shipped”', 'Struck through: “Pending”', 'Struck through: “Delayed”']);
+  const moved = await run(T + 'tint-before.pdf', T + 'tint-shift04-strike.pdf');
+  assert.deepEqual(list(moved.changes), ['Struck through: “Passed”']);
+  // Controls: black 0.4 pt strikes on the same headings are found as before
+  // (on "Passed" as a colour change, as at base), and the 0.4 pt re-flow
+  // alone gives nothing.
+  const black = await run(T + 'tint2-before.pdf', T + 'tint2-k04.pdf');
+  assert.deepEqual(list(black.changes), ['Text colour or weight changed', 'Struck through: “Shipped”', 'Struck through: “Pending”', 'Text colour or weight changed', 'Text colour or weight changed', 'Struck through: “Delayed”']);
+  const shift = await run(T + 'tint-before.pdf', T + 'tint-shift04.pdf');
+  assert.deepEqual(list(shift.changes), []);
+  assert.equal(counted(shift), 0);
 });
