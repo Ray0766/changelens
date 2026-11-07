@@ -23,6 +23,11 @@
 //       a paragraph with footnote markers and a footnote list in 9 pt whose
 //       markers are <sup>; -two adds a second footnote (its marker in the
 //       text and its line in the list) and inserts a paragraph at the top
+//   probe9-T1-sumline-before / -short
+//       a line of words styled position: relative right above a line that
+//       ends with a footnote marker, so the marker, drawn next, stands under
+//       the positioned line; -short shortens the positioned line, which then
+//       ends before the marker's x
 import { createRequire } from 'node:module';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -56,6 +61,15 @@ const fnlist = (two) => `<!doctype html><html><head><meta charset="utf-8"><style
  ${two ? `<p>${ins}</p>` : ''}<p>${intro} The gauges are checked twice a year.<sup>1</sup> The hose sets are replaced every spring${two ? '.<sup>2</sup>' : '.'} Orders placed before noon ship the same day.</p>
  <p style="font-size:9pt"><sup>1</sup> Calibration certificates are kept by the SYNTHETIC district office.${two ? '<br><sup>2</sup> Hose sets are sold in pairs only.' : ''}</p></body></html>`;
 
+const sumline = (badge) => `<!doctype html><html><head><meta charset="utf-8"><style>
+ body { font: 11pt/1.4 'Liberation Sans', sans-serif; margin: 0; }
+ sup { font-size: 75%; line-height: 0; position: relative; vertical-align: baseline; top: -0.5em; }
+ footer { position: fixed; bottom: 0; left: 0; font-size: 8pt; }
+ div { margin: 0; } .rel { position: relative; }
+ </style></head><body><footer>SYNTHETIC sample, fictitious board</footer><h1 style="font-size:14pt">SYNTHETIC station report</h1><div class="rel">${badge}</div>
+<div>The flow at station 4 was 1,250 litres per minute.<sup>1</sup><br>The gauges were calibrated in March and the crews replaced two worn seals on the dosing line.<sup>2</sup><br>No leaks were found.</div>
+<div style="font-size:9pt; margin-top: 8pt"><sup>1</sup> Measured at the outlet.<br><sup>2</sup> Seals from the SYNTHETIC store.</div></body></html>`;
+
 const docs = {
   'probe9-T1-rnote-before': note({ align: 'right' }),
   'probe9-T1-rnote-body': note({ align: 'right', body: true }),
@@ -64,6 +78,8 @@ const docs = {
   'probe9-T1-cnote-body': note({ align: 'center', body: true }),
   'probe9-T1-fnlist-one': fnlist(false),
   'probe9-T1-fnlist-two': fnlist(true),
+  'probe9-T1-sumline-before': sumline('Positioned summary: the SYNTHETIC board inspected all stations.'),
+  'probe9-T1-sumline-short': sumline('Positioned summary: the SYNTHETIC board.'),
 };
 const browser = await chromium.launch();
 const tab = await browser.newPage();

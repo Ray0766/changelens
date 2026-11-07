@@ -270,11 +270,13 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number, zo
   const touched = new Set<number>();
   const kept = new Set<number>();
   const pageBox = { x: 0, y: 0, w: width, h: height };
-  // Late lines one under the other that overlap horizontally (they start at
-  // one x, end at one x or share a centre), drawn one after the other, not
-  // both a single word: the lines of a block drawn last (a side note), not
-  // text set against the words of a line (see attached). Footnote markers
-  // drawn one under the other are single words, each set against its line.
+  // Late lines one under the other that start at one x, or that are set in
+  // one size and overlap horizontally (they end at one x or share a
+  // centre), drawn one after the other, not both a single word: the lines
+  // of a block drawn last (a side note), not text set against the words of
+  // a line (see attached). Footnote markers drawn one under the other are
+  // single words, each set against its line, and a marker under a line of
+  // words in the text's size is no line of that block.
   const late = lines.map((_, k) => k).filter((k) => k > footer && boxes[k]);
   const stacked = new Set<number>();
   for (let n = 0; n + 1 < late.length; n++) {
@@ -282,7 +284,7 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number, zo
     const b = boxes[late[n + 1]]!;
     const size = Math.max(a.size, b.size);
     const step = Math.abs(b.baseline - a.baseline);
-    const over = Math.abs(a.x0 - b.x0) <= 0.5 * size || overlapX(a, b) >= 0.5 * Math.min(a.x1 - a.x0, b.x1 - b.x0);
+    const over = Math.abs(a.x0 - b.x0) <= 0.5 * size || (Math.abs(a.size - b.size) <= 0.15 * size && overlapX(a, b) >= 0.5 * Math.min(a.x1 - a.x0, b.x1 - b.x0));
     if (over && step > 0.5 * size && step <= 2 * size && !(singleWord(a) && singleWord(b))) stacked.add(late[n]).add(late[n + 1]);
   }
   for (let k = footer + 1; k < lines.length; k++) {

@@ -217,3 +217,14 @@ test('T1: a right-aligned or centred side note drawn after the footer is not rea
   // where it is set against the words of its line (see the test above).
   assert.deepEqual(listed(await pair('word-before', 'word-new')), ['Added “new”']);
 });
+
+test('T1: a footnote marker drawn under a positioned line of words is read on its own line in both versions', async () => {
+  // Chromium (gen9/probe9-T1e.mjs): a line styled position: relative right
+  // above a line that ends with a marker; the marker is drawn right after
+  // it, under its words in one version and past its end in the other. A
+  // marker set smaller than that line is no line of a block with it.
+  const r = await pair('sumline-before', 'sumline-short');
+  assert.deepEqual(listed(r), ['Deleted “inspected all stations”']);
+  for (const d of [r.oldDoc, r.newDoc]) assert.ok(lineTexts(d).some((l) => /per minute\. ?1$/.test(l)), JSON.stringify(lineTexts(d)));
+  assert.deepEqual(r.oldDoc.pages[0].outOfOrder, r.newDoc.pages[0].outOfOrder);
+});
