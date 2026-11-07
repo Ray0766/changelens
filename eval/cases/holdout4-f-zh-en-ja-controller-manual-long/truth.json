@@ -1,0 +1,69 @@
+{
+  "description": "Installation and maintenance manual of a fictional 4-axis motion controller, 41 A4 pages: Simplified Chinese body text with English parameter names and Japanese terms in brackets, set in WenQuanYi Zen Hei (Chinese), IPAGothic (Japanese runs, ja-JP) and Liberation Sans (Latin); long trilingual tables (117-row parameter list, 39-row alarm table with English and Japanese messages, 55-row EN/ZH/JA glossary) whose header rows repeat on every page; footer \"第 N 页\". Eight scattered edits: the version on the cover (V2.3 to V2.4); a new safety warning paragraph in section 1.3, which pushes every later page down by about four lines (the note deleted in 5.1 pulls the pages after it back by two lines); a note deleted in section 5.1; the factory default of P2-07 Acceleration Time (220 to 180); the English message of alarm AL.150; the cooling fan replacement interval in section 7.3; one Japanese glossary term; and a new V2.4 row in the revision history on the last page. Table splits, repeated header rows and footer page numbers change only as consequences. Producer: LibreOffice Writer 24.2 (python-docx .docx -> soffice --convert-to pdf), WenQuanYi Zen Hei / IPAGothic / Liberation Sans.",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "V2.3",
+      "new": "V2.4",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Cover page document version. \"V2.3\" also stays in the revision table on the last page."
+    },
+    {
+      "type": "insert",
+      "new": "更换编码器备用电池（バックアップ電池）时必须保持控制电源 DC 24 V 接通",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "New warning paragraph in 1.3 (starts with bold \"警告：\", then Chinese with a Japanese term in IPAGothic); every later page shifts by about four lines."
+    },
+    {
+      "type": "delete",
+      "old": "注：P4-05 的修改需重启控制器后生效。",
+      "oldPage": 8,
+      "newPage": 9,
+      "note": "Whole one-sentence paragraph deleted in 5.1."
+    },
+    {
+      "type": "number",
+      "old": "220",
+      "new": "180",
+      "oldPage": 10,
+      "newPage": 11,
+      "note": "Factory default (出厂值) of P2-07 in the P2 parameter table."
+    },
+    {
+      "type": "replace",
+      "old": "Encoder signal lost",
+      "new": "Encoder cable disconnected",
+      "oldPage": 20,
+      "newPage": 21,
+      "note": "English message of AL.150 in the alarm table; the Chinese and Japanese cells of that row are unchanged."
+    },
+    {
+      "type": "number",
+      "old": "30,000",
+      "new": "20,000",
+      "oldPage": 29,
+      "newPage": 29,
+      "note": "Cooling fan replacement interval (标准更换周期) in the table of section 7.3."
+    },
+    {
+      "type": "replace",
+      "old": "ダイナミックブレーキ",
+      "new": "発電制動",
+      "oldPage": 35,
+      "newPage": 35,
+      "note": "Japanese term for \"Dynamic brake\" in glossary appendix A (katakana replaced by kanji)."
+    },
+    {
+      "type": "insert",
+      "new": "增加更换备用电池时的警告；修改加速时间出厂值和冷却风扇更换周期。",
+      "oldPage": 41,
+      "newPage": 41,
+      "note": "New last row of the revision history (V2.4, 2026-10-15, ...); the row snippet is the 修订内容 cell."
+    }
+  ]
+}

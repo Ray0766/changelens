@@ -1,0 +1,59 @@
+{
+  "description": "Synthetic. Two-page rate card of an invented language-services company from LibreOffice Writer, with two rate tables on page 1 and terms on page 2. In the new version every style asks for the font \"Calibri\", which was not installed on the exporting machine, so LibreOffice substituted the metric-compatible Carlito; the old version uses Liberation Sans. All text is set in the new font, and lines and table rows re-flow. Edits: five rates are revised, each in a different row and column (19.40 -> 20.10, 13.60 -> 14.30, 27.50 -> 28.90 in the translation table; 370 -> 380 and 54 -> 59 in the interpreting table). Not edits: re-flow of the paragraphs and the shifted table rows caused by the font change; page 2 shows the same font change (one document-wide change).",
+  "synthetic": true,
+  "set": "held-out-3",
+  "blind": true,
+  "author": "d",
+  "producer": "LibreOffice Writer 24.2 (flat ODT -> PDF), A4; after.pdf with Carlito substituted for the missing Calibri",
+  "truth": [
+    {
+      "type": "number",
+      "old": "19.40",
+      "new": "20.10",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "English → German, Specialist."
+    },
+    {
+      "type": "number",
+      "old": "13.60",
+      "new": "14.30",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "French → English, Standard."
+    },
+    {
+      "type": "number",
+      "old": "27.50",
+      "new": "28.90",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "English → Chinese (simplified), Certified."
+    },
+    {
+      "type": "number",
+      "old": "370",
+      "new": "380",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Spanish, Consecutive."
+    },
+    {
+      "type": "number",
+      "old": "54",
+      "new": "59",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Japanese, Proofreading."
+    },
+    {
+      "type": "format",
+      "oldPage": 1,
+      "newPage": 1,
+      "oldRect": [60, 54, 476, 712],
+      "newRect": [60, 54, 476, 712],
+      "maxItems": 2,
+      "note": "Font substitution on every line of both pages: Liberation Sans -> Carlito (Calibri requested, not installed). Expected as one document-wide item, possibly one per page."
+    }
+  ]
+}

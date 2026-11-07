@@ -1,0 +1,76 @@
+{
+  "description": "Two-page English/Chinese cloud hosting service level agreement between fictitious companies, typeset with Typst 0.15: each clause in English followed by its Chinese version (WenQuanYi Zen Hei for CJK, Libertinus Serif for Latin and digits, with Typst's automatic CJK-Latin spacing), two tables with rules, small caps. Edits: the availability guarantee in the English text only, a maintenance-exclusion sentence deleted from the English text only, a sentence inserted in the Chinese text only, a line item and the total of the fee table, the amount in Chinese capital numerals, a service-credit percentage, business days changed to calendar days in the Chinese text only, and the Chinese precedence phrase underlined. Consequences only: the paragraphs with edits re-flow; page breaks stay the same. Producer: Typst 0.15.0 (Python package typst 0.15.0), fonts embedded in the PDF: Libertinus Serif Regular and Bold (bundled with Typst) and WenQuanYi Zen Hei (from /usr/share/fonts/truetype/wqy via font_paths). Synthetic sample: all parties, places and figures are fictitious.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "availability of 99.5%",
+      "new": "availability of 99.9%",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "English text only; the Chinese text still says 99.5%."
+    },
+    {
+      "type": "delete",
+      "old": "Scheduled maintenance announced at least 72 hours in advance is excluded from the calculation.",
+      "oldPage": 1,
+      "note": "English text only; the Chinese counterpart remains."
+    },
+    {
+      "type": "insert",
+      "new": "乙方应为甲方指定一名专属客户经理，负责故障期间的沟通协调。",
+      "newPage": 1,
+      "note": "Chinese text only."
+    },
+    {
+      "type": "number",
+      "old": "18,500.00",
+      "new": "27,000.00",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Fee table, backup and disaster recovery line."
+    },
+    {
+      "type": "number",
+      "old": "128,000.00",
+      "new": "136,500.00",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Fee table, total row (bold Latin digits)."
+    },
+    {
+      "type": "replace",
+      "old": "人民币壹拾贰万捌仟元整",
+      "new": "人民币壹拾叁万陆仟伍佰元整",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Amount in Chinese capital numerals (大写), compared character by character; a reviewer must check it against the total."
+    },
+    {
+      "type": "number",
+      "old": "−5%",
+      "new": "−10%",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Service-credit table, first row; minus sign U+2212."
+    },
+    {
+      "type": "replace",
+      "old": "五个工作日内",
+      "new": "五个自然日内",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Chinese text only (business days -> calendar days); the English text still says business days."
+    },
+    {
+      "type": "format",
+      "old": "以中文文本为准",
+      "new": "以中文文本为准",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Chinese phrase underlined; characters unchanged."
+    }
+  ]
+}

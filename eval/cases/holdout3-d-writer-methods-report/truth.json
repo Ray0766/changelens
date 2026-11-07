@@ -1,0 +1,45 @@
+{
+  "description": "Synthetic. Eight-page survey methods report from LibreOffice Writer: title page, a contents page with dot leaders and page numbers, one section per page, numbered footnotes with superscript markers at the page foot, running header and footer. Edits: in footnote 2 on page 4 the response rate 34.1 % is corrected to 31.4 %; on page 4 \"two reminders\" becomes \"one reminder\"; on page 5 the sentence about car-ownership questions is struck through (the words stay); on page 6 the sentence about households with more than six members is deleted; on page 7 a new footnote 7 is added (superscript marker after \"2022 survey.\" and the note at the page foot). Not edits: the paragraphs around the edits re-wrap; the contents page, footnotes 1-6 and all page numbers are unchanged because every section starts on a new page.",
+  "synthetic": true,
+  "set": "held-out-3",
+  "blind": true,
+  "author": "d",
+  "producer": "LibreOffice Writer 24.2 (flat ODT -> PDF), A4",
+  "truth": [
+    {
+      "type": "number",
+      "old": "34.1",
+      "new": "31.4",
+      "oldPage": 4,
+      "newPage": 4,
+      "note": "Inside footnote 2 (9 pt, page foot)."
+    },
+    {
+      "type": "replace",
+      "old": "two reminders",
+      "new": "one reminder",
+      "oldPage": 4,
+      "newPage": 4
+    },
+    {
+      "type": "format",
+      "old": "Questions on car ownership were moved to the end of the questionnaire",
+      "new": "Questions on car ownership were moved to the end of the questionnaire",
+      "oldPage": 5,
+      "newPage": 5,
+      "note": "Sentence struck through (a line through the words); the text itself is unchanged. It may show up as a graphic/line change rather than a font change."
+    },
+    {
+      "type": "delete",
+      "old": "Households with more than six members were grouped into one cell.",
+      "oldPage": 6
+    },
+    {
+      "type": "insert",
+      "new": "Diaries without any trip on the travel day were checked by telephone",
+      "newPage": 7,
+      "maxItems": 2,
+      "note": "New footnote 7: the superscript marker \"7\" after \"2022 survey.\" and the note text at the page foot. Footnotes 1-6 are not renumbered."
+    }
+  ]
+}

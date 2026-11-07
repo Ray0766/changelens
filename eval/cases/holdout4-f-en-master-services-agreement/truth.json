@@ -1,0 +1,62 @@
+{
+  "description": "Master services agreement for managed IT services between two fictional companies, 12 A4 pages, written in python-docx with literal clause numbers (1., 1.1, 1.1.1) in hanging indents and converted by LibreOffice (Caladea body, Carlito headings, footer \"Page N of M\"), with three schedules including a service level table and a signature block. Seven edits: payment term in clause 5.2.1; a new clause 8.3 (emergency changes) inserted, so the old clauses 8.3 and 8.4 and sub-clauses 8.4.1-8.4.3 are renumbered 8.4, 8.5 and 8.5.1-8.5.3 (renumbering is a consequence, not listed); a wrong cross-reference corrected in clause 12.1.4; the liability cap percentage in clause 12.3.1; clause 13.3 (the last clause of clause 13) deleted; \"exclusive\" to \"non-exclusive\" jurisdiction in clause 19.2; and the platform availability target in Schedule 2. Re-flow and footer page numbers change only as consequences. Producer: LibreOffice Writer 24.2 (python-docx .docx -> soffice --convert-to pdf), Caladea/Carlito.",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "30",
+      "new": "45",
+      "oldPage": 4,
+      "newPage": 4,
+      "note": "Payment term in clause 5.2.1."
+    },
+    {
+      "type": "insert",
+      "new": "Where a Change is needed urgently to protect the security or availability of the Services",
+      "oldPage": 6,
+      "newPage": 6,
+      "note": "New clause 8.3 (whole clause). The following clauses 8.3, 8.4, 8.4.1, 8.4.2 and 8.4.3 become 8.4, 8.5, 8.5.1, 8.5.2 and 8.5.3; that renumbering is a consequence of the insertion."
+    },
+    {
+      "type": "number",
+      "old": "9.4.2",
+      "new": "9.4.1",
+      "oldPage": 7,
+      "newPage": 8,
+      "note": "Cross-reference corrected in clause 12.1.4 (the indemnity is clause 9.4.1). Typed \"number\" because only the clause number changes; \"replace\" is also a fair reading. The clause label 9.4.2 itself is unchanged."
+    },
+    {
+      "type": "number",
+      "old": "125%",
+      "new": "150%",
+      "oldPage": 8,
+      "newPage": 8,
+      "note": "Liability cap in clause 12.3.1."
+    },
+    {
+      "type": "delete",
+      "old": "The Supplier shall notify the Customer within ten Business Days if any of the policies is cancelled, suspended or not renewed",
+      "oldPage": 8,
+      "newPage": 8,
+      "note": "Whole clause 13.3 (label \"13.3\" and text) deleted; it was the last clause of clause 13, so nothing is renumbered."
+    },
+    {
+      "type": "replace",
+      "old": "shall have exclusive jurisdiction",
+      "new": "shall have non-exclusive jurisdiction",
+      "oldPage": 10,
+      "newPage": 10,
+      "note": "Clause 19.2; only \"exclusive\" becomes \"non-exclusive\"."
+    },
+    {
+      "type": "number",
+      "old": "99.5%",
+      "new": "99.9%",
+      "oldPage": 11,
+      "newPage": 11,
+      "note": "Target of SL1 (availability of the hosted platform) in the Schedule 2 table."
+    }
+  ]
+}

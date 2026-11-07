@@ -1,0 +1,72 @@
+{
+  "description": "Two-page bilingual Chinese/English monthly payslip (工资单) of a fictional company, produced with fpdf2 2.9.0 with an embedded subset of WenQuanYi Zen Hei (font 0 of wqy-zenhei.ttc, TrueType, Identity-H) for all text. Page 1: employee grid with bordered cells, earnings and deductions tables (deductions in parentheses, e.g. (1,440.00)), net pay in a framed box and in Chinese capital numerals (金额大写); page 2: daily attendance table, unchanged. Edits: department, pay date, the last four digits of the bank account, and the special additional deduction (2,000.00 -> 3,000.00), which lowers the income tax; total deductions, net pay and the amount in words are recomputed. Social-insurance amounts and gross pay do not change. No re-flow.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "replace",
+      "old": "财务部 Finance",
+      "new": "采购部 Procurement",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "部门 Department; Chinese and English in one cell."
+    },
+    {
+      "type": "number",
+      "old": "2026-11-10",
+      "new": "2026-11-12",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "发薪日 Pay date (ISO date)."
+    },
+    {
+      "type": "number",
+      "old": "**** 4471",
+      "new": "**** 8803",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Masked bank account number: payout account changed, which a reviewer must not miss."
+    },
+    {
+      "type": "number",
+      "old": "Special deductions 2,000.00",
+      "new": "Special deductions 3,000.00",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "专项附加扣除 in the employee grid; the same value 2,000.00 also appears as the position allowance, hence the label in the snippet."
+    },
+    {
+      "type": "number",
+      "old": "(948.60)",
+      "new": "(848.60)",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "个人所得税 Individual income tax, a deduction in parentheses."
+    },
+    {
+      "type": "number",
+      "old": "(4,098.60)",
+      "new": "(3,998.60)",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "扣款合计 Total deductions."
+    },
+    {
+      "type": "number",
+      "old": "CNY 17,637.40",
+      "new": "CNY 17,737.40",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "实发工资 Net pay."
+    },
+    {
+      "type": "replace",
+      "old": "人民币壹万柒仟陆佰叁拾柒元肆角整",
+      "new": "人民币壹万柒仟柒佰叁拾柒元肆角整",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Net pay in Chinese capital numerals; only one character differs (陆 -> 柒, six -> seven hundred). Typed as replace because it is written in words; a report as a number change is equally correct."
+    }
+  ]
+}

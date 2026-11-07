@@ -1,0 +1,76 @@
+{
+  "description": "37-page English annual technical report of a fictitious regional water supply network, typeset with Typst 0.15 in one continuous flow (justified, hyphenated, breakable tables with repeated header rows, footnotes, display and inline formulas, running header and 'Page N of M' footer). The filler text is generated from a fixed seed. Early edit: a new subsection '1.3 Changes to the reporting basis' with four paragraphs inserted on page 1, which re-paginates everything after it. Late edits: an October turbidity value in Table 9.1, a sampling interval, the temperature coefficient in an inline formula, a paragraph moved from chapter 10 to chapter 12, a footnote wording, a paragraph deleted in chapter 11, a sentence set in bold, and a change value in the summary Table 12.1. Consequences only: subsections 1.3 to 1.4 renumber, every later page starts at a different point of the text, table breaks and repeated header rows move, and the moved and deleted paragraphs shift the following pages. Producer: Typst 0.15.0 (Python package typst 0.15.0), Libertinus Serif and New Computer Modern Math embedded by Typst. Synthetic sample: all parties, places and figures are fictitious.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "insert",
+      "new": "Three changes affect the comparison of the figures in this edition",
+      "newPage": 1,
+      "maxItems": 5,
+      "note": "Inserted subsection: heading '1.3 Changes to the reporting basis' and four paragraphs (about 210 words). The old '1.3 Structure of the report' becomes 1.4 as a consequence."
+    },
+    {
+      "type": "number",
+      "old": "October 0.38 0.42",
+      "new": "October 0.38 0.48",
+      "oldPage": 27,
+      "newPage": 28,
+      "note": "Table 9.1, Kestrel Mere column; the Ashby Weir value 0.38 is unchanged context."
+    },
+    {
+      "type": "replace",
+      "old": "sampled quarterly",
+      "new": "sampled monthly",
+      "oldPage": 30,
+      "newPage": 30
+    },
+    {
+      "type": "number",
+      "old": "−0.35",
+      "new": "−0.53",
+      "oldPage": 30,
+      "newPage": 31,
+      "note": "Inline Typst math 'α = −0.35' -> '−0.53'; minus sign U+2212 from New Computer Modern Math, each glyph a separate text item. Typst math formulas are not mentioned in the README."
+    },
+    {
+      "type": "move",
+      "old": "The telemetry upgrade at the outstations",
+      "new": "The telemetry upgrade at the outstations",
+      "oldPage": 29,
+      "newPage": 35,
+      "note": "Paragraph moved from 10.1 Telemetry availability to 12.1 Investment programme, unchanged."
+    },
+    {
+      "type": "replace",
+      "old": "verified by the external auditor",
+      "new": "verified by the internal audit team",
+      "oldPage": 33,
+      "newPage": 33,
+      "note": "In the footnote text at the page bottom."
+    },
+    {
+      "type": "delete",
+      "old": "A separate condition survey of the Eastgate service reservoir roof",
+      "oldPage": 34,
+      "note": "Whole paragraph (two sentences, about 50 words) deleted from 11.3."
+    },
+    {
+      "type": "format",
+      "old": "Capital expenditure remains subject to board approval",
+      "new": "Capital expenditure remains subject to board approval",
+      "oldPage": 35,
+      "newPage": 35,
+      "note": "Phrase made bold; words unchanged."
+    },
+    {
+      "type": "number",
+      "old": "20.8 −1.8",
+      "new": "20.8 −2.6",
+      "oldPage": 36,
+      "newPage": 36,
+      "note": "Table 12.1, leakage row, Change (%) column; the target 20.8 is unchanged context."
+    }
+  ]
+}

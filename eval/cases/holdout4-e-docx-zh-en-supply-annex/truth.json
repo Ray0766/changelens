@@ -1,0 +1,76 @@
+{
+  "description": "A bilingual (Simplified Chinese / English) annex to an equipment supply contract between an invented medical centre and an invented supplier, written as a Word document with python-docx: numbered clauses with the Chinese text followed by the English text, and a 40-row price table with a repeating header row that runs over three pages; its No. column is a Word numbered list. The Chinese font SimSun is not installed and LibreOffice substitutes WenQuanYi Zen Hei; Arial becomes Liberation Sans. The PDFs were rendered by LibreOffice 24.2 from the Office files (headless --convert-to pdf), not by Microsoft Office. Edits: the delivery period changed in both languages; the warranty retention changed in the Chinese text only (the English text still says 10%, an inconsistency a reviewer should catch); a mini centrifuge row inserted after row 5; the unit price of the real-time PCR system lowered, which also changes its amount; the ultrasonic cleaner row deleted; and as a result the table total and the total in Chinese capital numerals (大写) changed. Consequences that are not listed: the automatic row numbers from row 6 on, row 36 (cell counter) moving from page 2 to page 3, and the header row repeated at the top of pages 2 and 3.",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "合同生效后 45 天内",
+      "new": "合同生效后 60 天内",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Chinese text of clause 2.1."
+    },
+    {
+      "type": "number",
+      "old": "within 45 days",
+      "new": "within 60 days",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "English text of clause 2.1."
+    },
+    {
+      "type": "number",
+      "old": "10% 作为质量保证金",
+      "new": "5% 作为质量保证金",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Chinese text of clause 3.3 only; the English sentence below still says 10%."
+    },
+    {
+      "type": "insert",
+      "new": "小型离心机 Mini centrifuge",
+      "newPage": 2,
+      "note": "New table row (MC-7, 10 × 1,350.00 = 13,500.00); every cell of the row is new."
+    },
+    {
+      "type": "number",
+      "old": "189,000.00",
+      "new": "176,500.00",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Unit price of QP-480."
+    },
+    {
+      "type": "number",
+      "old": "378,000.00",
+      "new": "353,000.00",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Amount of QP-480 (2 × unit price), in the same row as the unit price; it changes because the price changed, but it is a printed figure a reviewer must check."
+    },
+    {
+      "type": "delete",
+      "old": "超声波清洗器 Ultrasonic cleaner, 10 L",
+      "oldPage": 3,
+      "note": "Whole table row UC-10 removed."
+    },
+    {
+      "type": "number",
+      "old": "2,652,480.00",
+      "new": "2,634,780.00",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Table total."
+    },
+    {
+      "type": "replace",
+      "old": "贰佰陆拾伍万贰仟肆佰捌拾元整",
+      "new": "贰佰陆拾叁万肆仟柒佰捌拾元整",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Total in Chinese capital numerals; a character-level diff may show only the changed middle part."
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "description": "Only the second of two 9 pt checkboxes (\"Belts adjusted\") gets a tick; nothing else changes.",
+  "synthetic": true,
+  "set": "tuning",
+  "truth": [
+    {
+      "type": "graphic",
+      "oldPage": 1,
+      "newPage": 1,
+      "newRect": [54, 184, 16, 18],
+      "note": "Tick in the \"Belts adjusted\" checkbox."
+    }
+  ]
+}

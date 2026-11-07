@@ -1,0 +1,70 @@
+{
+  "description": "Two-page German invoice (Rechnung) for laboratory supplies with German number format (1.234,56 €), a credit line with a leading hyphen-minus (-150,00), dd.mm.yyyy dates, a logo made of filled rectangles and a Code 39 barcode. Produced with fpdf2 2.9.0 using the non-embedded core fonts Helvetica/Helvetica-Bold (cp1252/WinAnsi); the line-item table is drawn cell by cell with zebra shading, and its header row is repeated on page 2 below a running header. Edits: one line item inserted as position 7, the quantity of 'Nitrilhandschuhe Gr. M' raised from 10 to 12 (its line amount changes), the return credit changed from -150,00 to -185,00, the due date moved; net, VAT and gross totals are recomputed. Consequences that are not listed: positions 7-35 renumber to 8-36, the zebra shading of every row after the insertion flips, the last row of page 1 (Laborthermometer) moves to the top of page 2, and everything on page 2 shifts down by one row. The page count stays 2 ('Seite 1 von 2').",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "insert",
+      "new": "31-0458 Pipettenspitzen 1000",
+      "newPage": 1,
+      "note": "Whole new table row '31-0458 Pipettenspitzen 1000 µl, steril, 10 × 96 St. | 4 | Pkg. | 38,50 | 154,00' inserted as Pos. 7; the following positions renumber (consequence). Snippet stops before the micro sign: PDF.js extracts WinAnsi µ (0xB5) as Greek mu U+03BC, pdftotext as U+00B5."
+    },
+    {
+      "type": "number",
+      "old": "puderfrei 10 Karton",
+      "new": "puderfrei 12 Karton",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Quantity of row 44-1020 Nitrilhandschuhe Gr. M (old Pos. 16, new Pos. 17)."
+    },
+    {
+      "type": "number",
+      "old": "489,00",
+      "new": "586,80",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Line amount of the same row, recomputed from the quantity (12 × 48,90)."
+    },
+    {
+      "type": "number",
+      "old": "-150,00",
+      "new": "-185,00",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Return credit RS-0412, negative with a leading ASCII hyphen-minus."
+    },
+    {
+      "type": "number",
+      "old": "3.295,35 €",
+      "new": "3.512,15 €",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Nettobetrag."
+    },
+    {
+      "type": "number",
+      "old": "626,12 €",
+      "new": "667,31 €",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "zzgl. 19 % USt."
+    },
+    {
+      "type": "number",
+      "old": "3.921,47 €",
+      "new": "4.179,46 €",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Rechnungsbetrag (gross total, bold, under a double rule)."
+    },
+    {
+      "type": "number",
+      "old": "18.11.2026",
+      "new": "02.12.2026",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Due date inside the justified payment-terms paragraph (same width, no re-flow)."
+    }
+  ]
+}

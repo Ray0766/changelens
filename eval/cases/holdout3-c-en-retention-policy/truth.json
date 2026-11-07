@@ -1,0 +1,63 @@
+{
+  "description": "Synthetic sample. Records management and data retention policy of an invented housing association (EN, reportlab, 3 → 3 pages). Edits: the policy owner “Head of Compliance” is renamed “Data Protection Officer” in all five places (document-control table, section 3 and the section 5 introduction, which is on old page 1 and new page 2; sections 7 and 9 on page 3); the version changes from 2.3 to 2.4; a sentence about contractors is added to the scope; in the retention schedule (a table that runs from page 2 onto page 3 with a repeated header row) the CCTV retention changes from 31 days to 14 days and the row “Visitor sign-in sheets” is deleted; the legal-hold sentence in section 7 becomes bold. Consequences, not edits: lines re-wrap where the longer title appears, section 5 starts on new page 2 instead of old page 1, and the page break inside the table moves (the row “Contracts executed as deeds” goes from old page 2 to new page 3).",
+  "synthetic": true,
+  "set": "held-out-3",
+  "blind": true,
+  "author": "c",
+  "producer": "reportlab 5 (eval/holdout3-c/render_reportlab.py, Liberation Serif)",
+  "truth": [
+    {
+      "type": "replace",
+      "old": "Head of Compliance",
+      "new": "Data Protection Officer",
+      "oldPage": [
+        1,
+        3
+      ],
+      "newPage": [
+        1,
+        2,
+        3
+      ],
+      "maxItems": 5,
+      "note": "One rename in five places: old pages 1 (document control, section 3, section 5 intro) and 3 (sections 7 and 9); new pages 1 (document control, section 3), 2 (section 5 intro, pushed over by the new scope sentence) and 3 (sections 7 and 9). One aggregated item or up to five items are fine."
+    },
+    {
+      "type": "number",
+      "old": "2.3",
+      "new": "2.4",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Version in the document-control table."
+    },
+    {
+      "type": "insert",
+      "new": "It also covers records that contractors hold on the Association’s behalf",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "number",
+      "old": "31 days",
+      "new": "14 days",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "CCTV retention period in the schedule table."
+    },
+    {
+      "type": "delete",
+      "old": "Visitor sign-in sheets",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Whole table row removed (record type, examples, 1 year, date of visit, confidential shredding)."
+    },
+    {
+      "type": "format",
+      "old": "Records subject to a legal hold must not be destroyed",
+      "new": "Records subject to a legal hold must not be destroyed",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Sentence made bold; text unchanged."
+    }
+  ]
+}

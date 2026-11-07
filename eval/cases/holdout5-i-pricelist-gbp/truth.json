@@ -1,0 +1,77 @@
+{
+  "description": "Two-page UK trade price list for garden products, produced with fpdf2 2.9.0 using its table() API (horizontal rules, heading row repeated at the top of every page, coloured group bands as colspan rows) and embedded DejaVu Sans / DejaVu Sans Bold subsets (Identity-H). Prices in £ with two decimals, dd/mm/yyyy dates, quantity discounts written with U+2212 minus signs (−5%). Edits: validity date, one price, the item HT-1150 moved from the Hand tools group to the Pruning & cutting group, a promotion note added, one description struck through (fpdf2 'S' emphasis, drawn as a line over the text), one item deleted, the fill colour of the Protective wear group band changed from grey to orange, and the middle quantity-discount rate changed. Consequences not listed: rows between the move source and target shift up by one row and the page breaks move, so page 1 ends and page 2 starts with different rows; the repeated heading rows stay at the page tops.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "valid from 01/01/2027",
+      "new": "valid from 01/02/2027",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "number",
+      "old": "£34.50",
+      "new": "£36.80",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Price of HT-1020 Border spade, stainless steel."
+    },
+    {
+      "type": "move",
+      "old": "HT-1150 Folding pruning saw 180 mm",
+      "new": "HT-1150 Folding pruning saw 180 mm",
+      "oldPage": 1,
+      "newPage": 2,
+      "note": "Whole table row (each, 6, £11.80) moved from Hand tools (between HT-1140 and HT-1160, page 1) to Pruning & cutting (after PC-2190, page 2); item number and all cells unchanged."
+    },
+    {
+      "type": "insert",
+      "new": "Promo £21.90 until 31/03/2027",
+      "newPage": 2,
+      "note": "New text in the Notes cell of PC-2120 Bypass secateurs 25 mm, ergonomic (price £24.90 unchanged)."
+    },
+    {
+      "type": "format",
+      "old": "Anvil loppers 70 cm, ratchet",
+      "new": "Anvil loppers 70 cm, ratchet",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Description of PC-2170 struck through (fpdf2 strikethrough line); text unchanged."
+    },
+    {
+      "type": "delete",
+      "old": "GC-4730 Moss killer granules 5 kg",
+      "oldPage": 2,
+      "note": "Whole row (each, 4, £15.80) removed."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 2,
+      "newPage": 2,
+      "oldRect": [
+        42.5,
+        459.8,
+        510.2,
+        17.6
+      ],
+      "newRect": [
+        42.5,
+        442.2,
+        510.2,
+        17.6
+      ],
+      "note": "Fill of the 'Protective wear' group band changed from light grey (226,226,226) to orange (250,208,160); band text unchanged."
+    },
+    {
+      "type": "number",
+      "old": "−8%",
+      "new": "−10%",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Middle quantity-discount band; U+2212 minus sign in both versions."
+    }
+  ]
+}

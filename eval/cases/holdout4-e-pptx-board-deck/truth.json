@@ -1,0 +1,74 @@
+{
+  "description": "A quarterly board deck of an invented freight company, built as a PowerPoint file with python-pptx: 16:9 slides with text boxes, bullet lists, two tables, a native clustered column chart, and a footer text box plus a slide number field on every slide. Calibri is substituted by Carlito. The PDFs were rendered by LibreOffice 24.2 from the Office files (headless --convert-to pdf), not by Microsoft Office. The README lists slide decks (PPTX via PDF export) under the roadmap, so this case tests a producer and document type it does not claim. Edits: on the KPI slide the EBITDA margin lowered and free cash flow changed from negative to positive; in the chart the Q3 bar for Benelux raised from 11.2 to 12.6 (the axis is fixed at 0 to 20, so no other bar moves, and the chart has no data labels); a new slide \"Cyber incident update\" inserted after the cash slide; one risk bullet reworded; the treasury policy bullet moved from \"Decisions requested\" to \"Items for noting\"; and the meeting date in the footer changed on every slide. Consequences that are not listed: the slide numbers from slide 6 on (field), and all later slides shifting by one page.",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "14.2%",
+      "new": "13.6%",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "EBITDA margin, Q3 2026, in a table."
+    },
+    {
+      "type": "number",
+      "old": "−1.8",
+      "new": "0.4",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Free cash flow, Q3 2026: sign changes from negative (U+2212 minus) to positive."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 4,
+      "newPage": 4,
+      "oldRect": [
+        316,
+        262,
+        31,
+        160
+      ],
+      "newRect": [
+        316,
+        242,
+        31,
+        180
+      ],
+      "note": "Chart: the Q3 2026 bar for Benelux is taller (11.2 → 12.6); no number is printed for it."
+    },
+    {
+      "type": "insert",
+      "new": "Cyber incident update",
+      "newPage": 6,
+      "maxItems": 5,
+      "note": "Whole new slide: kicker, title and three bullets; it may be reported as one added page or as several added passages."
+    },
+    {
+      "type": "replace",
+      "old": "launched in September",
+      "new": "extended to Q1 2027",
+      "oldPage": 6,
+      "newPage": 7,
+      "note": "Risk bullet on driver shortage."
+    },
+    {
+      "type": "move",
+      "old": "Treasury policy review and new counterparty limits (paper C)",
+      "new": "Treasury policy review and new counterparty limits (paper C)",
+      "oldPage": 7,
+      "newPage": 9,
+      "note": "Bullet moved unchanged from \"Decisions requested\" to the end of \"Items for noting\"."
+    },
+    {
+      "type": "furniture",
+      "old": "14 October 2026",
+      "new": "21 October 2026",
+      "oldPage": 1,
+      "newPage": 1,
+      "maxItems": 10,
+      "note": "Meeting date in the footer, changed on every slide."
+    }
+  ]
+}

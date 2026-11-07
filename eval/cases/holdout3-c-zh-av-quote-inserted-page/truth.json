@@ -1,0 +1,72 @@
+{
+  "description": "合成样例 synthetic sample. 中文音视频系统集成报价单（Chromium，3 → 4 页）。修改：第1页报价日期 3日 → 10日；第2页项目优惠 -5,000.00 → -8,000.00，因此报价合计 408,220.00 → 405,220.00，合计大写同步修改；在报价汇总页与商务条款页之间插入一整页“可选项目：年度维保服务”（不计入合计）；商务条款页（旧第3页 → 新第4页）中付款节点、交货期和质保期修改。未修改但随之变化的：商务条款页的页码、页脚“共 n 页”。设备清单和服务费用未改。",
+  "synthetic": true,
+  "set": "held-out-3",
+  "blind": true,
+  "author": "c",
+  "producer": "Chromium (Playwright page.pdf)",
+  "truth": [
+    {
+      "type": "number",
+      "old": "2026年11月3日",
+      "new": "2026年11月10日",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Quotation date; only the day changes."
+    },
+    {
+      "type": "number",
+      "old": "-5,000.00",
+      "new": "-8,000.00",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Discount, negative sign kept."
+    },
+    {
+      "type": "number",
+      "old": "408,220.00",
+      "new": "405,220.00",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Quotation total follows the new discount (deliberately recalculated)."
+    },
+    {
+      "type": "replace",
+      "old": "拾万捌仟",
+      "new": "拾万伍仟",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "The same total in Chinese capital numerals (大写); a word change, may also be reported as a number change."
+    },
+    {
+      "type": "insert",
+      "new": "可选项目：年度维保服务",
+      "newPage": 3,
+      "note": "Whole inserted page (optional maintenance service with a table); one item expected."
+    },
+    {
+      "type": "replace",
+      "old": "设备到货后",
+      "new": "安装调试验收合格后",
+      "oldPage": 3,
+      "newPage": 4,
+      "note": "Payment milestone for the 60% instalment."
+    },
+    {
+      "type": "number",
+      "old": "30个日历日",
+      "new": "45个日历日",
+      "oldPage": 3,
+      "newPage": 4,
+      "note": "Delivery period."
+    },
+    {
+      "type": "number",
+      "old": "36个月",
+      "new": "24个月",
+      "oldPage": 3,
+      "newPage": 4,
+      "note": "Warranty period."
+    }
+  ]
+}

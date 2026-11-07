@@ -1,0 +1,82 @@
+{
+  "description": "A master services agreement between two invented companies, written as a Word document with python-docx: Heading 1 and clause paragraphs linked to one automatic multi-level list (1., 1.1), three footnotes, a running header, a \"Page X of Y\" footer, bold defined terms, and a Schedule 1 rate table with a repeating header row that runs over two pages. Calibri and Cambria are substituted by the metric-compatible Carlito and Caladea. The PDFs were rendered by LibreOffice 24.2 from the Office files (headless --convert-to pdf), not by Microsoft Office. Edits from the discussion draft to the signature draft: the subcontracting sub-clause moved from clause 7 to the end of clause 3; a cyber insurance sub-clause added to clause 4; the monthly charge raised; the index cap in footnote 2 lowered; the exclusion of indirect loss in clause 8.3 made bold; the sentence on deleting personal data removed from clause 9.2; the court seat changed; a row A17 added to Schedule 1; the first-hour call-out rate raised; and the running header changed from the discussion draft to the signature draft. Consequences that are not listed: the automatic clause numbers change (moved clause 7.2 becomes 3.4, clauses 4.3 and 4.4 become 4.4 and 4.5), the body re-flows across pages 1 to 3, and in Schedule 1 the rows from A17 on shift so that row B20 moves to page 5 under the repeated header row. The header change appears on every page.",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "move",
+      "old": "Subcontracting. The Supplier may subcontract the cleaning of external areas",
+      "new": "Subcontracting. The Supplier may subcontract the cleaning of external areas",
+      "oldPage": 2,
+      "newPage": 1,
+      "note": "Sub-clause moved unchanged from clause 7 (7.2) to clause 3 (3.4); only its automatic list number changes."
+    },
+    {
+      "type": "insert",
+      "new": "The Supplier shall maintain cyber insurance with a limit of not less than EUR 2,000,000 per claim",
+      "newPage": 1,
+      "note": "New sub-clause 4.3; the following sub-clauses renumber automatically."
+    },
+    {
+      "type": "number",
+      "old": "18,400",
+      "new": "19,750",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Monthly charge in clause 5.1."
+    },
+    {
+      "type": "number",
+      "old": "3.0%",
+      "new": "2.5%",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Inside footnote 2 at the foot of the page (8.5 pt)."
+    },
+    {
+      "type": "format",
+      "old": "Neither party is liable for loss of profit, loss of revenue, loss of goodwill",
+      "new": "Neither party is liable for loss of profit, loss of revenue, loss of goodwill",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Clause 8.3 up to \"consequential loss\" made bold; the words are unchanged."
+    },
+    {
+      "type": "delete",
+      "old": "The Supplier shall delete all personal data at the end of the Agreement unless the law requires it to be kept.",
+      "oldPage": 3,
+      "note": "Second sentence of clause 9.2 removed."
+    },
+    {
+      "type": "replace",
+      "old": "Rotterdam",
+      "new": "Utrecht",
+      "oldPage": 3,
+      "newPage": 3
+    },
+    {
+      "type": "insert",
+      "new": "A17 Solar panel cleaning, roof arrays",
+      "newPage": 4,
+      "note": "New row in the Schedule 1 table (all cells of the row are new)."
+    },
+    {
+      "type": "number",
+      "old": "145.00",
+      "new": "165.00",
+      "oldPage": 4,
+      "newPage": 4,
+      "note": "Rate of row B16, out-of-hours call-out, first hour."
+    },
+    {
+      "type": "furniture",
+      "old": "Draft for discussion · 2 October 2026",
+      "new": "Draft for signature · 12 October 2026",
+      "oldPage": 1,
+      "newPage": 1,
+      "maxItems": 5,
+      "note": "Running header, changed on all five pages."
+    }
+  ]
+}

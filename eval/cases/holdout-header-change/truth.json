@@ -1,0 +1,12 @@
+{
+  "description": "Held-out. Only the running header changes from DRAFT to FINAL on every page.",
+  "synthetic": true,
+  "set": "held-out-1",
+  "truth": [
+    {
+      "type": "furniture",
+      "old": "DRAFT",
+      "new": "FINAL"
+    }
+  ]
+}

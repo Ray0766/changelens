@@ -1,0 +1,88 @@
+{
+  "description": "Software support agreement (2 pages, python-docx → LibreOffice Writer) with reviewer annotations added by pypdf; every annotation has its own appearance stream (/AP) and the Print flag, so viewers draw it on the page. The draft already carried one FreeText note in the top margin of page 2. The after version is a re-export of the document with one payment term changed, plus annotation changes: a \"RECEIVED 02 NOV 2026\" stamp and a yellow highlight over the liability-cap sentence on page 1, a comment (sticky-note) icon next to the termination clause and new text in the FreeText note on page 2. Annotation text is drawn by the annotations' appearance streams and is not part of the page content stream. The README does not claim support for PDF annotations.",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "graphic",
+      "oldPage": 1,
+      "newPage": 1,
+      "oldRect": [
+        417.3,
+        22,
+        138,
+        42
+      ],
+      "newRect": [
+        417.3,
+        22,
+        138,
+        42
+      ],
+      "note": "Stamp annotation added in the top margin: red double frame with \"RECEIVED\" and \"02 NOV 2026\". The README does not claim support for PDF annotations."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 1,
+      "newPage": 1,
+      "oldRect": [
+        70,
+        339,
+        440.6,
+        45.9
+      ],
+      "newRect": [
+        70,
+        339,
+        440.6,
+        45.9
+      ],
+      "note": "Highlight annotation (yellow, multiply) added over the three lines \"The Supplier's total liability under this agreement is limited to the fees paid in the twelve months before the claim.\"; the text itself is unchanged. The README does not claim support for PDF annotations."
+    },
+    {
+      "type": "number",
+      "old": "30",
+      "new": "45",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Payment term: \"Invoices are payable within 30 days of the invoice date\" → 45 days (document text, clause 7)."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 2,
+      "newPage": 2,
+      "oldRect": [
+        533.3,
+        171.6,
+        20,
+        20
+      ],
+      "newRect": [
+        533.3,
+        171.6,
+        20,
+        20
+      ],
+      "note": "Text (sticky-note) annotation icon added in the right margin next to clause 8; its pop-up text \"Is three months enough for a data migration?\" is not drawn on the page. The README does not claim support for PDF annotations."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 2,
+      "newPage": 2,
+      "oldRect": [
+        405.3,
+        26,
+        166,
+        40
+      ],
+      "newRect": [
+        405.3,
+        26,
+        166,
+        40
+      ],
+      "note": "FreeText annotation in the top margin edited: \"Draft for internal review / A. Kowal, 27 Oct 2026\" (yellow box) → \"Reviewed 2 Nov 2026: / two questions open, see notes\" (blue box). The README does not claim support for PDF annotations."
+    }
+  ]
+}

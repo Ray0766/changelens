@@ -1,0 +1,71 @@
+{
+  "description": "Engagement letter (2 pages) printed by Chromium and post-processed with pypdf: every page is merged onto a reportlab stationery page (page 1: coloured letterhead band with logo and firm name; page 2: grey firm name and rule; both pages: footer rule with the firm's address line), and the draft additionally has a \"DRAFT\" watermark stamped over both pages (reportlab text, Helvetica-Bold 140 pt, 18 % grey, rotated 45°). The final version has no watermark, uses the updated stationery (band colour teal #0F766E → navy #1E3A5F; new office address in the footer) and has two body edits (status line, fee). Nothing re-flows; the line breaks of the body text are identical.",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "delete",
+      "old": "DRAFT",
+      "oldPage": 1,
+      "newPage": 1,
+      "maxItems": 2,
+      "oldRect": [
+        103.5,
+        221.5,
+        373.5,
+        395.5
+      ],
+      "newRect": [
+        103.5,
+        221.5,
+        373.5,
+        395.5
+      ],
+      "note": "Diagonal watermark removed from both pages (same place on page 2). It is real text in the content stream, so it is listed as deleted text; it is also a visible graphic change."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 1,
+      "newPage": 1,
+      "oldRect": [
+        0,
+        0,
+        595,
+        72
+      ],
+      "newRect": [
+        0,
+        0,
+        595,
+        72
+      ],
+      "note": "Letterhead band colour changed from teal #0F766E to navy #1E3A5F (stationery underlay); the white logo and firm name inside are unchanged."
+    },
+    {
+      "type": "furniture",
+      "old": "12 Quay Street, Portmere PM2 4QT",
+      "new": "4 Mill Lane, Portmere PM1 7RS",
+      "oldPage": 1,
+      "newPage": 1,
+      "maxItems": 2,
+      "note": "Address in the stationery footer line, repeated on both pages."
+    },
+    {
+      "type": "replace",
+      "old": "Draft v3 for discussion",
+      "new": "Issued for signature",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Status line in the letter heading."
+    },
+    {
+      "type": "number",
+      "old": "18,500",
+      "new": "19,800",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Fixed fee in EUR, section 4."
+    }
+  ]
+}

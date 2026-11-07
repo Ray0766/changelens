@@ -1,0 +1,65 @@
+| Case | Pages | Truth | ChangeLens found / located / extra | Text line diff found / located / extra | Pixel page diff found / located / extra |
+|---|---|---|---|---|---|
+| duplicate-page | 3→4 | 1 | 1 / 1 / 0 | 1 / 1 / 2 | 1 / 1 / 5 |
+| font-swap | 1→1 | 1 | 1 / 1 / 0 | 0 / 0 / 1 | 1 / 1 / 0 |
+| graphic-moved | 1→1 | 1 | 1 / 1 / 0 | 0 / 0 / 0 | 1 / 1 / 1 |
+| holdout-header-change | 1→1 | 1 | 1 / 1 / 0 | 1 / 1 / 0 | 1 / 1 / 0 |
+| holdout-long-table | 2→2 | 3 | 3 / 3 / 0 | 3 / 3 / 2 | 3 / 3 / 27 |
+| holdout-two-columns | 1→1 | 1 | 1 / 1 / 0 | 1 / 1 / 0 | 1 / 1 / 0 |
+| holdout-zh-letter | 1→1 | 4 | 4 / 4 / 0 | 1 / 1 / 0 | 1 / 1 / 0 |
+| holdout2-a-invoice-bank-details | 1→1 | 6 | 5 / 5 / 1 | 5 / 5 / 0 | 5 / 5 / 0 |
+| holdout2-a-lease-clause-added | 3→4 | 4 | 4 / 4 / 0 | 4 / 4 / 4 | 4 / 4 / 4 |
+| holdout2-a-services-supplier-renamed | 3→3 | 5 | 4 / 4 / 1 | 2 / 2 / 6 | 1 / 1 / 0 |
+| holdout2-a-zh-en-project-schedule | 2→2 | 5 | 4 / 4 / 1 | 3 / 3 / 0 | 5 / 5 / 0 |
+| holdout2-a-zh-policy-footnote | 2→2 | 5 | 5 / 5 / 0 | 4 / 4 / 1 | 4 / 4 / 0 |
+| holdout2-a-zh-price-list | 3→3 | 5 | 4 / 4 / 1 | 3 / 3 / 2 | 5 / 5 / 31 |
+| holdout2-b-footnote-duplicate | 3→3 | 4 | 4 / 4 / 0 | 4 / 4 / 0 | 4 / 4 / 0 |
+| holdout2-b-justified-rewrap | 2→2 | 4 | 4 / 4 / 0 | 2 / 2 / 0 | 3 / 3 / 0 |
+| holdout2-b-landscape-logo | 3→3 | 4 | 4 / 4 / 0 | 3 / 3 / 0 | 4 / 4 / 0 |
+| holdout2-b-list-renumber | 2→2 | 4 | 4 / 4 / 5 | 3 / 3 / 0 | 3 / 3 / 0 |
+| holdout2-b-thead-pricelist | 3→3 | 4 | 4 / 4 / 0 | 4 / 4 / 2 | 4 / 4 / 7 |
+| holdout2-b-zh-margins | 3→3 | 3 | 3 / 3 / 0 | 3 / 3 / 2 | 3 / 3 / 2 |
+| identical | 1→1 | 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| inserted-page | 4→5 | 1 | 1 / 1 / 0 | 1 / 1 / 3 | 1 / 1 / 7 |
+| mixed-zh-en | 1→1 | 4 | 4 / 4 / 0 | 2 / 2 / 0 | 4 / 4 / 0 |
+| move-and-edits | 2→2 | 3 | 3 / 3 / 0 | 2 / 2 / 3 | 3 / 3 / 1 |
+| numbers | 1→1 | 8 | 8 / 8 / 0 | 2 / 2 / 0 | 6 / 6 / 0 |
+| reflow-only | 1→2 | 0 | 0 / 0 / 0 | 0 / 0 / 2 | 0 / 0 / 3 |
+| small-graphics | 1→1 | 2 | 2 / 2 / 0 | 0 / 0 / 0 | 2 / 2 / 0 |
+| demo-en | 8→9 | 13 | 13 / 13 / 0 | 6 / 5 / 11 | 12 / 7 / 12 |
+| demo-zh | 8→9 | 12 | 12 / 12 / 0 | 6 / 5 / 11 | 11 / 6 / 16 |
+| libreoffice | 4→4 | 5 | 5 / 5 / 0 | 3 / 3 / 2 | 3 / 3 / 2 |
+| **Total** | | 113 | **109 / 109 / 9** | **69 / 67 / 54** | **96 / 86 / 118** |
+| *Held-out subtotal* | | 62 | *58 / 58 / 9* | *46 / 46 / 19* | *51 / 51 / 71* |
+
+Items a reviewer has to read (all cases): ChangeLens 123, Text line diff 128, Pixel page diff 219
+Time (all cases, ms): ChangeLens 25861, Text line diff 12, Pixel page diff 3969
+duplicate-page [{"kind":"insert","numeric":false,"old":"","new":"Spare parts that are not on the stock list are ordered only "}]
+font-swap [{"kind":"format","numeric":false,"old":"Maintenance Agreement","new":"Maintenance Agreement"}]
+graphic-moved [{"kind":"position","numeric":false,"old":"APPROVED","new":"APPROVED"}]
+holdout-header-change [{"kind":"replace","numeric":false,"old":"DRAFT","new":"FINAL"}]
+holdout-long-table [{"kind":"replace","numeric":true,"old":"(1,200)","new":"1,200"},{"kind":"insert","numeric":false,"old":"","new":"Asset FM-900 Chiller replacement (new) 18,400"},{"kind":"replace","numeric":true,"old":"2,600","new":"2,999"}]
+holdout-two-columns [{"kind":"replace","numeric":false,"old":"temporary badge","new":"visitor badge with photo"}]
+holdout-zh-letter [{"kind":"replace","numeric":true,"old":"3","new":"30"},{"kind":"delete","numeric":false,"old":"两个","new":""},{"kind":"insert","numeric":false,"old":"","new":"如需加急服务，请提前一天预约。"},{"kind":"replace","numeric":true,"old":"010-6655-1234","new":"010-6655-4321"}]
+holdout2-a-invoice-bank-details [{"kind":"replace","numeric":true,"old":"1,180.00","new":"1,810.00"},{"kind":"delete","numeric":false,"old":"−","new":""},{"kind":"replace","numeric":false,"old":"Nordhafen Sparkasse","new":"Elbtal Direktbank"},{"kind":"replace","numeric":true,"old":"31","new":"37"},{"kind":"insert","numeric":false,"old":"","new":"Payments made to any account other than the one stated above"},{"kind":"overflow","numeric":false,"old":"","new":"invoice numbe"}]
+holdout2-a-lease-clause-added [{"kind":"replace","numeric":false,"old":"February","new":"March"},{"kind":"replace","numeric":true,"old":"1,450.00","new":"1,495.00"},{"kind":"insert","numeric":false,"old":"","new":"5.9 that the Tenant may keep one cat or one small dog at the"},{"kind":"delete","numeric":false,"old":". Such visits shall not take place on Sundays or public holi","new":""}]
+holdout2-a-services-supplier-renamed [{"kind":"replace","numeric":false,"old":"Quillfield","new":"Brackenridge"},{"kind":"replace","numeric":false,"old":"Quillfield","new":"Brackenridge"},{"kind":"replace","numeric":false,"old":"Quillfield","new":"Brackenridge"},{"kind":"replace","numeric":false,"old":"Quillfield","new":"Brackenridge"},{"kind":"replace","numeric":true,"old":"4","new":"8"},{"kind":"replace","numeric":false,"old":"Quillfield","new":"Brackenridge"},{"kind":"format","numeric":false,"old":"Neither party limits its liability for death or personal inj","new":"Neither party limits its liability for death or personal inj"},{"kind":"move","numeric":false,"old":"Subcontracting. The Supplier may not subcontract any part of","new":"Subcontracting. The Supplier may not subcontract any part of"},{"kind":"replace","numeric":false,"old":"Quillfield","new":"Brackenridge"},{"kind":"replace","numeric":true,"old":"08412763","new":"08412768"}]
+holdout2-a-zh-en-project-schedule [{"kind":"replace","numeric":true,"old":"60","new":"75"},{"kind":"replace","numeric":true,"old":"2027-04-09","new":"2027-04-23"},{"kind":"replace","numeric":false,"old":"王磊 Wang Lei","new":"孙悦 Sun Yue"},{"kind":"graphic","numeric":false,"old":"","new":""},{"kind":"insert","numeric":false,"old":"","new":"数据迁移演练完成 Data migration rehearsal complete — 2027年4月21日"}]
+holdout2-a-zh-policy-footnote [{"kind":"delete","numeric":false,"old":"未经批准乘坐头等舱或公务舱的，超出经济舱票价的差额由个人承担。","new":""},{"kind":"replace","numeric":true,"old":"480","new":"520"},{"kind":"replace","numeric":true,"old":"10","new":"15"},{"kind":"replace","numeric":false,"old":"TravelDesk","new":"ExpensePoint"},{"kind":"replace","numeric":true,"old":"18","new":"28"}]
+holdout2-a-zh-price-list [{"kind":"replace","numeric":true,"old":"1,280.00","new":"1,820.00"},{"kind":"delete","numeric":false,"old":"CC-22 机械硬盘（增强型） HD-E 8TB 块 2,755.50","new":""},{"kind":"replace","numeric":true,"old":"5","new":"3"},{"kind":"replace","numeric":false,"old":"杭州滨江","new":"苏州吴中"},{"kind":"replace","numeric":true,"old":"18","new":"28"}]
+holdout2-b-footnote-duplicate [{"kind":"replace","numeric":false,"old":"temperatures","new":"temperatures1"},{"kind":"insert","numeric":false,"old":"","new":"1 Cold-bend test on samples conditioned for one day at the s"},{"kind":"replace","numeric":true,"old":"80","new":"100"},{"kind":"insert","numeric":false,"old":"","new":"Store rolls upright on a flat, dry surface, away from direct"}]
+holdout2-b-justified-rewrap [{"kind":"insert","numeric":false,"old":"","new":"independently"},{"kind":"graphic","numeric":false,"old":"Claims received after 15 May 2027 will not be paid","new":"Claims received after 15 May 2027 will not be paid"},{"kind":"replace","numeric":false,"old":"quarterly","new":"every six months"},{"kind":"delete","numeric":false,"old":". Late reports may delay the second instalment","new":""}]
+holdout2-b-landscape-logo [{"kind":"graphic","numeric":false,"old":"","new":""},{"kind":"replace","numeric":true,"old":"7,240","new":"8,150"},{"kind":"replace","numeric":false,"old":"J. Moreau","new":"A. Brennan"},{"kind":"replace","numeric":false,"old":"Director","new":"Head"}]
+holdout2-b-list-renumber [{"kind":"format","numeric":false,"old":"Equipment to check before entry","new":"Equipment to check before entry"},{"kind":"delete","numeric":false,"old":"Intrinsically safe torch with spare batteries","new":""},{"kind":"insert","numeric":false,"old":"","new":"Ventilate the chamber with the portable blower for at least "},{"kind":"replace","numeric":true,"old":"4","new":"5"},{"kind":"replace","numeric":true,"old":"5","new":"6"},{"kind":"replace","numeric":true,"old":"6","new":"7"},{"kind":"replace","numeric":true,"old":"7","new":"8"},{"kind":"replace","numeric":true,"old":"8","new":"9"},{"kind":"replace","numeric":true,"old":"3","new":"4"}]
+holdout2-b-thead-pricelist [{"kind":"insert","numeric":false,"old":"","new":"HL-3085 Centrifuge tube rack, 50 places, autoclavable 1 9.75"},{"kind":"delete","numeric":false,"old":"HL-3041 Syringe filter, 1.0 μm glass fibre, 25 mm 20 56.35","new":""},{"kind":"replace","numeric":false,"old":"tear-off","new":"zip closure"},{"kind":"replace","numeric":true,"old":"58.30","new":"59.45"}]
+holdout2-b-zh-margins [{"kind":"insert","numeric":false,"old":"","new":"书面"},{"kind":"replace","numeric":true,"old":"15","new":"10"},{"kind":"replace","numeric":false,"old":"电子邮件","new":"挂号信"}]
+identical []
+inserted-page [{"kind":"insert","numeric":false,"old":"","new":"Annex: Revised call-out procedure From the second year, call"}]
+mixed-zh-en [{"kind":"replace","numeric":true,"old":"2.2","new":"2.1"},{"kind":"replace","numeric":false,"old":"React","new":"Vue"},{"kind":"replace","numeric":true,"old":"10","new":"12"},{"kind":"delete","numeric":false,"old":"备件清单以外的配件须经书面批准后方可采购。单件金额超过审批限额的，乙方应提供两份报价，并将拆下的旧件保留三十天以备查验。","new":""}]
+move-and-edits [{"kind":"replace","numeric":false,"old":"on the same day","new":"within one hour"},{"kind":"move","numeric":false,"old":"Routine inspections take place every quarter. During each in","new":"Routine inspections take place every quarter. During each in"},{"kind":"delete","numeric":false,"old":"Certificates are renewed every year and a copy is sent to th","new":""}]
+numbers [{"kind":"replace","numeric":true,"old":"8,000","new":"9,500"},{"kind":"replace","numeric":true,"old":"500","new":"−500"},{"kind":"replace","numeric":true,"old":"-1,200","new":"1,200"},{"kind":"replace","numeric":true,"old":"1.50","new":"1.05"},{"kind":"replace","numeric":false,"old":"November","new":"December"},{"kind":"replace","numeric":false,"old":"days","new":"weeks"},{"kind":"replace","numeric":false,"old":"US dollars","new":"euros"},{"kind":"replace","numeric":true,"old":"3","new":"8"}]
+reflow-only []
+small-graphics [{"kind":"graphic","numeric":false,"old":"","new":""},{"kind":"graphic","numeric":false,"old":"","new":""}]
+demo-en [{"kind":"replace","numeric":false,"old":"30 November","new":"15 December"},{"kind":"replace","numeric":true,"old":"24,500","new":"26,000"},{"kind":"insert","numeric":false,"old":"","new":"Accessibility is a further goal that we propose to add to th"},{"kind":"replace","numeric":true,"old":"8,000","new":"9,500"},{"kind":"replace","numeric":true,"old":"24,500","new":"26,000"},{"kind":"graphic","numeric":false,"old":"","new":""},{"kind":"move","numeric":false,"old":"Maya Chen — Project lead Maya has led more than forty websit","new":"Maya Chen — Project lead Maya has led more than forty websit"},{"kind":"delete","numeric":false,"old":"Late payment. Invoices that remain unpaid 30 days after the ","new":""},{"kind":"format","numeric":false,"old":"30 days","new":"30 days"},{"kind":"graphic","numeric":false,"old":"within two hours","new":"within two hours"},{"kind":"insert","numeric":false,"old":"","new":"Weekend rate (USD) Holiday rate (USD) Minimum h … 185 210 … "},{"kind":"overflow","numeric":false,"old":"","new":"Minimum h"},{"kind":"graphic","numeric":false,"old":"","new":""}]
+demo-zh [{"kind":"replace","numeric":false,"old":"11 月 30","new":"12 月 15"},{"kind":"replace","numeric":true,"old":"24,500","new":"26,000"},{"kind":"insert","numeric":false,"old":"","new":"此外，我们建议将无障碍访问纳入项目范围。新网站将符合 WCAG 2.2 AA 标准，让依赖读屏软件、键盘操作或大字号的顾"},{"kind":"replace","numeric":true,"old":"8,000","new":"9,500"},{"kind":"replace","numeric":true,"old":"24,500","new":"26,000"},{"kind":"graphic","numeric":false,"old":"","new":""},{"kind":"move","numeric":false,"old":"陈曼 · 项目负责人九年来主导过四十多个餐饮与酒店品牌的网站项目。她将作为您的唯一对接人，主持每周例会，并对从启动到上线","new":"陈曼 · 项目负责人九年来主导过四十多个餐饮与酒店品牌的网站项目。她将作为您的唯一对接人，主持每周例会，并对从启动到上线"},{"kind":"delete","numeric":false,"old":"逾期付款。发票逾期 30 天仍未支付的，按每月 1.5% 计收利息。远山设计有权在逾期款项结清前暂停项目工作。","new":""},{"kind":"graphic","numeric":false,"old":"两小时内处理","new":"两小时内处理"},{"kind":"graphic","numeric":false,"old":"","new":""},{"kind":"insert","numeric":false,"old":"","new":"周末费率（元/小时） 节假日费率（元/小时） 最低计费 … 185 210 2 … 195 225 2 … 190 21"},{"kind":"overflow","numeric":false,"old":"","new":"最低计费 2 2 2 1"}]
+libreoffice [{"kind":"replace","numeric":false,"old":"contractor","new":"supplier"},{"kind":"insert","numeric":false,"old":"","new":"This clause was added in the second version and shifts all o"},{"kind":"replace","numeric":true,"old":"11,900","new":"12,400"},{"kind":"move","numeric":false,"old":"Parties both deliver quality the deliver described within sh","new":"Parties both deliver quality the deliver described within sh"},{"kind":"delete","numeric":false,"old":"Accordance within accordance shall applicable herein describ","new":""}]

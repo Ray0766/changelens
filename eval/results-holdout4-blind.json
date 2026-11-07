@@ -1,0 +1,2471 @@
+{
+  "rules": {
+    "snippets": "context",
+    "boundaryCarets": true
+  },
+  "results": {
+    "holdout4-e-docx-retention-redline": {
+      "description": "A records retention policy of an invented housing association, written as a Word document with python-docx: numbered headings and paragraphs (automatic multi-level list), a portrait section, a landscape section with the retention schedule table (Appendix A) and a portrait section for document control; Arial is substituted by Liberation Sans. The PDFs were rendered by LibreOffice 24.2 from the Office files (headless --convert-to pdf), not by Microsoft Office. The new version is the draft as circulated with tracked changes shown: one sentence added as a tracked insertion (LibreOffice shows it underlined in the reviewer colour with a change bar in the left margin) and one paragraph removed as a tracked deletion (still shown, struck through in the reviewer colour, with a change bar). Several other edits were made with tracking switched off, so they are not marked in the new PDF: the backup deletion period, one retention period and one owner in the landscape table, and a new row in the version history; the footer also changed. Consequences that are not listed: the change bars themselves; LibreOffice shows the list number of the deleted paragraph as \"[4.3]\" and that of the next paragraph as \"4.3[4.4]\", both in the reviewer colour (automatic renumbering shown as part of the redline); page 1 re-flows, and the R09 row in the landscape table becomes two lines tall.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 6,
+        "located": 6,
+        "separate": 6,
+        "total": 7,
+        "extra": 7,
+        "items": 13,
+        "ms": 2350.684435
+      },
+      "textLines": {
+        "found": 6,
+        "located": 6,
+        "separate": 6,
+        "total": 7,
+        "extra": 1,
+        "items": 10,
+        "ms": 0.8542830000001231
+      },
+      "pixelPages": {
+        "found": 7,
+        "located": 7,
+        "separate": 6,
+        "total": 7,
+        "extra": 2,
+        "items": 8,
+        "ms": 324.2881540000003
+      },
+      "misses": [
+        {
+          "truth": 7,
+          "text": "furniture \"Version 3.1 · Approved 14 May 2025\" → \"Version 3.2 · Draft with tracked changes · 12 October 2026\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "4→4",
+      "reported": [
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Staff must complete the records management e-learning module"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "4.3 Paper records may be scanned and the paper copy destroye",
+          "new": "4.3] Paper records may be scanned and the paper copy destroy"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "["
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "]"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "of the scanned batch",
+          "new": "of the scanned batch"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "4.4",
+          "new": "4.4"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "4.3["
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "]"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "90",
+          "new": "180"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "Neighbourhood Team",
+          "new": "Community Safety Officer"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "10",
+          "new": "15"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "3.2 12 October 2026 Draft for the Audit and Risk Committee"
+        }
+      ]
+    },
+    "holdout4-e-docx-services-agreement": {
+      "description": "A master services agreement between two invented companies, written as a Word document with python-docx: Heading 1 and clause paragraphs linked to one automatic multi-level list (1., 1.1), three footnotes, a running header, a \"Page X of Y\" footer, bold defined terms, and a Schedule 1 rate table with a repeating header row that runs over two pages. Calibri and Cambria are substituted by the metric-compatible Carlito and Caladea. The PDFs were rendered by LibreOffice 24.2 from the Office files (headless --convert-to pdf), not by Microsoft Office. Edits from the discussion draft to the signature draft: the subcontracting sub-clause moved from clause 7 to the end of clause 3; a cyber insurance sub-clause added to clause 4; the monthly charge raised; the index cap in footnote 2 lowered; the exclusion of indirect loss in clause 8.3 made bold; the sentence on deleting personal data removed from clause 9.2; the court seat changed; a row A17 added to Schedule 1; the first-hour call-out rate raised; and the running header changed from the discussion draft to the signature draft. Consequences that are not listed: the automatic clause numbers change (moved clause 7.2 becomes 3.4, clauses 4.3 and 4.4 become 4.4 and 4.5), the body re-flows across pages 1 to 3, and in Schedule 1 the rows from A17 on shift so that row B20 moves to page 5 under the repeated header row. The header change appears on every page.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 10,
+        "located": 10,
+        "separate": 10,
+        "total": 10,
+        "extra": 3,
+        "items": 12,
+        "ms": 2562.2035200000005
+      },
+      "textLines": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 10,
+        "extra": 4,
+        "items": 16,
+        "ms": 0.7131150000004709
+      },
+      "pixelPages": {
+        "found": 10,
+        "located": 9,
+        "separate": 9,
+        "total": 10,
+        "extra": 10,
+        "items": 19,
+        "ms": 443.16654000000017
+      },
+      "misses": [],
+      "pages": "5→5",
+      "reported": [
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "7.2 Subcontracting. The Supplier may subcontract the cleanin",
+          "new": "3.4 Subcontracting. The Supplier may subcontract the cleanin"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "7.2",
+          "new": "3.4"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "The Supplier shall maintain cyber insurance with a limit of "
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "4.4",
+          "new": "4.5"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "1 Public holidays are taken from the regional calendar that ",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "18,400",
+          "new": "19,750"
+        },
+        {
+          "kind": "format",
+          "numeric": false,
+          "old": "Neither party is liable for loss of profit, loss of revenue,",
+          "new": "Neither party is liable for loss of profit, loss of revenue,"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "3.0%",
+          "new": "2.5%"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "The Supplier shall delete all personal data at the end of th",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "Rotterdam",
+          "new": "Utrecht"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "A17 Solar panel cleaning, roof arrays Twice yearly Included"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "145.00",
+          "new": "165.00"
+        }
+      ]
+    },
+    "holdout4-e-docx-zh-en-supply-annex": {
+      "description": "A bilingual (Simplified Chinese / English) annex to an equipment supply contract between an invented medical centre and an invented supplier, written as a Word document with python-docx: numbered clauses with the Chinese text followed by the English text, and a 40-row price table with a repeating header row that runs over three pages; its No. column is a Word numbered list. The Chinese font SimSun is not installed and LibreOffice substitutes WenQuanYi Zen Hei; Arial becomes Liberation Sans. The PDFs were rendered by LibreOffice 24.2 from the Office files (headless --convert-to pdf), not by Microsoft Office. Edits: the delivery period changed in both languages; the warranty retention changed in the Chinese text only (the English text still says 10%, an inconsistency a reviewer should catch); a mini centrifuge row inserted after row 5; the unit price of the real-time PCR system lowered, which also changes its amount; the ultrasonic cleaner row deleted; and as a result the table total and the total in Chinese capital numerals (大写) changed. Consequences that are not listed: the automatic row numbers from row 6 on, row 36 (cell counter) moving from page 2 to page 3, and the header row repeated at the top of pages 2 and 3.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 9,
+        "extra": 32,
+        "items": 40,
+        "ms": 1455.9021119999998
+      },
+      "textLines": {
+        "found": 9,
+        "located": 9,
+        "separate": 5,
+        "total": 9,
+        "extra": 1,
+        "items": 6,
+        "ms": 0.37248300000010204
+      },
+      "pixelPages": {
+        "found": 9,
+        "located": 9,
+        "separate": 8,
+        "total": 9,
+        "extra": 5,
+        "items": 13,
+        "ms": 266.93877000000066
+      },
+      "misses": [
+        {
+          "truth": 3,
+          "text": "number \"10% 作为质量保证金\" → \"5% 作为质量保证金\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "3→3",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "45",
+          "new": "60"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "45",
+          "new": "60"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "10%",
+          "new": "5%"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "小型离心机 Mini centrifuge MC-7 10 1,350.00 13,500.00 7"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "7",
+          "new": "8"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "8",
+          "new": "9"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "9",
+          "new": "10"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "189,000.00",
+          "new": "176,500.00"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "378,000.00",
+          "new": "353,000.00"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "10",
+          "new": "11"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "11",
+          "new": "12"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "12",
+          "new": "13"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "13",
+          "new": "14"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "14",
+          "new": "15"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "15",
+          "new": "16"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "16",
+          "new": "17"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "17",
+          "new": "18"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "18",
+          "new": "19"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "19",
+          "new": "20"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "20",
+          "new": "21"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "21",
+          "new": "22"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "22",
+          "new": "23"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "23",
+          "new": "24"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "24",
+          "new": "25"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "25",
+          "new": "26"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "26",
+          "new": "27"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "27",
+          "new": "28"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "28",
+          "new": "29"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "29",
+          "new": "30"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "30",
+          "new": "31"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "4",
+          "new": "4"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "31",
+          "new": "32"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "32",
+          "new": "33"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "装",
+          "new": "装"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "33",
+          "new": "34"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "34",
+          "new": "35"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "35",
+          "new": "金额Amount 36"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "金额Amount 36 超声波清洗器 Ultrasonic cleaner, 10 L UC-10 2 3,100.00",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "2,652,480.00",
+          "new": "2,634,780.00"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "伍万贰仟肆",
+          "new": "叁万肆仟柒"
+        }
+      ]
+    },
+    "holdout4-e-pptx-board-deck": {
+      "description": "A quarterly board deck of an invented freight company, built as a PowerPoint file with python-pptx: 16:9 slides with text boxes, bullet lists, two tables, a native clustered column chart, and a footer text box plus a slide number field on every slide. Calibri is substituted by Carlito. The PDFs were rendered by LibreOffice 24.2 from the Office files (headless --convert-to pdf), not by Microsoft Office. The README lists slide decks (PPTX via PDF export) under the roadmap, so this case tests a producer and document type it does not claim. Edits: on the KPI slide the EBITDA margin lowered and free cash flow changed from negative to positive; in the chart the Q3 bar for Benelux raised from 11.2 to 12.6 (the axis is fixed at 0 to 20, so no other bar moves, and the chart has no data labels); a new slide \"Cyber incident update\" inserted after the cash slide; one risk bullet reworded; the treasury policy bullet moved from \"Decisions requested\" to \"Items for noting\"; and the meeting date in the footer changed on every slide. Consequences that are not listed: the slide numbers from slide 6 on (field), and all later slides shifting by one page.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 6,
+        "located": 6,
+        "separate": 6,
+        "total": 7,
+        "extra": 0,
+        "items": 6,
+        "ms": 3889.572359
+      },
+      "textLines": {
+        "found": 5,
+        "located": 5,
+        "separate": 4,
+        "total": 7,
+        "extra": 0,
+        "items": 11,
+        "ms": 0.20717200000035518
+      },
+      "pixelPages": {
+        "found": 7,
+        "located": 5,
+        "separate": 7,
+        "total": 7,
+        "extra": 16,
+        "items": 25,
+        "ms": 630.1569080000008
+      },
+      "misses": [
+        {
+          "truth": 7,
+          "text": "furniture \"14 October 2026\" → \"21 October 2026\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "9→10",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "14.2%",
+          "new": "13.6%"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "−1.8",
+          "new": "0.4"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "NEW SINCE THE LAST MEETING Cyber incident update • Phishing "
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "launched in September",
+          "new": "extended to Q1 2027"
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "• Treasury policy review and new counterparty limits (paper ",
+          "new": "• Treasury policy review and new counterparty limits (paper "
+        }
+      ]
+    },
+    "holdout4-e-xlsx-facilities-budget": {
+      "description": "An operating budget of an invented facilities department, built as an Excel workbook with openpyxl: 104 line items in 12 sections over three A4 portrait pages, the column header row set as print title row, amounts in the format #,##0;[Red](#,##0) (income in red brackets), a Change column computed by formula with red negative percentages, dates in d mmm yyyy, a header and a \"Page X of Y\" footer, fit to page width. Calibri is substituted by Carlito. LibreOffice Calc computed the formulas. The PDFs were rendered by LibreOffice 24.2 from the Office files (headless --convert-to pdf), not by Microsoft Office. Edits: the energy price inflation assumption lowered; the electricity budget lowered, which turns its Change from 4.9% into a red negative percentage; a new line 6219 for a lift modernisation study inserted after lift maintenance; the note of the guarding contract changed; the one-off line 7010 for office moves deleted; as a result the FY2027 total and its Change percentage changed. Account codes are fixed per line, so nothing renumbers. Consequences that are not listed: one row moves from page 1 to page 2 and one from page 2 to page 3, under the repeated column header row; the FY2025 and FY2026 totals do not change.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 8,
+        "extra": 2,
+        "items": 10,
+        "ms": 1785.4746599999999
+      },
+      "textLines": {
+        "found": 8,
+        "located": 8,
+        "separate": 6,
+        "total": 8,
+        "extra": 4,
+        "items": 10,
+        "ms": 0.36098500000116474
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 8,
+        "extra": 9,
+        "items": 18,
+        "ms": 269.32678999999916
+      },
+      "misses": [],
+      "pages": "3→3",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "8.0%",
+          "new": "6.5%"
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "FY2026 forecast FY2027 budget Code Line item FY2025 actual C",
+          "new": "FY2026 forecast FY2027 budget Code Line item FY2025 actual C"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "184,000",
+          "new": "171,500"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "4.9%",
+          "new": "-2.2%"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "6219 Lift modernisation feasibility study – – 22,000 new One"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "-0.5",
+          "new": "-0.5"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "CPI-linked",
+          "new": "fixed price"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "7010 Office moves and reconfigurations – – 26,000 new One-of",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "2,329,800",
+          "new": "2,313,300"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "2.2%",
+          "new": "1.5%"
+        }
+      ]
+    },
+    "holdout4-e-xlsx-spare-parts-prices": {
+      "description": "A spare parts price list of an invented pump maker, built as an Excel workbook with openpyxl: 101 parts in 8 product groups over four A4 landscape pages, the column header row set as print title row, prices in euro and pound currency formats, dates in dd.mm.yyyy, core refunds as red negative euro amounts, a header and a \"Page X of Y\" footer, fit to page width. Arial is substituted by Liberation Sans. The PDFs were rendered by LibreOffice 24.2 from the Office files (headless --convert-to pdf), not by Microsoft Office. Edits: the metal surcharge raised; a new impeller IMP-1065 inserted after IMP-1060; the euro price of SEA-1010 raised; the price date of MOT-1120 moved; control panel CTL-1080 deleted; the pound price of HSG-1040 raised; the core refund of REM-2070 increased. Consequences that are not listed: rows shift by one across the page breaks (SEA-1030 moves to page 2, the Motors group heading moves from the foot of page 2 to the top of page 3) under the repeated header row.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 7,
+        "extra": 4,
+        "items": 11,
+        "ms": 2098.684573999999
+      },
+      "textLines": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 7,
+        "extra": 4,
+        "items": 11,
+        "ms": 0.4460739999994985
+      },
+      "pixelPages": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 7,
+        "extra": 26,
+        "items": 33,
+        "ms": 299.5390460000017
+      },
+      "misses": [],
+      "pages": "4→4",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "4.5%",
+          "new": "6.0%"
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "Discount group Lead time (days) Price valid from* Core refun",
+          "new": "Discount group Lead time (days) Price valid from* Core refun"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "IMP-1065 Closed impeller, DN125 each € 468.00 £402.50 B 20"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "74.00",
+          "new": "89.00"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "Motors",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Motors"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "01.04.2027",
+          "new": "01.07.2027"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "CTL-1080 Control panel, ATEX each € 491.00 £417.00 B 10",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "£664.50",
+          "new": "£710.50"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "300.00",
+          "new": "335.00"
+        }
+      ]
+    },
+    "holdout4-f-en-asset-plan-long": {
+      "description": "Ten-year asset management plan of a fictional water utility (cover, 9 chapters with 9 templated treatment-works profiles and 24 templated supply-zone profiles, tables, glossary, a 600-row mains renewal schedule, a reservoir schedule and an approval record), 84 A4 pages (85 after the edits), printed by Chromium with running header and \"Page X of Y\" footer. Eight scattered edits: a paragraph and a five-row table inserted in section 1.3 on page 2, which push every later page down by about a third of a page (so every later page break, table split and repeated table header moves, and the document gains a page); a trunk-mains length in the Elmscar asset table; a sentence deleted in the Ivelstone condition paragraph; \"quarterly\" to \"monthly\" in the Pellow Bay risk paragraph; a missing minus sign restored on the Energy variance in the 2025/26 budget table (the old version printed 1,250 for an overspend); a new row R-16 added to the risk register; a scheme length in the 600-row mains renewal schedule in Appendix B; and the Board approval date on the last page. Zone totals, the capital programme and all other figures are unchanged. Re-flow, page breaks, repeated table header rows and footer page numbers change only as consequences. Producer: Chromium (Skia/PDF m153, Playwright page.pdf), HTML/CSS, Liberation Serif/Sans.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 8,
+        "extra": 59,
+        "items": 67,
+        "ms": 67216.544878
+      },
+      "textLines": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 8,
+        "extra": 169,
+        "items": 177,
+        "ms": 7.359768000009353
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 5,
+        "separate": 8,
+        "total": 8,
+        "extra": 204,
+        "items": 213,
+        "ms": 9334.730851
+      },
+      "misses": [],
+      "pages": "84→85",
+      "reported": [
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "In response to consultation feedback, this version also sets"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "148.6",
+          "new": "152.9"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "A further 2.3 km of cast-iron main beneath Harbour Street wi",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "quarterly",
+          "new": "monthly"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "1,250",
+          "new": "−1,250"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "position",
+          "numeric": false,
+          "old": "alternative sources",
+          "new": "alternative sources"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "R-16 Single approved supplier of sodium hypochlorite for dis"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "1,180",
+          "new": "1,810"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "18",
+          "new": "25"
+        }
+      ]
+    },
+    "holdout4-f-en-master-services-agreement": {
+      "description": "Master services agreement for managed IT services between two fictional companies, 12 A4 pages, written in python-docx with literal clause numbers (1., 1.1, 1.1.1) in hanging indents and converted by LibreOffice (Caladea body, Carlito headings, footer \"Page N of M\"), with three schedules including a service level table and a signature block. Seven edits: payment term in clause 5.2.1; a new clause 8.3 (emergency changes) inserted, so the old clauses 8.3 and 8.4 and sub-clauses 8.4.1-8.4.3 are renumbered 8.4, 8.5 and 8.5.1-8.5.3 (renumbering is a consequence, not listed); a wrong cross-reference corrected in clause 12.1.4; the liability cap percentage in clause 12.3.1; clause 13.3 (the last clause of clause 13) deleted; \"exclusive\" to \"non-exclusive\" jurisdiction in clause 19.2; and the platform availability target in Schedule 2. Re-flow and footer page numbers change only as consequences. Producer: LibreOffice Writer 24.2 (python-docx .docx -> soffice --convert-to pdf), Caladea/Carlito.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 7,
+        "extra": 4,
+        "items": 11,
+        "ms": 6175.829517999999
+      },
+      "textLines": {
+        "found": 6,
+        "located": 6,
+        "separate": 6,
+        "total": 7,
+        "extra": 11,
+        "items": 17,
+        "ms": 0.9520940000074916
+      },
+      "pixelPages": {
+        "found": 7,
+        "located": 6,
+        "separate": 7,
+        "total": 7,
+        "extra": 45,
+        "items": 52,
+        "ms": 1247.1672229999967
+      },
+      "misses": [],
+      "pages": "12→12",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "30",
+          "new": "45"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Where a Change is needed urgently to protect the security or"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "8.4",
+          "new": "8.5"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "8.4.1",
+          "new": "8.5.1"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "8.4.2",
+          "new": "8.5.2"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "8.4.3",
+          "new": "8.5.3"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "9.4.2",
+          "new": "9.4.1"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "125%",
+          "new": "150%"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "13.3 The Supplier shall notify the Customer within ten Busin",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "exclusive",
+          "new": "non-exclusive"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "99.5%",
+          "new": "99.9%"
+        }
+      ]
+    },
+    "holdout4-f-en-security-handbook-reordered": {
+      "description": "Staff information security handbook of a fictional institute with 22 unnumbered sections, typeset with reportlab (Liberation Serif body, Liberation Sans headings, footer \"Page N\"). In the new version the section \"Reporting a security incident\" was moved from near the end to third place, and \"Removable media\" was moved down four sections to follow \"Video calls and meetings\"; inside the moved incident section the reporting deadline changed. Elsewhere the minimum passphrase length changed, one sentence was deleted, one sentence was made bold, and a service name was replaced. All other sections are unchanged and keep their relative order; their page positions change only as a consequence of the moves. Producer: reportlab 5 (platypus), Liberation Serif/Sans.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 7,
+        "extra": 0,
+        "items": 7,
+        "ms": 4420.9627949999995
+      },
+      "textLines": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 7,
+        "extra": 15,
+        "items": 18,
+        "ms": 0.630842999991728
+      },
+      "pixelPages": {
+        "found": 7,
+        "located": 3,
+        "separate": 6,
+        "total": 7,
+        "extra": 2,
+        "items": 8,
+        "ms": 565.4000519999972
+      },
+      "misses": [],
+      "pages": "7→7",
+      "reported": [
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "Reporting a security incident A security incident is anythin",
+          "new": "Reporting a security incident A security incident is anythin"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "24",
+          "new": "4"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "12",
+          "new": "14"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "You may still use the unsubscribe link in newsletters that y",
+          "new": ""
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "Removable media USB sticks, external hard drives and memory ",
+          "new": "Removable media USB sticks, external hard drives and memory "
+        },
+        {
+          "kind": "format",
+          "numeric": false,
+          "old": "Collect your printouts straight away.",
+          "new": "Collect your printouts straight away."
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "file transfer service",
+          "new": "partner portal"
+        }
+      ]
+    },
+    "holdout4-f-ja-maintenance-contract": {
+      "description": "Japanese system maintenance outsourcing contract (システム保守業務委託契約書) between two unnamed fictional parties 甲 and 乙: 18 articles with numbered paragraphs (２, ３) and items (（１）), a signature block and two schedules with tables, typeset with reportlab in IPAGothic with CJK line wrapping; full-width digits in the articles, half-width digits in the schedule tables. Seven edits: contract start date in article 4 (４月 to ５月, full-width); end of the service hours in article 5; the monthly fee in article 9 (full-width digits and comma); a new paragraph ４ added at the end of article 12; the title of article 13 modernised from 瑕疵担保責任 to 契約不適合責任; the proviso deleted from article 14 paragraph ２; and the overtime rate in schedule 2. Re-flow changes only as a consequence. The README lists Japanese as tested by unit tests only. Producer: reportlab 5 (platypus, wordWrap CJK), IPAGothic.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 7,
+        "extra": 1,
+        "items": 8,
+        "ms": 2512.1807770000014
+      },
+      "textLines": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 7,
+        "extra": 3,
+        "items": 8,
+        "ms": 0.44873099999676924
+      },
+      "pixelPages": {
+        "found": 7,
+        "located": 7,
+        "separate": 5,
+        "total": 7,
+        "extra": 2,
+        "items": 7,
+        "ms": 424.7742450000078
+      },
+      "misses": [],
+      "pages": "5→5",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "４",
+          "new": "５"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "６",
+          "new": "８"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "３８５，０００",
+          "new": "４１８，０００"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "４ 乙は、本業務の遂行にあたり生成ＡＩその他の外部サービスに甲の情報を入力する場合には、事前に甲の書面による承諾を得るも"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "瑕疵担保",
+          "new": "契約不適合"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "ただし、乙の故意又は重大な過失による場合は、この限りでない。",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "重",
+          "new": "重"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "14,500",
+          "new": "16,000"
+        }
+      ]
+    },
+    "holdout4-f-zh-en-ja-controller-manual-long": {
+      "description": "Installation and maintenance manual of a fictional 4-axis motion controller, 41 A4 pages: Simplified Chinese body text with English parameter names and Japanese terms in brackets, set in WenQuanYi Zen Hei (Chinese), IPAGothic (Japanese runs, ja-JP) and Liberation Sans (Latin); long trilingual tables (117-row parameter list, 39-row alarm table with English and Japanese messages, 55-row EN/ZH/JA glossary) whose header rows repeat on every page; footer \"第 N 页\". Eight scattered edits: the version on the cover (V2.3 to V2.4); a new safety warning paragraph in section 1.3, which pushes every later page down by about four lines (the note deleted in 5.1 pulls the pages after it back by two lines); a note deleted in section 5.1; the factory default of P2-07 Acceleration Time (220 to 180); the English message of alarm AL.150; the cooling fan replacement interval in section 7.3; one Japanese glossary term; and a new V2.4 row in the revision history on the last page. Table splits, repeated header rows and footer page numbers change only as consequences. Producer: LibreOffice Writer 24.2 (python-docx .docx -> soffice --convert-to pdf), WenQuanYi Zen Hei / IPAGothic / Liberation Sans.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 8,
+        "extra": 33,
+        "items": 40,
+        "ms": 23660.69286200001
+      },
+      "textLines": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 8,
+        "extra": 37,
+        "items": 45,
+        "ms": 2.078363000007812
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 5,
+        "separate": 8,
+        "total": 8,
+        "extra": 63,
+        "items": 71,
+        "ms": 4008.916670000006
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"V2.3\" → \"V2.4\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "41→41",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "V2.3",
+          "new": "V2.4"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "警告：更换编码器备用电池（バックアップ電池）时必须保持控制电源 DC 24 V 接通，否则多圈数据会丢失，需要重新回原点"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "ァン",
+          "new": "ァン"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "ーバートラベ",
+          "new": "ーバートラベ"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "イッチ",
+          "new": "イッチ"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "モン",
+          "new": "モン"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "サーボレディ",
+          "new": "サーボレディ"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "グランド",
+          "new": "グランド"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "一",
+          "new": "一"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "一",
+          "new": "一"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "主",
+          "new": "主"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "主",
+          "new": "主"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "查",
+          "new": "查"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "注：P4-05 的修改需重启控制器后生效。",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "エンコー",
+          "new": "エンコー"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "トルクフィード",
+          "new": "トルクフィード"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "220",
+          "new": "180"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "ーレート",
+          "new": "ーレート"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "レベ",
+          "new": "レベ"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "ファン",
+          "new": "ファン"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "重",
+          "new": "重"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "一",
+          "new": "一"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "生",
+          "new": "生"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "量",
+          "new": "量"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "置",
+          "new": "置"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "单",
+          "new": "单"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "ーバートラベ",
+          "new": "ーバートラベ"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "signal lost",
+          "new": "cable disconnected"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "エンコー",
+          "new": "エンコー"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "エンコー",
+          "new": "エンコー"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "ータ",
+          "new": "ータ"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "ウォッチドッグタ",
+          "new": "ウォッチドッグタ"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "アナログ",
+          "new": "アナログ"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "ントリ",
+          "new": "ントリ"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "30,000",
+          "new": "20,000"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "ダイナミックブレーキ",
+          "new": "発電制動"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "V2.4 2026-10-15 增加更换备用电池时的警告；修改加速时间出厂值和冷却风扇更换周期。"
+        }
+      ]
+    },
+    "holdout4-f-zh-hant-community-annual-report": {
+      "description": "Annual work and financial report of a fictional residential community management committee in Traditional Chinese (Taiwan usage: ROC years, NT$), printed by Chromium in WenQuanYi Zen Hei with justified paragraphs, first-line indents, tables and a footer \"第 N 頁／共 M 頁\". Seven edits: an inspection frequency word in section 參一 (每年 to 每半年); the paragraph on recycling moved from 參一 (facilities) to 參三 (cleaning), crossing a page; a sentence deleted at the end of a paragraph in 參四; the closing balance of the public fund corrected (two digits transposed, 1,284,600 to 1,248,600; the other rows of that table are unchanged); the proposed management fee in the first item of the 115 work plan list; a new last item (6.) added to that list, so no other item is renumbered; and one meeting date in the appendix table on the last page. Re-flow and footer page numbers change only as consequences. Producer: Chromium (Skia/PDF m153, Playwright page.pdf), HTML/CSS, WenQuanYi Zen Hei.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 6,
+        "located": 6,
+        "separate": 6,
+        "total": 7,
+        "extra": 3,
+        "items": 9,
+        "ms": 3349.930449000007
+      },
+      "textLines": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 7,
+        "extra": 7,
+        "items": 11,
+        "ms": 0.5906870000180788
+      },
+      "pixelPages": {
+        "found": 7,
+        "located": 6,
+        "separate": 6,
+        "total": 7,
+        "extra": 0,
+        "items": 6,
+        "ms": 594.5053049999988
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "replace \"每年\" → \"每半年\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "6→6",
+      "reported": [
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "半"
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "資源回收與垃圾分類方面，本會於地下一樓設置分類回收區，分為紙類、塑膠、鐵鋁罐、玻璃、廚餘及一般垃圾六類，並由清潔公司每日",
+          "new": "資源回收與垃圾分類方面，本會於地下一樓設置分類回收區，分為紙類、塑膠、鐵鋁罐、玻璃、廚餘及一般垃圾六類，並由清潔公司每日"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "停車場地坪重新劃線工程延至明年度辦理。",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "1,284,600",
+          "new": "1,248,600"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "88",
+          "new": "90"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "6. 颱風季防災整備：於 6 月底前完成屋頂及地下室排水孔清理，並測試備用抽水馬達與防水閘門。"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "年",
+          "new": "年"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "年",
+          "new": "年"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "18",
+          "new": "16"
+        }
+      ]
+    },
+    "holdout4-g-annotated-agreement": {
+      "description": "Software support agreement (2 pages, python-docx → LibreOffice Writer) with reviewer annotations added by pypdf; every annotation has its own appearance stream (/AP) and the Print flag, so viewers draw it on the page. The draft already carried one FreeText note in the top margin of page 2. The after version is a re-export of the document with one payment term changed, plus annotation changes: a \"RECEIVED 02 NOV 2026\" stamp and a yellow highlight over the liability-cap sentence on page 1, a comment (sticky-note) icon next to the termination clause and new text in the FreeText note on page 2. Annotation text is drawn by the annotations' appearance streams and is not part of the page content stream. The README does not claim support for PDF annotations.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 5,
+        "extra": 4,
+        "items": 7,
+        "ms": 890.9275119999947
+      },
+      "textLines": {
+        "found": 1,
+        "located": 1,
+        "separate": 1,
+        "total": 5,
+        "extra": 0,
+        "items": 1,
+        "ms": 0.12940599999274127
+      },
+      "pixelPages": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 5,
+        "extra": 0,
+        "items": 5,
+        "ms": 151.02925200000755
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "graphic",
+          "why": "not found"
+        },
+        {
+          "truth": 4,
+          "text": "graphic",
+          "why": "not found"
+        }
+      ],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "The",
+          "new": "The"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "Supplier’s total liability under this agreement is limited t",
+          "new": "Supplier’s total liability under this agreement is limited t"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "before the claim",
+          "new": "before the claim"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "30",
+          "new": "45"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        }
+      ]
+    },
+    "holdout4-g-crop-rotate": {
+      "description": "Quarterly footbridge inspection report (4 pages) assembled with pypdf: pages 1 and 4 come from one python-docx / LibreOffice Writer document, page 2 is a site plan drawn with reportlab, page 3 a landscape defect register exported by LibreOffice Calc from an openpyxl workbook. In the after version one figure on page 1 was revised in the Writer source, and the assembled file was then post-processed: page 2 was rotated by 90° by mistake (/Rotate 90, now displayed 842 × 595 pt with sideways text), and page 4 was cropped by 40 pt on the right (CropBox 595.3 → 555.3 pt wide), which cuts into the planned-works table that extends 1.4 cm into the right margin. Not a change: page 3 was re-written in the after version as a portrait MediaBox with its content turned by 90° and /Rotate 90, so it displays exactly as before (842 × 595 pt, same text, renders differ only by anti-aliasing); nothing is listed for it. Nothing re-flows. Consequence of the rotation, not listed separately: the site plan's footer line, which repeats the report footer, now runs vertically along the left edge.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 4,
+        "extra": 8,
+        "items": 11,
+        "ms": 2366.7311900000204
+      },
+      "textLines": {
+        "found": 1,
+        "located": 1,
+        "separate": 1,
+        "total": 4,
+        "extra": 1,
+        "items": 2,
+        "ms": 0.1462959999917075
+      },
+      "pixelPages": {
+        "found": 2,
+        "located": 2,
+        "separate": 2,
+        "total": 4,
+        "extra": 9,
+        "items": 11,
+        "ms": 246.03405300001032
+      },
+      "misses": [
+        {
+          "truth": 4,
+          "text": "overflow \"Budget (EUR)\" → \"Budget (EUR)\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "4→4",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "11.2",
+          "new": "12.6"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "overflow",
+          "numeric": false,
+          "old": "",
+          "new": "Site plan — inspection zones Northgate Footbridge FB-112 · Q"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "EUR)",
+          "new": "EU"
+        },
+        {
+          "kind": "overflow",
+          "numeric": false,
+          "old": "",
+          "new": "EU 4,8 2,3 6,9 3,1"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "4,800",
+          "new": "4,8"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "2,350",
+          "new": "2,3"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "6,900",
+          "new": "6,9"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "3,150",
+          "new": "3,1"
+        }
+      ]
+    },
+    "holdout4-g-draft-watermark": {
+      "description": "Engagement letter (2 pages) printed by Chromium and post-processed with pypdf: every page is merged onto a reportlab stationery page (page 1: coloured letterhead band with logo and firm name; page 2: grey firm name and rule; both pages: footer rule with the firm's address line), and the draft additionally has a \"DRAFT\" watermark stamped over both pages (reportlab text, Helvetica-Bold 140 pt, 18 % grey, rotated 45°). The final version has no watermark, uses the updated stationery (band colour teal #0F766E → navy #1E3A5F; new office address in the footer) and has two body edits (status line, fee). Nothing re-flows; the line breaks of the body text are identical.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 5,
+        "extra": 12,
+        "items": 15,
+        "ms": 930.0354740000039
+      },
+      "textLines": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 5,
+        "extra": 0,
+        "items": 6,
+        "ms": 0.24593999999342486
+      },
+      "pixelPages": {
+        "found": 5,
+        "located": 5,
+        "separate": 4,
+        "total": 5,
+        "extra": 1,
+        "items": 5,
+        "ms": 282.9738950000028
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "delete \"DRAFT\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "furniture \"12 Quay Street, Portmere PM2 4QT\" → \"4 Mill Lane, Portmere PM1 7RS\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "Draft v3 for discussion",
+          "new": "Issued for signature"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "fees and the",
+          "new": "fees and the"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "paper at",
+          "new": "paper at"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "kept for six",
+          "new": "kept for six"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "the scanning service and",
+          "new": "the scanning service and"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "including a pilot with",
+          "new": "including a pilot with"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "not include the scanning",
+          "new": "not include the scanning"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "We can quote for these",
+          "new": "We can quote for these"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "18,500",
+          "new": "19,800"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "DRAFT",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "liability is",
+          "new": "liability is"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "the Trust as",
+          "new": "the Trust as"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "from the Trust's",
+          "new": "from the Trust's"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "DRAFT",
+          "new": ""
+        }
+      ]
+    },
+    "holdout4-g-form-values": {
+      "description": "Bilingual (English / Chinese) one-page equipment loan request form made with reportlab as an AcroForm (11 text fields, 2 checkboxes) and filled with pypdf; pypdf writes the appearance streams of the text fields, and the checkbox states are set through /V and /AS. The form is not flattened: the filled values are drawn by the widget annotations, not by the page content stream. The after version is the same template filled again with four values changed. The README does not claim support for PDF form fields.",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 0,
+        "located": 0,
+        "separate": 0,
+        "total": 4,
+        "extra": 2,
+        "items": 2,
+        "ms": 424.37590099999215
+      },
+      "textLines": {
+        "found": 0,
+        "located": 0,
+        "separate": 0,
+        "total": 4,
+        "extra": 0,
+        "items": 0,
+        "ms": 0.06390199999441393
+      },
+      "pixelPages": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 4,
+        "extra": 0,
+        "items": 4,
+        "ms": 75.84948299999814
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"14\" → \"21\"",
+          "why": "not found"
+        },
+        {
+          "truth": 2,
+          "text": "number \"250.00\" → \"400.00\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "graphic",
+          "why": "not found"
+        },
+        {
+          "truth": 4,
+          "text": "replace \"Ana Duarte\" → \"Tomas Reid\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "1→1",
+      "reported": [
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        }
+      ]
+    },
+    "holdout4-g-scanned-schedule": {
+      "description": "Cleaning services agreement (4 pages) assembled with pypdf: pages 1, 2 and 4 come from one python-docx / LibreOffice Writer document (clauses; signature block with signature-and-stamp images and Schedule 1; Schedule 3 prices); page 3 is an image-only page without a text layer: a simulated grey-scale scan (150 dpi JPEG, 0.35° skew, paper tone and noise) of the signed \"Schedule 2 — Site access rules\" sheet. After: one sentence deleted on page 1; the Client's signature-and-stamp image added in the signature block on page 2 (the row has a fixed height, so nothing moves); the scan on page 3 replaced by a scan of the same sheet with a handwritten correction in rule 4 (\"07:00\" struck through, \"06:30\" and initials written above); the monthly price on page 4 changed. Consequence, not listed: the rest of the paragraph with the deleted sentence re-flows on page 1. Apart from the handwritten correction the two scan images are identical (same skew and noise).",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 4,
+        "extra": 1,
+        "items": 4,
+        "ms": 2169.237869000004
+      },
+      "textLines": {
+        "found": 2,
+        "located": 2,
+        "separate": 2,
+        "total": 4,
+        "extra": 0,
+        "items": 2,
+        "ms": 0.10978700002306141
+      },
+      "pixelPages": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 4,
+        "extra": 0,
+        "items": 4,
+        "ms": 591.0941210000019
+      },
+      "misses": [
+        {
+          "truth": 2,
+          "text": "graphic",
+          "why": "not found"
+        }
+      ],
+      "pages": "4→4",
+      "reported": [
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "The Supplier may subcontract window cleaning above 4 m to a ",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "3,480.00",
+          "new": "3,640.00"
+        }
+      ]
+    },
+    "holdout4-g-tender-pack-merge": {
+      "description": "Tender response pack assembled with pypdf from parts made by three producers: the cover letter, the insurance summary and (after only) a clarification note made with reportlab (the note in reportlab's non-embedded Helvetica); the technical proposal (2 pages), maintenance plan and method statement for night works made with python-docx and LibreOffice Writer; the price schedule and the product data sheet printed by Chromium. pypdf stamps a pack footer \"TR-0417 response · Brackwater Lighting Co. · page X of N\" on every page. Edits in the after version: a one-page \"Clarification No. 1\" inserted after the cover letter; the price schedule part replaced by a revised export (amount of item 3 changed, a new item 6 row, total recalculated); the insurance summary page moved from the end of the pack to directly after the price schedule. Consequences, not listed: the technical proposal and the price schedule shift by one page (old p. 2-4 → new p. 3-5) and the other three annexes by two (old p. 5-7 → new p. 7-9), and the stamped \"page X of N\" changes on every page (N 8 → 9); the parts' own footers (\"Technical proposal — page 1\") do not change. The cover letter still lists the annexes in the old order (unchanged text).",
+      "set": "held-out-4",
+      "blind": true,
+      "changelens": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 5,
+        "extra": 0,
+        "items": 5,
+        "ms": 3928.9001960000023
+      },
+      "textLines": {
+        "found": 4,
+        "located": 4,
+        "separate": 3,
+        "total": 5,
+        "extra": 6,
+        "items": 9,
+        "ms": 0.3696609999751672
+      },
+      "pixelPages": {
+        "found": 5,
+        "located": 0,
+        "separate": 5,
+        "total": 5,
+        "extra": 10,
+        "items": 23,
+        "ms": 636.652499000018
+      },
+      "misses": [],
+      "pages": "8→9",
+      "reported": [
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Clarification No. 1 Tender TR-0417 · Harbour Promenade Light"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "18,400.00",
+          "new": "21,150.00"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "6 Night-time traffic management 6 nights 4,200.00"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "91,100.00",
+          "new": "98,050.00"
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "Insurance summary Tender TR-0417 · Brackwater Lighting Co. ·",
+          "new": "Insurance summary Tender TR-0417 · Brackwater Lighting Co. ·"
+        }
+      ]
+    }
+  },
+  "totals": {
+    "changelens": {
+      "found": 104,
+      "located": 104,
+      "separate": 104,
+      "total": 119,
+      "extra": 175,
+      "items": 278,
+      "ms": 132188.87108100002
+    },
+    "textLines": {
+      "found": 89,
+      "located": 89,
+      "separate": 81,
+      "total": 119,
+      "extra": 263,
+      "items": 360,
+      "ms": 16.079590000003464
+    },
+    "pixelPages": {
+      "found": 117,
+      "located": 97,
+      "separate": 109,
+      "total": 119,
+      "extra": 404,
+      "items": 525,
+      "ms": 20392.543857000048
+    }
+  },
+  "sets": {
+    "held-out-4": {
+      "changelens": {
+        "found": 104,
+        "located": 104,
+        "separate": 104,
+        "total": 119,
+        "extra": 175,
+        "items": 278,
+        "ms": 132188.87108100002
+      },
+      "textLines": {
+        "found": 89,
+        "located": 89,
+        "separate": 81,
+        "total": 119,
+        "extra": 263,
+        "items": 360,
+        "ms": 16.079590000003464
+      },
+      "pixelPages": {
+        "found": 117,
+        "located": 97,
+        "separate": 109,
+        "total": 119,
+        "extra": 404,
+        "items": 525,
+        "ms": 20392.543857000048
+      }
+    }
+  },
+  "blindSkipped": 0,
+  "skipped": {}
+}

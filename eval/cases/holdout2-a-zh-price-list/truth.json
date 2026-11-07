@@ -1,0 +1,41 @@
+{
+  "description": "合成样例。三页中文价目表：第1页一个单价修改；第2页删除一行停产产品（后续行上移，表头在每页重复）；第3页说明中折扣比例、交货仓库和生效日期修改。",
+  "synthetic": true,
+  "set": "held-out-2",
+  "author": "a",
+  "truth": [
+    {
+      "type": "number",
+      "old": "1,280.00",
+      "new": "1,820.00",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "delete",
+      "old": "CC-22",
+      "oldPage": 2
+    },
+    {
+      "type": "number",
+      "old": "5%",
+      "new": "3%",
+      "oldPage": 3,
+      "newPage": 3
+    },
+    {
+      "type": "replace",
+      "old": "杭州滨江",
+      "new": "苏州吴中",
+      "oldPage": 3,
+      "newPage": 3
+    },
+    {
+      "type": "number",
+      "old": "18",
+      "new": "28",
+      "oldPage": 3,
+      "newPage": 3
+    }
+  ]
+}

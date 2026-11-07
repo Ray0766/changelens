@@ -1,0 +1,30 @@
+{
+  "description": "Synthetic. Long A5 service manual for an invented dosing pump (30+ pages, text flows continuously without forced page breaks; tables with repeated header rows, a 100-row spare-parts list, an empty maintenance-record table at the end). Edits: a new safety bullet (\"Wear a face shield ...\") is inserted in section 1.4 on page 2; near the end, the tightening torque of the rotor fixing screw changes from 6.0 to 9.0 N·m (section 12.3) and the glove material in the decommissioning steps changes from nitrile to butyl (section 13). Not edits: every page after the insertion re-flows, so lines and table rows move to other pages; the page count and the \"Page N of M\" footers may change.",
+  "synthetic": true,
+  "set": "held-out-3",
+  "blind": true,
+  "author": "d",
+  "producer": "Chromium (Playwright page.pdf), A5 portrait, running header and \"Page N of M\" footer",
+  "truth": [
+    {
+      "type": "insert",
+      "new": "Wear a face shield when you open the discharge line",
+      "newPage": 2
+    },
+    {
+      "type": "number",
+      "old": "6.0",
+      "new": "9.0",
+      "oldPage": 28,
+      "newPage": 28,
+      "note": "Rotor fixing screw, M6: 6.0 N·m -> 9.0 N·m (table in section 12.3)."
+    },
+    {
+      "type": "replace",
+      "old": "nitrile",
+      "new": "butyl",
+      "oldPage": 29,
+      "newPage": 29
+    }
+  ]
+}

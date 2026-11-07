@@ -1,0 +1,86 @@
+{
+  "description": "Synthetic sample. Condensed interim financial statements of an invented hotel group (EN, reportlab, 3 → 3 pages); amounts in £000 with negatives in parentheses, highlights with U+2212 minus signs and currency symbols. Edits between the audit-committee draft and the approved version: footer status “Draft for Audit Committee review” → “Approved by the Board on 28 July 2026” on every page; page 1 highlights: revenue growth +5.8% → +6.2% and free cash flow −£7.4m → −£4.7m; page 1 income statement: Other gains/(losses) 312 → (312) (sign change; the draft did not add up, the operating profit was already right and is unchanged); page 2 balance sheet: £500k reclassified from provisions to trade payables, (21,736) → (22,236) and (3,120) → (2,620) (subtotals unchanged); page 3 going-concern note: facility currency GBP → EUR, covenant 3.0 → 3.5 times EBITDA, and a new sentence about a covenant waiver. Everything else, including all totals, is unchanged.",
+  "synthetic": true,
+  "set": "held-out-3",
+  "blind": true,
+  "author": "c",
+  "producer": "reportlab 5 (eval/holdout3-c/render_reportlab.py, Liberation Sans)",
+  "truth": [
+    {
+      "type": "furniture",
+      "old": "Draft for Audit Committee review",
+      "new": "Approved by the Board on 28 July 2026",
+      "oldPage": [
+        1,
+        2,
+        3
+      ],
+      "newPage": [
+        1,
+        2,
+        3
+      ],
+      "maxItems": 3,
+      "note": "Running footer, same change on every page."
+    },
+    {
+      "type": "number",
+      "old": "+5.8%",
+      "new": "+6.2%",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "number",
+      "old": "−£7.4m",
+      "new": "−£4.7m",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "U+2212 minus kept; digits swapped."
+    },
+    {
+      "type": "number",
+      "old": "312",
+      "new": "(312)",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Sign change in parentheses notation: gain 312 becomes loss (312). As a separate figure, 312 occurs only in this cell on page 1."
+    },
+    {
+      "type": "number",
+      "old": "(21,736)",
+      "new": "(22,236)",
+      "oldPage": 2,
+      "newPage": 2
+    },
+    {
+      "type": "number",
+      "old": "(3,120)",
+      "new": "(2,620)",
+      "oldPage": 2,
+      "newPage": 2
+    },
+    {
+      "type": "replace",
+      "old": "GBP",
+      "new": "EUR",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Currency code of the revolving credit facility; the amount 40.0 is unchanged."
+    },
+    {
+      "type": "number",
+      "old": "3.0",
+      "new": "3.5",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Covenant ratio (times EBITDA)."
+    },
+    {
+      "type": "insert",
+      "new": "The lenders have agreed to waive the covenant test at 31 December 2026.",
+      "newPage": 3,
+      "oldPage": 3
+    }
+  ]
+}

@@ -1,0 +1,2016 @@
+{
+  "rules": {
+    "snippets": "context",
+    "boundaryCarets": true,
+    "afterRound4": true
+  },
+  "results": {
+    "holdout5-h-annual-technical-report": {
+      "description": "37-page English annual technical report of a fictitious regional water supply network, typeset with Typst 0.15 in one continuous flow (justified, hyphenated, breakable tables with repeated header rows, footnotes, display and inline formulas, running header and 'Page N of M' footer). The filler text is generated from a fixed seed. Early edit: a new subsection '1.3 Changes to the reporting basis' with four paragraphs inserted on page 1, which re-paginates everything after it. Late edits: an October turbidity value in Table 9.1, a sampling interval, the temperature coefficient in an inline formula, a paragraph moved from chapter 10 to chapter 12, a footnote wording, a paragraph deleted in chapter 11, a sentence set in bold, and a change value in the summary Table 12.1. Consequences only: subsections 1.3 to 1.4 renumber, every later page starts at a different point of the text, table breaks and repeated header rows move, and the moved and deleted paragraphs shift the following pages. Producer: Typst 0.15.0 (Python package typst 0.15.0), Libertinus Serif and New Computer Modern Math embedded by Typst. Synthetic sample: all parties, places and figures are fictitious.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 9,
+        "located": 9,
+        "separate": 9,
+        "total": 9,
+        "extra": 12,
+        "items": 21,
+        "ms": 33558.011808
+      },
+      "textLines": {
+        "found": 6,
+        "located": 6,
+        "separate": 6,
+        "total": 9,
+        "extra": 73,
+        "items": 79,
+        "ms": 4.210104999998293
+      },
+      "pixelPages": {
+        "found": 9,
+        "located": 6,
+        "separate": 9,
+        "total": 9,
+        "extra": 29,
+        "items": 38,
+        "ms": 4258.862578
+      },
+      "misses": [],
+      "pages": "37→37",
+      "reported": [
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Changes to the reporting basis Three changes affect the comp"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "January 88.6 58.7 37.7 70.8 62.9",
+          "new": "January 88.6 58.7 37.7 70.8 62.9"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "September 45.4 67.7 91.8 16.6 13.5",
+          "new": "September 45.4 67.7 91.8 16.6 13.5"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "March 50.6 32.7 51.1 3.3",
+          "new": "March 50.6 32.7 51.1 3.3"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "March 22.5 30.8 81.2 29.0 76.2",
+          "new": "March 22.5 30.8 81.2 29.0 76.2"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "August 12.0 67.4 50.6 84.7 34.4",
+          "new": "August 12.0 67.4 50.6 84.7 34.4"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "2The asset register entry for Longridge was updated in Decem",
+          "new": "2The asset register entry for Longridge was updated in Decem"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "0.42",
+          "new": "0.48"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "quarterly",
+          "new": "monthly"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "−0.35",
+          "new": "−0.53"
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "4The injury rate is calculated on hours recorded in the time",
+          "new": "4The injury rate is calculated on hours recorded in the time"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "external auditor",
+          "new": "internal audit team"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "A separate condition survey of the Eastgate service reservoi",
+          "new": ""
+        },
+        {
+          "kind": "format",
+          "numeric": false,
+          "old": "Capital expenditure remains subject to board approval",
+          "new": "Capital expenditure remains subject to board approval"
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "The telemetry upgrade at the outstations will continue with ",
+          "new": "The telemetry upgrade at the outstations will continue with "
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "−1.8",
+          "new": "−2.6"
+        }
+      ]
+    },
+    "holdout5-h-bilingual-sla": {
+      "description": "Two-page English/Chinese cloud hosting service level agreement between fictitious companies, typeset with Typst 0.15: each clause in English followed by its Chinese version (WenQuanYi Zen Hei for CJK, Libertinus Serif for Latin and digits, with Typst's automatic CJK-Latin spacing), two tables with rules, small caps. Edits: the availability guarantee in the English text only, a maintenance-exclusion sentence deleted from the English text only, a sentence inserted in the Chinese text only, a line item and the total of the fee table, the amount in Chinese capital numerals, a service-credit percentage, business days changed to calendar days in the Chinese text only, and the Chinese precedence phrase underlined. Consequences only: the paragraphs with edits re-flow; page breaks stay the same. Producer: Typst 0.15.0 (Python package typst 0.15.0), fonts embedded in the PDF: Libertinus Serif Regular and Bold (bundled with Typst) and WenQuanYi Zen Hei (from /usr/share/fonts/truetype/wqy via font_paths). Synthetic sample: all parties, places and figures are fictitious.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 9,
+        "located": 9,
+        "separate": 9,
+        "total": 9,
+        "extra": 0,
+        "items": 9,
+        "ms": 1126.2077599999975
+      },
+      "textLines": {
+        "found": 7,
+        "located": 7,
+        "separate": 6,
+        "total": 9,
+        "extra": 1,
+        "items": 7,
+        "ms": 0.34370399999897927
+      },
+      "pixelPages": {
+        "found": 9,
+        "located": 9,
+        "separate": 4,
+        "total": 9,
+        "extra": 0,
+        "items": 4,
+        "ms": 195.98378499999671
+      },
+      "misses": [],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "99.5%",
+          "new": "99.9%"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "Scheduled maintenance announced at least 72 hours in advance",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "乙方应为甲方指定一名专属客户经理，负责故障期间的沟通协调。"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "18,500.00",
+          "new": "27,000.00"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "128,000.00",
+          "new": "136,500.00"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "贰万捌仟",
+          "new": "叁万陆仟伍佰"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "−5%",
+          "new": "−10%"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "工作",
+          "new": "自然"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "以中文文本为准",
+          "new": "以中文文本为准"
+        }
+      ]
+    },
+    "holdout5-h-dienstleistungsvertrag": {
+      "description": "Three-page German IT maintenance services contract (Dienstleistungsvertrag) between two fictitious companies, typeset with Typst 0.15 with German hyphenation of long compounds, „“ quotes, umlauts and ß, small-caps party names, § clause numbering and two footnotes. Edits: the contract start date, the response time for critical faults, the monthly flat fee, a data-loss liability limitation deleted, a survival sentence inserted in the confidentiality clause, the written-form clause underlined, and the draft date in the running header on every page (one furniture item per page). Consequences only: paragraphs in § 7 and § 8 re-flow, hyphenation points move (e.g. 'fahrläs-siger', 'vor-hersehbaren'), and the governing-law paragraph moves from the top of page 3 to the end of page 2, leaving only the signature block on page 3. Producer: Typst 0.15.0 (Python package typst 0.15.0), fonts embedded in the PDF: Libertinus Serif Regular and Bold (bundled with Typst). Synthetic sample: all parties, places and figures are fictitious.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 9,
+        "extra": 2,
+        "items": 7,
+        "ms": 1656.2899229999966
+      },
+      "textLines": {
+        "found": 8,
+        "located": 7,
+        "separate": 7,
+        "total": 9,
+        "extra": 2,
+        "items": 9,
+        "ms": 0.4072860000014771
+      },
+      "pixelPages": {
+        "found": 9,
+        "located": 9,
+        "separate": 7,
+        "total": 9,
+        "extra": 1,
+        "items": 8,
+        "ms": 279.32186200000433
+      },
+      "misses": [
+        {
+          "truth": 6,
+          "text": "format \"Änderungen und Ergänzungen dieses Vertrages bedürfen der Schriftform.\" → \"Änderungen und Ergänzungen dieses Vertrages bedürfen der Schriftform.\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "3→3",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "01.04.2026",
+          "new": "01.05.2026"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "vier",
+          "new": "zwei"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "8.400,00",
+          "new": "9.150,00"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "Für den Verlust von Daten haftet der Auftragnehmer nur, sowe",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Diese Verpflichtung gilt über das Ende des Vertrages hinaus "
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "Änderungen und Ergänzungen dieses Vertrages bedürfen der Sch",
+          "new": "Änderungen und Ergänzungen dieses Vertrages bedürfen der Sch"
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "Es gilt das Recht der Bundesrepublik Deutschland. Gerichtsst",
+          "new": "Es gilt das Recht der Bundesrepublik Deutschland. Gerichtsst"
+        }
+      ]
+    },
+    "holdout5-h-pruefbericht": {
+      "description": "Two-page German dimensional inspection report (Prüfbericht) for a shaft from a fictitious test lab, typeset with Typst 0.15: a two-column section with inline formulas (minus signs, µm, exponents), a ten-row results table with booktabs-style rules, a bar chart of tolerance utilisation drawn with Typst rectangles, a display formula, small caps, a footnote and a bordered release stamp. Edits: the ambient temperature tolerance, the temperature correction value in an inline formula, the measured value of M5, the M7 rating corrected from 'i. O.' to 'n. i. O.', an inserted note about the repeated M7 measurement, the M7 bar colour changed from green to red, the conclusion sentence rewritten, and the release stamp moved from the left to the right margin. Consequences only: the text below the table shifts down by one line; page breaks stay the same. Producer: Typst 0.15.0 (Python package typst 0.15.0), Libertinus Serif and New Computer Modern Math embedded by Typst. Synthetic sample: all parties, places and figures are fictitious.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 8,
+        "extra": 3,
+        "items": 10,
+        "ms": 1211.2023980000013
+      },
+      "textLines": {
+        "found": 6,
+        "located": 6,
+        "separate": 6,
+        "total": 8,
+        "extra": 0,
+        "items": 6,
+        "ms": 0.2032519999993383
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 8,
+        "extra": 1,
+        "items": 9,
+        "ms": 193.63646699999663
+      },
+      "misses": [
+        {
+          "truth": 7,
+          "text": "replace \"Alle geprüften Merkmale liegen innerhalb der zulässigen Toleranzen.\" → \"Das Merkmal M7 liegt außerhalb der zulässigen Toleranz.\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "0,5",
+          "new": "1,0"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "−1,2",
+          "new": "−2,1"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "42,47",
+          "new": "42,44"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "n."
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Der Messpunkt M7 wurde nach erneuter Aufspannung wiederholt "
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "Alle geprüften Merkmale liegen innerhalb",
+          "new": "Das Merkmal M7 liegt außerhalb"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "Toleranzen",
+          "new": "Toleranz"
+        },
+        {
+          "kind": "position",
+          "numeric": false,
+          "old": "Prüfstelle Nordhang · Messraum 2",
+          "new": "Prüfstelle Nordhang · Messraum 2"
+        },
+        {
+          "kind": "position",
+          "numeric": false,
+          "old": "Prüfbericht freigegeben am 18.03.2026",
+          "new": "Prüfbericht freigegeben am 18.03.2026"
+        }
+      ]
+    },
+    "holdout5-h-rapport-annuel": {
+      "description": "Three-page French annual operating report of a fictitious district heating network, typeset with Typst 0.15: a two-column summary (columns balanced with a column break), a table with booktabs-style rules, a display formula and an inline formula with a minus sign, a bar chart drawn with Typst rectangles, « » quotes with no-break spaces, narrow no-break spaces before % and in thousands, small caps and two footnotes. Edits: the unit of the pump electricity consumption, a new table row, the sign of the 2025 budget variance, the value in the inline formula, the December bar of the chart, a sentence deleted, a quoted audit finding, and a paragraph moved from the two-column summary on page 1 to the Perspectives section on page 3. Consequences only: the left summary column becomes shorter, the table grows by one row, the text on pages 1 to 3 shifts and re-flows, and the Perspectives section on page 3 grows; the chart stays at the top of page 2. Producer: Typst 0.15.0 (Python package typst 0.15.0), Libertinus Serif and New Computer Modern Math embedded by Typst. Synthetic sample: all parties, places and figures are fictitious.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 8,
+        "extra": 0,
+        "items": 8,
+        "ms": 1727.0781869999992
+      },
+      "textLines": {
+        "found": 6,
+        "located": 6,
+        "separate": 5,
+        "total": 8,
+        "extra": 2,
+        "items": 7,
+        "ms": 0.22415900000487454
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 7,
+        "separate": 5,
+        "total": 8,
+        "extra": 0,
+        "items": 5,
+        "ms": 276.5282969999971
+      },
+      "misses": [],
+      "pages": "3→3",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "GWh",
+          "new": "MWh"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Sous-stations raccordées 212 221 +9"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "−4,2 %",
+          "new": "4,2 %"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "−0,8",
+          "new": "−1,3"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "Aucun arrêt non programmé de plus de quatre heures n’a été e",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "conformité partielle",
+          "new": "non-conformité"
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "Le programme de raccordement des quartiers nord sera poursui",
+          "new": "Le programme de raccordement des quartiers nord sera poursui"
+        }
+      ]
+    },
+    "holdout5-h-services-agreement": {
+      "description": "Four-page English master services agreement between two fictitious companies, typeset with Typst 0.15 (justified Libertinus Serif with hyphenation, fi/ff/ffi ligatures, small-caps party names, automatic clause numbering and two footnotes). Edits: a best-efforts wording change, the monthly fee, the late-payment interest rate inside footnote 1, the Non-Solicitation clause moved from after Fees and Payment to after Limitation of Liability, a warranty disclaimer sentence deleted, a survival sentence inserted, the death and personal injury carve-out set in bold, and the subcontracting consent wording. Consequences only: clauses 7 to 11 are renumbered 6 to 10 and Non-Solicitation becomes clause 11, paragraphs re-flow and the clause text on pages 2 to 4 shifts between pages; the running header and footer are unchanged. Producer: Typst 0.15.0 (Python package typst 0.15.0), fonts embedded in the PDF: Libertinus Serif Regular and Bold (bundled with Typst). Synthetic sample: all parties, places and figures are fictitious.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 8,
+        "extra": 2,
+        "items": 9,
+        "ms": 2503.9908829999986
+      },
+      "textLines": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 8,
+        "extra": 7,
+        "items": 11,
+        "ms": 0.36447400000179186
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 7,
+        "separate": 5,
+        "total": 8,
+        "extra": 0,
+        "items": 5,
+        "ms": 416.0968339999963
+      },
+      "misses": [
+        {
+          "truth": 8,
+          "text": "replace \"affiliates without the Customer’s consent\" → \"affiliates only with the Customer’s prior written consent\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "4→4",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "commercially reasonable",
+          "new": "best"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "14,250",
+          "new": "15,400"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "The Supplier does not warrant that the operation of the Plat",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "These obligations survive termination of this Agreement for "
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "4",
+          "new": "6"
+        },
+        {
+          "kind": "format",
+          "numeric": false,
+          "old": "Nothing in this Agreement limits or excludes liability for d",
+          "new": "Nothing in this Agreement limits or excludes liability for d"
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "6. Non-Solicitation Neither party shall, during the Term and",
+          "new": "11. Non-Solicitation Neither party shall, during the Term an"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "without",
+          "new": "only with"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "prior written"
+        }
+      ]
+    },
+    "holdout5-i-nouhinsho-jpy": {
+      "description": "Two-page Japanese delivery note (納品書) for fasteners from a fictional supplier, produced with fpdf2 2.9.0 with an embedded IPAGothic subset (TrueType, Identity-H) for all text, drawn cell by cell as a full grid with the header row repeated on page 2, a Code 39 barcode of the slip number, a logo of two squares and a red square company seal (角印) drawn with rectangles. Amounts are whole yen with commas, the discount row uses the Japanese triangle convention for negatives (△1,500), dates are written 2026年11月10日. Edits: the delivery date, the plating of one bolt (亜鉛めっき → 三価クロメート), the quantity of the M8 spring washers (200 → 250, its amount follows), the discount (△1,500 → △2,000), and the recomputed subtotal, consumption tax and total. No re-flow: page breaks are unchanged.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 8,
+        "extra": 0,
+        "items": 8,
+        "ms": 1039.3756600000052
+      },
+      "textLines": {
+        "found": 8,
+        "located": 8,
+        "separate": 4,
+        "total": 8,
+        "extra": 0,
+        "items": 4,
+        "ms": 0.21591899999475572
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 8,
+        "separate": 6,
+        "total": 8,
+        "extra": 0,
+        "items": 6,
+        "ms": 175.4805239999987
+      },
+      "misses": [],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "10",
+          "new": "12"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "亜鉛めっき",
+          "new": "三価クロメート"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "200",
+          "new": "250"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "2,400",
+          "new": "3,000"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "1,500",
+          "new": "2,000"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "¥173,980",
+          "new": "¥174,080"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "¥17,398",
+          "new": "¥17,408"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "¥191,378",
+          "new": "¥191,488"
+        }
+      ]
+    },
+    "holdout5-i-payslip-cny": {
+      "description": "Two-page bilingual Chinese/English monthly payslip (工资单) of a fictional company, produced with fpdf2 2.9.0 with an embedded subset of WenQuanYi Zen Hei (font 0 of wqy-zenhei.ttc, TrueType, Identity-H) for all text. Page 1: employee grid with bordered cells, earnings and deductions tables (deductions in parentheses, e.g. (1,440.00)), net pay in a framed box and in Chinese capital numerals (金额大写); page 2: daily attendance table, unchanged. Edits: department, pay date, the last four digits of the bank account, and the special additional deduction (2,000.00 -> 3,000.00), which lowers the income tax; total deductions, net pay and the amount in words are recomputed. Social-insurance amounts and gross pay do not change. No re-flow.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 8,
+        "extra": 1,
+        "items": 8,
+        "ms": 1097.2353300000032
+      },
+      "textLines": {
+        "found": 8,
+        "located": 8,
+        "separate": 2,
+        "total": 8,
+        "extra": 0,
+        "items": 2,
+        "ms": 0.1378259999983129
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 8,
+        "separate": 5,
+        "total": 8,
+        "extra": 0,
+        "items": 5,
+        "ms": 168.4337450000021
+      },
+      "misses": [
+        {
+          "truth": 8,
+          "text": "replace \"人民币壹万柒仟陆佰叁拾柒元肆角整\" → \"人民币壹万柒仟柒佰叁拾柒元肆角整\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "财务部 Finance",
+          "new": "采购部 Procurement"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "2026-11-10",
+          "new": "2026-11-12"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "4471",
+          "new": "8803"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "2,000.00",
+          "new": "3,000.00"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "(948.60)",
+          "new": "(848.60)"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "(4,098.60)",
+          "new": "(3,998.60)"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "17,637.40",
+          "new": "17,737.40"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "陆",
+          "new": "柒"
+        }
+      ]
+    },
+    "holdout5-i-pricelist-gbp": {
+      "description": "Two-page UK trade price list for garden products, produced with fpdf2 2.9.0 using its table() API (horizontal rules, heading row repeated at the top of every page, coloured group bands as colspan rows) and embedded DejaVu Sans / DejaVu Sans Bold subsets (Identity-H). Prices in £ with two decimals, dd/mm/yyyy dates, quantity discounts written with U+2212 minus signs (−5%). Edits: validity date, one price, the item HT-1150 moved from the Hand tools group to the Pruning & cutting group, a promotion note added, one description struck through (fpdf2 'S' emphasis, drawn as a line over the text), one item deleted, the fill colour of the Protective wear group band changed from grey to orange, and the middle quantity-discount rate changed. Consequences not listed: rows between the move source and target shift up by one row and the page breaks move, so page 1 ends and page 2 starts with different rows; the repeated heading rows stay at the page tops.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 8,
+        "extra": 2,
+        "items": 9,
+        "ms": 1324.4887420000014
+      },
+      "textLines": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 8,
+        "extra": 3,
+        "items": 8,
+        "ms": 0.2994290000060573
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 7,
+        "separate": 8,
+        "total": 8,
+        "extra": 12,
+        "items": 20,
+        "ms": 224.506905000002
+      },
+      "misses": [
+        {
+          "truth": 5,
+          "text": "format \"Anvil loppers 70 cm, ratchet\" → \"Anvil loppers 70 cm, ratchet\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "01/01/2027",
+          "new": "01/02/2027"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "£34.50",
+          "new": "£36.80"
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "GC-4740 Multipurpose compost 50 l bag 60 £4.90 Pallet delive",
+          "new": "GC-4740 Multipurpose compost 50 l bag 60 £4.90 Pallet delive"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "GC-4730 Moss killer granules 5 kg each 4 £15.80",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Promo £21.90 until 31/03/2027"
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "HT-1150 Folding pruning saw 180 mm each 6 £11.80",
+          "new": "HT-1150 Folding pruning saw 180 mm each 6 £11.80"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "Protective wear",
+          "new": "Protective wear"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "−8%",
+          "new": "−10%"
+        }
+      ]
+    },
+    "holdout5-i-rechnung-eur": {
+      "description": "Two-page German invoice (Rechnung) for laboratory supplies with German number format (1.234,56 €), a credit line with a leading hyphen-minus (-150,00), dd.mm.yyyy dates, a logo made of filled rectangles and a Code 39 barcode. Produced with fpdf2 2.9.0 using the non-embedded core fonts Helvetica/Helvetica-Bold (cp1252/WinAnsi); the line-item table is drawn cell by cell with zebra shading, and its header row is repeated on page 2 below a running header. Edits: one line item inserted as position 7, the quantity of 'Nitrilhandschuhe Gr. M' raised from 10 to 12 (its line amount changes), the return credit changed from -150,00 to -185,00, the due date moved; net, VAT and gross totals are recomputed. Consequences that are not listed: positions 7-35 renumber to 8-36, the zebra shading of every row after the insertion flips, the last row of page 1 (Laborthermometer) moves to the top of page 2, and everything on page 2 shifts down by one row. The page count stays 2 ('Seite 1 von 2').",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 8,
+        "extra": 32,
+        "items": 40,
+        "ms": 1993.475977999995
+      },
+      "textLines": {
+        "found": 8,
+        "located": 8,
+        "separate": 2,
+        "total": 8,
+        "extra": 0,
+        "items": 2,
+        "ms": 0.29423499999393243
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 8,
+        "separate": 5,
+        "total": 8,
+        "extra": 4,
+        "items": 9,
+        "ms": 181.01498400000128
+      },
+      "misses": [],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "31-0458 Pipettenspitzen 1000 μl, steril, 10 × 96 St. 4 Pkg. "
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "8",
+          "new": "9"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "9",
+          "new": "10"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "10",
+          "new": "11"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "11",
+          "new": "12"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "12",
+          "new": "13"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "13",
+          "new": "14"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "14",
+          "new": "15"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "15",
+          "new": "16"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "16",
+          "new": "17"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "10",
+          "new": "12"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "489,00",
+          "new": "586,80"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "L",
+          "new": "L"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "17",
+          "new": "18"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "18",
+          "new": "19"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "19",
+          "new": "20"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "20",
+          "new": "21"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "21",
+          "new": "22"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "22",
+          "new": "23"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "23",
+          "new": "24"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "24",
+          "new": "25"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "25",
+          "new": "26"
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "26 63-1100 Laborthermometer -10 … +110 °C 4 St. 14,70 58,80",
+          "new": "63-1100 Laborthermometer -10 … +110 °C 4 St. 14,70 58,80 28"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "26",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "28"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "28",
+          "new": "29"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "29",
+          "new": "30"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "30",
+          "new": "31"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "31",
+          "new": "32"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "32",
+          "new": "33"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "33",
+          "new": "34"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "34",
+          "new": "35"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "35",
+          "new": "36"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "-150,00",
+          "new": "-185,00"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "3.295,35",
+          "new": "3.512,15"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "626,12",
+          "new": "667,31"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "3.921,47",
+          "new": "4.179,46"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "18.11.2026",
+          "new": "02.12.2026"
+        }
+      ]
+    },
+    "holdout5-i-releve-chf": {
+      "description": "Three-page Swiss private-account statement in French (Relevé de compte) with Swiss number format (CHF 1'234.50), negative running balances written with a trailing minus (1'204.35-), dd.mm.yy dates, two- and three-line booking texts and carry-forward rows (À reporter / Report). Produced with fpdf2 2.9.0, embedded Liberation Sans Regular/Bold subsets (TrueType, Identity-H with ToUnicode), drawn cell by cell. Edits: credit limit lowered, one value date corrected, one booking text corrected, and on the last day a card refund that had been posted as a debit is now posted as a credit, so the amount 85.40 moves from the Débit to the Crédit column; as a result the final running balance and the closing balance change sign (43.30- / en notre faveur -> 127.50 / en votre faveur), and the overdraft interest rate in the footnote changes. Page breaks and all other balances (including the carry-forward rows) are unchanged.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 8,
+        "extra": 0,
+        "items": 7,
+        "ms": 1452.391975000006
+      },
+      "textLines": {
+        "found": 7,
+        "located": 7,
+        "separate": 5,
+        "total": 8,
+        "extra": 0,
+        "items": 5,
+        "ms": 0.24363200000516372
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 8,
+        "extra": 1,
+        "items": 9,
+        "ms": 238.35294900000008
+      },
+      "misses": [
+        {
+          "truth": 4,
+          "text": "position \"85.40\" → \"85.40\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "3→3",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "5'000.00",
+          "new": "2'000.00"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "07.10.26",
+          "new": "08.10.26"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "octobre",
+          "new": "novembre"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "43.30-",
+          "new": "127.50"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "notre",
+          "new": "votre"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "43.30",
+          "new": "127.50"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "9.50 %",
+          "new": "8.75 %"
+        }
+      ]
+    },
+    "holdout5-i-statement-gbp": {
+      "description": "UK customer statement of account (Sample Wholesale Supplies Ltd, fictional) listing invoices, credit notes and payments for August-October 2026, produced with fpdf2 2.9.0 using non-embedded core fonts (Courier for the transaction rows, Helvetica for headings, cp1252). Amounts use the ledger convention 1,234.56 DR / 150.00 CR, dates dd/mm/yyyy, 'Page X of Y' footers, a header row repeated on each page, an aged-balance grid, a credit-use bar drawn with rectangles and a remittance slip with a dashed cut line and an Interleaved 2 of 5 barcode. Edits: a missing invoice INV 40871 inserted on page 1, the due date of INV 40626 extended, a payment that had been posted as DR corrected to CR, the reason text of credit note CRN 7344 changed; the aged balance and the credit-use bar are recomputed. Consequences not listed: the last row of page 1 (PAY 88123) moves to page 2, the whole summary block (aged balance, credit bar, remittance slip with barcode) no longer fits on page 2 and moves to a new page 3, and the footers change from 'Page n of 2' to 'Page n of 3'. The 2 months and Older buckets are unchanged.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 8,
+        "extra": 1,
+        "items": 8,
+        "ms": 1405.969035999995
+      },
+      "textLines": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 8,
+        "extra": 4,
+        "items": 11,
+        "ms": 0.20765899999969406
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 8,
+        "extra": 7,
+        "items": 15,
+        "ms": 203.0606540000008
+      },
+      "misses": [
+        {
+          "truth": 3,
+          "text": "number \"150.00 DR\" → \"150.00 CR\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "2→3",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "30/09/2026",
+          "new": "15/10/2026"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "12/09/2026 INV 40871 Delivery 7716 - Shelving brackets 300 m"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "DR",
+          "new": "CR"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "damaged",
+          "new": "wrong size"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "£1,496.34",
+          "new": "£1,196.34"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "£1,848.42",
+          "new": "£3,668.82"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "£6,877.15",
+          "new": "£8,397.55"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        }
+      ]
+    },
+    "holdout5-j-audit-annotations": {
+      "description": "Two-page supplier audit report (fictitious supplier) written with fpdf2 2.9 (embedded Liberation Sans subsets, justified multi_cell paragraphs, fpdf2 tables), then reviewed in PyMuPDF 2.1. Six edits are PDF annotations with appearance streams and are not page content: a 'For Comment' rubber stamp, a highlight, a strike-out and a free-text note on p. 1, an underline and an ink scribble (initials on the 'Reviewed by' line) on p. 2. Two edits are content-stream edits: on p. 1 the score '87' is redacted and '82' re-typed in Helvetica (base-14) at the same baseline, and on p. 2 'October' is redacted and 'April' re-typed in Liberation Sans embedded again by PyMuPDF, right-aligned to where 'October' ended, so a gap opens before it. The README does not claim annotation support. Consequences, not listed: the re-typed words are at the end of each page's content stream; nothing re-flows.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 8,
+        "extra": 5,
+        "items": 9,
+        "ms": 1002.3581370000029
+      },
+      "textLines": {
+        "found": 0,
+        "located": 0,
+        "separate": 0,
+        "total": 8,
+        "extra": 4,
+        "items": 4,
+        "ms": 0.20258600000670413
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 8,
+        "extra": 2,
+        "items": 10,
+        "ms": 198.53251499999897
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"87\" → \"82\"",
+          "why": "not found"
+        },
+        {
+          "truth": 4,
+          "text": "format \"The finding is considered minor.\" → \"The finding is considered minor.\"",
+          "why": "not found"
+        },
+        {
+          "truth": 6,
+          "text": "format \"within 30 days of receiving this report\" → \"within 30 days of receiving this report\"",
+          "why": "not found"
+        },
+        {
+          "truth": 7,
+          "text": "replace \"October 2027\" → \"April\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "87",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "82"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "Calibration records for two torque wrenches were missing",
+          "new": "Calibration records for two torque wrenches were missing"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "The finding is considered minor",
+          "new": "The finding is considered minor"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "October",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "April"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        }
+      ]
+    },
+    "holdout5-j-datasheet-overlay": {
+      "description": "Two-page product datasheet (fictitious flow meter) typeset with Typst 0.15 (Inter 9.5 pt, justified and hyphenated, shaded specification table, a bar chart drawn as Typst rectangles, a footnote), then edited with PyMuPDF 2.1. All edits are content-stream edits and none adds an annotation. The before file has Typst's two invisible /Link annotations for the footnote (marker to footnote and back); the redaction of the footnote text also removed the back-link, so the after file keeps only the link on the in-text marker. Redaction (no fill) + re-inserted text: the running header 'Rev. B' becomes 'Rev. C' on both pages (Helvetica 8 pt); the line 'Document no. DS-UFM80-004' is removed and set again in Inter (embedded again by PyMuPDF), right-aligned to the right margin; the minimum operating temperature '−20' (U+2212) is re-typed as '-10' with an ASCII hyphen-minus because Helvetica has no U+2212; the heading '3 Electrical connection' is re-typed with the same words in Times-Bold (base-14) instead of Inter Bold; the footnote text on p. 2 is redacted, leaving its separator rule and the superscript marker in the body text. Drawn: the DN100 bar of the response-time chart is lengthened from 1.6 s to 2.1 s by drawing a longer filled rectangle of the same colour over it. Added with insert_htmlbox: a firmware note in the white space under the installation list. Consequences, not listed: re-typed text sits at the end of each content stream; the dangling footnote marker '1' after 'motor cables' is left as it was.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 1,
+        "located": 1,
+        "separate": 1,
+        "total": 8,
+        "extra": 5,
+        "items": 6,
+        "ms": 1021.421789
+      },
+      "textLines": {
+        "found": 4,
+        "located": 3,
+        "separate": 3,
+        "total": 8,
+        "extra": 3,
+        "items": 6,
+        "ms": 0.18850199999724282
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 8,
+        "separate": 8,
+        "total": 8,
+        "extra": 1,
+        "items": 9,
+        "ms": 184.56658900000184
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "furniture \"Rev. B\" → \"Rev. C\"",
+          "why": "not found"
+        },
+        {
+          "truth": 2,
+          "text": "furniture \"Rev. B\" → \"Rev. C\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "position \"Document no. DS-UFM80-004\" → \"Document no. DS-UFM80-004\"",
+          "why": "not found"
+        },
+        {
+          "truth": 4,
+          "text": "number \"−20\" → \"-10\"",
+          "why": "not found"
+        },
+        {
+          "truth": 6,
+          "text": "format \"3 Electrical connection\" → \"3 Electrical connection\"",
+          "why": "not found"
+        },
+        {
+          "truth": 7,
+          "text": "delete \"Use shielded twisted-pair cable and connect the shield\"",
+          "why": "not found"
+        },
+        {
+          "truth": 8,
+          "text": "insert → \"2.4 or later is required for the low\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "Document no. DS-UFM80-004",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "3 Electrical connection",
+          "new": "Document no. DS-UFM80-004 -10"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "−20",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "3 Electrical connection"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "1Use shielded twisted-pair cable and connect the shield at t",
+          "new": "Note: transmitter firmware 2.4 or later is required for the "
+        }
+      ]
+    },
+    "holdout5-j-handbook-pages": {
+      "description": "Seven-page field service handbook (fictitious water utility) typeset with Typst 0.15 (Carlito 11 pt, one section per page, running header, footer 'Page n of 7'), then reorganised in PyMuPDF 2.1 with page operations, which change the page tree and not any content stream: old p. 4 'Legacy paper forms' deleted (delete_page); the appendix of emergency contacts moved from the end (old p. 7) to new p. 2 (move_page); a full copy of the PPE page (old p. 2, still at new p. 3) inserted as new p. 6 (fullcopy_page); a new page '5A Lone working' created with new_page + insert_htmlbox (Nimbus Sans, no running header or footer) as new p. 7; the hydrant schedule (old p. 6, new p. 8) rotated by 90 degrees (a /Rotate 90 page attribute). Content-stream edits on the travel page (old p. 3, new p. 4): in the rates table the daily allowance 48.00 is redacted and re-typed as 52.00 in Carlito embedded again by PyMuPDF, and the mileage rate 0.32 is re-typed as 0.35 in Helvetica 10 pt (base-14). No annotations. Consequences, not listed: the Typst footers keep their old numbers, so new p. 2 says 'Page 7 of 7', new pp. 3 and 6 both say 'Page 2 of 7' and no page says 'Page 4'; the contents list on p. 1 still names section 4; all pages after the move shift position. 7 -> 8 pages.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 3,
+        "total": 7,
+        "extra": 3,
+        "items": 6,
+        "ms": 3249.3454559999955
+      },
+      "textLines": {
+        "found": 3,
+        "located": 3,
+        "separate": 2,
+        "total": 7,
+        "extra": 3,
+        "items": 5,
+        "ms": 0.258042999994359
+      },
+      "pixelPages": {
+        "found": 7,
+        "located": 2,
+        "separate": 7,
+        "total": 7,
+        "extra": 0,
+        "items": 14,
+        "ms": 445.8957220000011
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "delete \"Until the tablet roll-out is complete\"",
+          "why": "not found"
+        },
+        {
+          "truth": 4,
+          "text": "insert → \"5A Lone working\"",
+          "why": "not a separate item"
+        },
+        {
+          "truth": 6,
+          "text": "number \"48.00\" → \"52.00\"",
+          "why": "not found"
+        },
+        {
+          "truth": 7,
+          "text": "number \"0.32\" → \"0.35\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "7→8",
+      "reported": [
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "Appendix A Emergency contacts Call these numbers in the orde",
+          "new": "Appendix A Emergency contacts Call these numbers in the orde"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "48.00",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "4 Legacy paper forms Until the tablet roll-out is complete, ",
+          "new": "52.00 0.35"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "0.32",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "2 Personal protective equipment Crews must wear the equipmen"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        }
+      ]
+    },
+    "holdout5-j-invoice-incremental": {
+      "description": "Two-page invoice with a service report (fictitious companies) written with fpdf2 2.9 (embedded DejaVu Sans subsets, zebra-shaded line-item table, a PNG bar chart made with Pillow), then edited with PyMuPDF 2.1 and saved as an incremental update (save(incremental=True), as saveIncr does, with compression): the original revision is still in the file byte for byte and the edits are appended. Content-stream edits: p. 1 the due date, the amount of line 2 and the last digit groups of the bank account are redacted (no fill, shading kept) and re-typed (due date in DejaVu Sans embedded again by PyMuPDF, amount and account digits in Helvetica base-14); p. 2 the first note and its bullet are redacted and a notice is added with insert_htmlbox (Nimbus Sans, drawn through a form XObject). Image edit: the chart image object is replaced in place (replace_image, same object number, size and position) by a chart in which the bar for week 43 is higher and orange. Annotation: an 'APPROVED' rubber stamp (/Stamp) on p. 1; the README does not claim annotation support. Consequences, not listed: subtotal, VAT and total were deliberately left at their old values, so line 2 (2 x 620.00) no longer adds up; the text '11 of 12 scheduled visits' was not updated to match the new chart; re-typed text sits at the end of the content stream.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 7,
+        "extra": 3,
+        "items": 8,
+        "ms": 1487.293445999996
+      },
+      "textLines": {
+        "found": 2,
+        "located": 2,
+        "separate": 2,
+        "total": 7,
+        "extra": 4,
+        "items": 6,
+        "ms": 0.13403299999481533
+      },
+      "pixelPages": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 7,
+        "extra": 0,
+        "items": 7,
+        "ms": 136.9547670000029
+      },
+      "misses": [
+        {
+          "truth": 2,
+          "text": "number \"1,240.00\" → \"1,420.00\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "replace \"2045 1189 03\" → \"9932 0457 18\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "30",
+          "new": "18"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "1,240.00",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "1,420.00 9932 0457 18"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "2045 1189 03",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "• Queries must be raised within 14 days of the invoice date.",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Our bank details changed on 1 November 2026. Please update y"
+        }
+      ]
+    },
+    "holdout5-j-lease-redact": {
+      "description": "Three-page commercial lease (fictitious parties) typeset with Typst 0.15 (Liberation Serif 10.5 pt, justified, hyphenated, Liberation Sans headings) and then edited in PyMuPDF 2.1 the way a PDF editor does it, with no re-flow. All seven edits are content-stream edits; the after file contains no annotations. Each edit removes glyphs with a redaction (apply_redactions, no fill, images and line art kept) and, where text is replaced, writes new text on top. p. 1: the rent 1,850.00 is re-typed as 1,975.00 in Helvetica 9 pt (base-14, not embedded) with its baseline 0.7 pt low; the commencement date is re-typed in Liberation Serif embedded again by PyMuPDF, same size and baseline; 'Consumer' becomes 'Retail' in Times-Roman (base-14). p. 2: clause 6.3 is deleted and its two lines stay blank (6.4 is not renumbered). p. 3: the rent-free period cell 'March to May 2027' is replaced through the redaction annotation's own replacement text, which MuPDF sets in Helvetica shrunk to 7.5 pt inside the redaction box, about 1 pt above the old baseline; a new clause 11.2 is added in existing white space with insert_htmlbox (MuPDF's default face Charis SIL, 10 pt); only the minus glyph of the deposit adjustment −250.00 is redacted. Consequences, not listed: all replacement text is appended at the end of the page content stream, so the stream order of text differs from the visual order; shorter replacements leave small gaps in their lines; the deposit (3 x rent), the schedule's rent-free credit and the header 'Draft 3' were left unchanged.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 7,
+        "extra": 5,
+        "items": 8,
+        "ms": 1685.6233780000039
+      },
+      "textLines": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 7,
+        "extra": 5,
+        "items": 8,
+        "ms": 0.24235100000805687
+      },
+      "pixelPages": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 7,
+        "extra": 0,
+        "items": 7,
+        "ms": 237.742161999995
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"1,850.00\" → \"1,975.00\"",
+          "why": "not found"
+        },
+        {
+          "truth": 2,
+          "text": "number \"1 March 2027\" → \"15 March 2027\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "replace \"Consumer\" → \"Retail\"",
+          "why": "not found"
+        },
+        {
+          "truth": 5,
+          "text": "replace \"March to May 2027\" → \"April to June 2027\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "3→3",
+      "reported": [
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "1 March 2027",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "1,975.00 15 March 2027 Retail"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "1,850.00",
+          "new": ""
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "Consumer",
+          "new": ""
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "6.3 The Tenant may sublet the whole of the Premises with the",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "April to June 2027 11.2 Notices may also be sent by e-mail t"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "March to May 2027",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "−250.00",
+          "new": "250.00"
+        }
+      ]
+    },
+    "holdout5-j-zh-quote-htmlbox": {
+      "description": "Two-page Simplified Chinese quotation for office-equipment maintenance (fictitious companies, models and prices) with English phrases and a price table, written from scratch in both versions with PyMuPDF 2.1 insert_htmlbox (MuPDF Story HTML/CSS layout; WenQuanYi Zen Hei embedded via @font-face; each page is its own htmlbox, so text re-flows within a page but never across pages). Both versions are regenerated from edited HTML, so every edit is a content-stream edit; there are no annotations. Edits: validity date, inspection frequency, on-site response hours, an English phrase extended, underline added to the late-payment clause, list item 3 deleted, a new last list item, and a paragraph moved from p. 2 (section 5) to p. 1 (end of section 1). Consequences, not listed: the rest of p. 1 re-flows downwards; the ordered list renumbers automatically (item 4 becomes 3); p. 2 closes the gap left by the moved paragraph.",
+      "set": "held-out-5",
+      "blind": true,
+      "changelens": {
+        "found": 6,
+        "located": 6,
+        "separate": 6,
+        "total": 8,
+        "extra": 2,
+        "items": 8,
+        "ms": 1053.5447450000065
+      },
+      "textLines": {
+        "found": 6,
+        "located": 6,
+        "separate": 4,
+        "total": 8,
+        "extra": 1,
+        "items": 5,
+        "ms": 0.11861900000076275
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 7,
+        "separate": 3,
+        "total": 8,
+        "extra": 1,
+        "items": 4,
+        "ms": 141.0838839999924
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"有效期至：2026年11月30日\" → \"有效期至：2026年12月31日\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "number \"4 小时内派工程师\" → \"6 小时内派工程师\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "11月30",
+          "new": "12月31"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "季度",
+          "new": "月"
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "如需将服务扩展至分支机构，请提前一个月联系客户经理，我们将根据设备数量和上门距离另行报价。",
+          "new": "如需将服务扩展至分支机构，请提前一个月联系客户经理，我们将根据设备数量和上门距离另行报价。"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "4",
+          "new": "6"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "and Chinese"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "逾期付款按每日 0.05% 计收违约金",
+          "new": "逾期付款按每日 0.05% 计收违约金"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "3. 报价含上门差旅费用。",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "4. 更换的零配件享有 12 个月质保。"
+        }
+      ]
+    }
+  },
+  "totals": {
+    "changelens": {
+      "found": 115,
+      "located": 115,
+      "separate": 114,
+      "total": 144,
+      "extra": 78,
+      "items": 189,
+      "ms": 59595.304631000006
+    },
+    "textLines": {
+      "found": 98,
+      "located": 96,
+      "separate": 73,
+      "total": 144,
+      "extra": 112,
+      "items": 185,
+      "ms": 8.295814000004611
+    },
+    "pixelPages": {
+      "found": 144,
+      "located": 132,
+      "separate": 118,
+      "total": 144,
+      "extra": 59,
+      "items": 184,
+      "ms": 8156.0552229999885
+    }
+  },
+  "sets": {
+    "held-out-5": {
+      "changelens": {
+        "found": 115,
+        "located": 115,
+        "separate": 114,
+        "total": 144,
+        "extra": 78,
+        "items": 189,
+        "ms": 59595.304631000006
+      },
+      "textLines": {
+        "found": 98,
+        "located": 96,
+        "separate": 73,
+        "total": 144,
+        "extra": 112,
+        "items": 185,
+        "ms": 8.295814000004611
+      },
+      "pixelPages": {
+        "found": 144,
+        "located": 132,
+        "separate": 118,
+        "total": 144,
+        "extra": 59,
+        "items": 184,
+        "ms": 8156.0552229999885
+      }
+    }
+  },
+  "blindSkipped": 0,
+  "skipped": {}
+}
