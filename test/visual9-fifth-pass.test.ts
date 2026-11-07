@@ -6,8 +6,16 @@
 //   highlight's multiply model rejects, were under 3 % of the row's. A
 //   block of 2 × 2 pt of pixels lighter than the other version's, which no
 //   highlight draws, now keeps the region listed whatever its share.
+// - A dash in pale orange, yellow or pink 2.5–4 pt below the rule that
+//   closes a table fragment at a moved page break, or a light grey tick
+//   across it over a tinted last row, was folded with the rule: such marks
+//   take little of the paper's luminance, which is what was measured.
+//   Beside a black or grey rule, what a pixel gains in the channel it
+//   darkens most now counts as well.
 // Fixtures test/fixtures/probe9-V3-fifth-SYNTHETIC-*.pdf are SYNTHETIC:
-// fpdf2 2.9, PyMuPDF 2.1 and pypdf 6 (test/fixtures/gen9/v3-markup-fifth-*.py).
+// fpdf2 2.9, PyMuPDF 2.1 and pypdf 6 (test/fixtures/gen9/v3-markup-fifth-*.py);
+// probe9-V1-fifth-SYNTHETIC-*.pdf: reportlab 5.0, Typst 0.15 and PyMuPDF 2.1
+// (v1-closing-rules-fifth-*.py).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openPdf } from '../src/node/pdf.ts';
@@ -52,4 +60,29 @@ test('visual9 fifth pass: a status dot recoloured under a highlight across its w
   // Controls: the same highlights over the unchanged dots give the highlight only.
   assert.deepEqual(list((await run(H + 'hl-base.pdf', H + 'hl-base-Y40.pdf')).changes), [HL, 'Highlighted (annotation): “Fire doors east Two closers to …”']);
   assert.deepEqual(list((await run(H + 'hs-r6.0-base.pdf', H + 'hs-r6.0-base-row.pdf')).changes), [HL]);
+});
+
+test('visual9 fifth pass: a pale dash or a light grey tick by a folded closing rule is listed', { skip }, async () => {
+  // Before: only the inserted words; the mark was counted with the rule as
+  // a rule closing a table. The rules closing the first fragment lie at
+  // y 749.27 (reportlab) and 757.16 (Typst) on page 1 of the old version.
+  const F = 'probe9-V1-fifth-SYNTHETIC-';
+  for (const [m, y] of [
+    ['rl-zw-pale-dash25', 751.77],
+    ['rl-zw-lgrey-tick3', 749.27],
+  ] as const) {
+    const r = await run(F + m + '.pdf', F + 'rl-zw-after.pdf');
+    assert.deepEqual(list(r.changes), ['Added 39 words', 'Graphic or image removed'], m);
+    assert.equal(r.ignored.closingRules, 1, m);
+    assert.ok(at(r.changes[1], 'old', 310, y), `${m}: ${JSON.stringify(r.changes[1].old.rects)}`);
+  }
+  const yellow = await run(F + 'ty-yellow-25.pdf', 'probe9-V1-closing-rules-after.pdf');
+  assert.deepEqual(list(yellow.changes), ['Added 49 words', 'Graphic or image removed']);
+  assert.ok(at(yellow.changes[1], 'old', 310, 759.66), JSON.stringify(yellow.changes[1].old.rects));
+  // Controls: the rules alone still fold, on the tinted rows and on the Typst table.
+  const plain = await run(F + 'rl-zw-before.pdf', F + 'rl-zw-after.pdf');
+  assert.deepEqual(list(plain.changes), ['Added 39 words']);
+  assert.equal(plain.ignored.closingRules, 2);
+  const ty = await run('probe9-V1-closing-rules-before.pdf', 'probe9-V1-closing-rules-after.pdf');
+  assert.deepEqual(list(ty.changes), ['Added 49 words']);
 });

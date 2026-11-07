@@ -5407,6 +5407,8 @@ interface ClosingRule {
   away: Rect;
   /** Its darkness summed down each column, along it (median, pixels). */
   weight: number;
+  /** Whether it is black or grey (of no hue within 12). */
+  grey: boolean;
   /** The row's text. */
   text: string;
   /** Where it lies in the new version's order (see Change.order). */
@@ -5581,6 +5583,24 @@ function sampleDark(P: Prepared, fx: number, fy: number): number {
 }
 
 /**
+ * How much darker the pixel (x, y) of `P` is than `Q` at a point between
+ * its pixel centres (pixel units, interpolated; paper outside the page),
+ * in the channel it darkens most (0–1). A mark in a pale, saturated colour
+ * (a yellow or pink dash) takes little of the paper's luminance and much
+ * of one channel; a grey one takes as much of each.
+ */
+function toneGain(P: Prepared, x: number, y: number, Q: Prepared, fx: number, fy: number): number {
+  const p = rgb(P.r, y * P.r.width + x);
+  const [i, j] = [Math.floor(fx), Math.floor(fy)];
+  const [u0, v0] = [fx - i, fy - j];
+  const at = (u: number, v: number) => (u < 0 || v < 0 || u >= Q.r.width || v >= Q.r.height ? [255, 255, 255] : rgb(Q.r, v * Q.r.width + u));
+  const [a, b, c, d] = [at(i, j), at(i + 1, j), at(i, j + 1), at(i + 1, j + 1)];
+  let most = 0;
+  for (let k = 0; k < 3; k++) most = Math.max(most, (1 - u0) * (1 - v0) * a[k] + u0 * (1 - v0) * b[k] + (1 - u0) * v0 * c[k] + u0 * v0 * d[k] - p[k]);
+  return most / 255;
+}
+
+/**
  * Rules that close a table fragment at a page break that moved, on the
  * page pair compared (see ClosingRule). Where a header row repeated at the
  * top of page p + 1 of one version came or went only because the page
@@ -5732,6 +5752,7 @@ function closingRules(result: CompareResult, oldPage: number, newPage: number, A
       // its median down the rule (its own profile): the rows the median
       // gains a tenth of a dark pixel or more in hold its ink (its core).
       const gainAt = (x: number, y: number) => darkAt(P, x, y) - sampleDark(Q, ox(x + 0.5) - 0.5, oy(y + 0.5) - 0.5);
+      const toneAt = (x: number, y: number) => toneGain(P, x, y, Q, ox(x + 0.5) - 0.5, oy(y + 0.5) - 0.5);
       const [g0, g1] = [rule.rows[0] - 1, rule.rows[1] + 1];
       const prof: number[] = [];
       for (let y = g0; y <= g1; y++) {
@@ -5748,7 +5769,10 @@ function closingRules(result: CompareResult, oldPage: number, newPage: number, A
       // that gained half a dark pixel more than 1.4 times its weight, or
       // more than the rule's profile both above its core and below it, or
       // of another hue on a black or grey rule (a thin tick drawn across
-      // it, one or two pixels wide).
+      // it, one or two pixels wide). Beside a black or grey rule, a column
+      // gains what it gains in the channel it darkens most where that is
+      // more (see toneGain): a light grey tick over a tinted last row takes
+      // less of the tint's luminance than of its blue.
       let run = 0;
       let longest = 0;
       let tick = false;
@@ -5760,7 +5784,7 @@ function closingRules(result: CompareResult, oldPage: number, newPage: number, A
           const ch = [0, 0, 0];
           for (let y = g0; y <= g1; y++) {
             const d = gainAt(x, y);
-            const e = d - prof[y - g0];
+            const e = (grey ? Math.max(d, toneAt(x, y)) : d) - prof[y - g0];
             const i = y * P.r.width + x;
             if (e > 0 && y < core[0]) up += e;
             if (e > 0 && y > core[1] && P.mask[i] !== GLYPH) down += e;
@@ -5802,6 +5826,7 @@ function closingRules(result: CompareResult, oldPage: number, newPage: number, A
         core,
         away: { x: rule.ext[0] / s + dx, y: rule.rows[0] / s + dy, w: (rule.ext[1] - rule.ext[0] + 1) / s, h: (rule.rows[1] - rule.rows[0] + 1) / s },
         weight: rule.weight,
+        grey,
         text: joinTokens(row.flatMap((l) => doc.tokens.slice(l.start, l.end))),
         // Right before the header row it came or went with (on the old side,
         // which the new version's order does not place).
@@ -5826,9 +5851,11 @@ function closingRules(result: CompareResult, oldPage: number, newPage: number, A
  * three in a row (a short line a point or a few below the rule), and no
  * column gains half a dark pixel or more over those rows (a thin tick
  * beside it); the table's column rules, which both versions draw, do not
- * count.
+ * count. With `tone` (beside a black or grey rule, see toneGain), so do
+ * pixels a third darker in the channel they darken most: a dash in pale
+ * orange, yellow or pink, as dark there as a black one.
  */
-function lineOnly(P: Prepared, r: Rect, y0: number, y1: number, gain?: (x: number, y: number) => number): boolean {
+function lineOnly(P: Prepared, r: Rect, y0: number, y1: number, gain?: (x: number, y: number) => number, tone?: (x: number, y: number) => number): boolean {
   const s = P.r.scale;
   const [x0, x1] = [Math.max(0, Math.floor(r.x * s)), Math.min(P.r.width, Math.ceil((r.x + r.w) * s))];
   const cols = gain ? new Float32Array(Math.max(0, x1 - x0)) : null;
@@ -5845,7 +5872,7 @@ function lineOnly(P: Prepared, r: Rect, y0: number, y1: number, gain?: (x: numbe
       }
       const d = gain(x, y);
       if (d >= 0.15) cols![x - x0] += d;
-      if (d >= 0.3 && P.lum[i] <= DARK) n++;
+      if ((d >= 0.3 && P.lum[i] <= DARK) || (tone && tone(x, y) >= 0.3)) n++;
     }
     if (n >= (gain ? 3 : Math.max(3, 0.1 * (x1 - x0)))) return false;
   }
@@ -5916,7 +5943,8 @@ function compareAligned(
     const [s, so] = [P.r.scale, Q.r.scale];
     const [dx, dy] = [R.away.x - R.rect.x, R.away.y - R.rect.y];
     const gain = (x: number, y: number) => darkAt(P, x, y) - sampleDark(Q, ((x + 0.5) / s + dx) * so - 0.5, ((y + 0.5) / s + dy) * so - 0.5);
-    return lineOnly(P, r, R.core[0], R.core[1], gain);
+    const tone = R.grey ? (x: number, y: number) => toneGain(P, x, y, Q, ((x + 0.5) / s + dx) * so - 0.5, ((y + 0.5) / s + dy) * so - 0.5) : undefined;
+    return lineOnly(P, r, R.core[0], R.core[1], gain, tone);
   };
   // The running header rows of a page compared with its counterpart (see
   // furnitureRows) are compared at the same place even where the text
