@@ -1787,7 +1787,8 @@ type FoundLine = { line: 'strike' | 'underline'; rows: [number, number]; core: [
  * comparison found differences (`crossing` tells those pixels of a page,
  * see crosses). `faint`: where no line is found, a line too thin or too
  * light for the test (see lineIn's thin) that passes its other checks is
- * put here, for the caller to weigh against the words next to it.
+ * put here, for the caller to weigh against the words next to it; so is a
+ * slanted one that may be a turned stamp's border (`slanted`, see lineBy).
  */
 type LineOptions = {
   drift?: boolean;
@@ -1797,7 +1798,7 @@ type LineOptions = {
   exact?: boolean;
   level?: boolean;
   crossing?: (X: Prepared, x: number, y: number) => boolean;
-  faint?: { line?: FoundLine };
+  faint?: { line?: FoundLine; slanted?: boolean };
 };
 
 /**
@@ -1869,7 +1870,10 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
   if (tint || (first && first !== 'part') || !inkTinted(a, ra) || !inkTinted(b, rb)) return first;
   const again = lineBy(a, ra, b, rb, few, ca, cb, { ...opts, faint: undefined }, shifted, true);
   if (!again || again === 'part') return first;
-  if (opts.faint) delete opts.faint.line;
+  if (opts.faint) {
+    delete opts.faint.line;
+    delete opts.faint.slanted;
+  }
   return again;
 }
 
@@ -2325,12 +2329,21 @@ function lineBy(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       if ((lies || opts.crossing) && !level(A, B, C, n, k, e) && (lies || crosses(a, b, A, B, C, k, e, opts.crossing!))) return null;
       // Nor, wherever it lies, one that rises or falls across the word as no
       // strike does (see steep) and goes on so past the word's box (see
-      // runsOnSlanted): the border of a stamp turned by 10° or more, drawn
-      // across the text where the graphics comparison does not look. A
-      // strike drawn by hand over a short word ("30", "12") rises as steeply
-      // but ends a point or two past its glyphs: it is listed.
+      // runsOnSlanted) from 3.5 to 20 pt beyond it: the border of a stamp
+      // turned by 10° or more, drawn across the text where the graphics
+      // comparison does not look. A strike drawn by hand over a short word
+      // ("30", "12") rises as steeply but ends a point or two past its
+      // glyphs: it is listed. One that goes on from 3.5 to 10 pt past the
+      // box only may be either (a hand strike overshooting the word, a
+      // stamp's side near its corner): it is handed to the caller as a
+      // fainter line (see LineOptions.faint), which counts the word as
+      // compared only in part, or lists it with a line next to it.
       const slant = steep(A, B, C, n, k, e);
-      if (slant && runsOnSlanted(a, b, A, B, C, slant)) return null;
+      let doubt = false;
+      if (slant && runsOnSlanted(a, b, A, B, C, slant, 10)) {
+        if (runsOnSlanted(a, b, A, B, C, slant, 20)) return null;
+        doubt = true;
+      }
       let c0 = k;
       let c1 = e;
       let most = 0;
@@ -2349,7 +2362,10 @@ function lineBy(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       if (typical >= 0.06 && most < 1.6 * typical + 0.05) return null;
       while (c0 < c1 && pb[c0] - pa[c0] < 0.4 * most) c0++;
       while (c1 > c0 && pb[c1] - pa[c1] < 0.4 * most) c1--;
-      return { line: rel >= 0.72 ? 'underline' : 'strike', rows: [Math.round(B.ys[k]), Math.round(B.ys[e])], core: [Math.round(B.ys[c0]), Math.round(B.ys[c1])] };
+      const found: FoundLine = { line: rel >= 0.72 ? 'underline' : 'strike', rows: [Math.round(B.ys[k]), Math.round(B.ys[e])], core: [Math.round(B.ys[c0]), Math.round(B.ys[c1])] };
+      if (!doubt) return found;
+      if (opts.faint && !shifted && !opts.weak) [opts.faint.line, opts.faint.slanted] = [found, true];
+      return null;
     }
     return undefined;
   };
@@ -2539,8 +2555,8 @@ type Slant = { slope: number; at: number; width: number };
 
 /**
  * Whether the slanted line found across a word (see steep) goes on at the
- * same slope past the word's box, on either side, from 3.5 to 10 pt beyond
- * it: in seven in ten of the columns there that `a` leaves light at the
+ * same slope past the word's box, on either side, from 3.5 to `far` pt
+ * beyond it: in seven in ten of the columns there that `a` leaves light at the
  * line's course (glyphs of a neighbour are passed), `b` gained a third or
  * more of a line within a row of it. The border of a turned stamp runs on
  * across the page; a strike drawn by hand, with a line tool or as an ink
@@ -2550,7 +2566,7 @@ type Slant = { slope: number; at: number; width: number };
  * or luminance on a light, saturated fill), each version at its own place
  * of the word.
  */
-function runsOnSlanted(a: Prepared, b: Prepared, A: Box, B: Box, C: number, slant: Slant): boolean {
+function runsOnSlanted(a: Prepared, b: Prepared, A: Box, B: Box, C: number, slant: Slant, far: number): boolean {
   const s = b.r.scale;
   const q = a.r.scale / s;
   const planeA = A.luma ? a.lum : a.low;
@@ -2569,12 +2585,11 @@ function runsOnSlanted(a: Prepared, b: Prepared, A: Box, B: Box, C: number, slan
     return (1 - t) * at(i) + t * at(i + 1);
   };
   const near = Math.round(3.5 * s);
-  const far = Math.round(10 * s);
   const half = Math.ceil(slant.width / 2) + 1;
   for (const dir of [1, -1]) {
     let open = 0;
     let up = 0;
-    for (let step = near; step <= far; step++) {
+    for (let step = near; step <= Math.round(far * s); step++) {
       const c = dir > 0 ? C - 1 + step : -step;
       const y = slant.at + slant.slope * c;
       let glyph = 0;
@@ -3449,8 +3464,9 @@ function appearanceChanges(
   type Hit = { a: Token; b: Token; colour: boolean; line?: Line; ink?: Ink; p: number; bold?: boolean };
   // Words with a line too thin or too light to be found on its own (see
   // LineOptions.faint), by token index (new side); `alone`: nothing else
-  // found to change at the word could have drawn it.
-  const faints = new Map<number, { a: Token; b: Token; p: number; line: Line; alone: boolean; plain: boolean }>();
+  // found to change at the word could have drawn it; `slanted`: a slanted
+  // line that may be a stamp's border (see lineBy).
+  const faints = new Map<number, { a: Token; b: Token; p: number; line: Line; alone: boolean; plain: boolean; slanted: boolean }>();
   // A word that a form field's widget draws over again in one version only
   // (a form flattened with its widgets kept, see TextRun.overdrawn): drawn
   // twice, its glyphs' edges are darker, as if drawn a little heavier.
@@ -3614,14 +3630,16 @@ function appearanceChanges(
     // `weigh`: keep a fainter line found where no line is (see
     // LineOptions.faint), checked as a line is, in `faint`.
     let faint: Line | null = null;
+    let slanted = false;
     const lines = (ga: Cover | null, gb: Cover | null, o: LineOptions = opts, [ta, tb] = [a, b], weigh = false): Line | null => {
-      const [fa, fr]: { line?: FoundLine }[] = [{}, {}];
+      const [fa, fr]: NonNullable<LineOptions['faint']>[] = [{}, {}];
       const added = framed(rowEdge(addedLine(A, ta.rects[0], B, tb.rects[0], few, ga, gb, weigh ? { ...o, faint: fa } : o), B, pageLines.new, tb, ta), B, A, tb, ta);
       const removed = added ? null : framed(rowEdge(addedLine(B, tb.rects[0], A, ta.rects[0], few, gb, ga, weigh ? { ...o, faint: fr } : o), A, pageLines.old, ta, tb), A, B, ta, tb);
       if (weigh && !added && !removed) {
         const f = fa.line ? framed(rowEdge(fa.line, B, pageLines.new, tb, ta), B, A, tb, ta) : null;
         const g = !f && fr.line ? framed(rowEdge(fr.line, A, pageLines.old, ta, tb), A, B, ta, tb) : null;
         faint = f ? { line: f.line, added: true, rows: f.rows } : g ? { line: g.line, added: false, rows: g.rows } : null;
+        slanted = !!(f ? fa.slanted : g && fr.slanted);
       }
       return added ? { line: added.line, added: true, rows: added.rows } : removed ? { line: removed.line, added: false, rows: removed.rows } : null;
     };
@@ -3712,7 +3730,7 @@ function appearanceChanges(
     // edge in the box is no line, see goesOn).
     if (faint && !closes(a, b, faint)) {
       const quiet = !ca && !cb && !(t && (t[0] || t[1])) && (!g || fills) && (!graphicAt(a, b) || filled('old') || filled('new'));
-      faints.set(b.i, { a, b, p, line: faint, alone: quiet, plain });
+      faints.set(b.i, { a, b, p, line: faint, alone: quiet, plain, slanted });
     }
     if (g === 'skip') {
       notePartly(result, newPage, b);
@@ -3983,9 +4001,11 @@ function appearanceChanges(
   }
   for (const t of doubtful) {
     if (byToken.has(t.i) || within.has(t.i)) continue;
-    notePartly(result, newPage, t, true);
-    // The faint line, to be told from a markup annotation's (see unnoteMarkup).
+    // A slanted line that may be a stamp's border (see lineBy) is counted
+    // with the words a graphic lies over, not as too thin or too light.
     const f = faints.get(t.i);
+    notePartly(result, newPage, t, !f?.slanted);
+    // The faint line, to be told from a markup annotation's (see unnoteMarkup).
     if (f) faintLines(result).set(t.i, { a: f.a.i, line: f.line.line, added: f.line.added, rows: [f.line.rows[0] / (f.line.added ? B : A).r.scale, (f.line.rows[1] + 1) / (f.line.added ? B : A).r.scale] });
   }
   // The same rule found on a word next to one (see above), or on a word
