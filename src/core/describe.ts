@@ -112,6 +112,7 @@ function describeKind(lang: Lang, c: Change): string {
   if (c.consequence === 'renumber' && c.kind !== 'replace') return t(lang, 'renumberedRedline', { text: truncate(c.kind === 'delete' ? c.old.text : c.new.text, short) });
   if (c.consequence === 'repeatedLine')
     return t(lang, c.kind === 'insert' ? 'repeatedLineAdded' : 'repeatedLineRemoved', { text: truncate(c.kind === 'insert' ? c.new.text : c.old.text, short) });
+  if (c.consequence === 'closingRule') return t(lang, c.new.rects.length ? 'closingRuleAdded' : 'closingRuleRemoved', { text: truncate(c.new.rects.length ? c.new.text : c.old.text, 32) });
   switch (c.kind) {
     case 'insert':
       if (c.duplicateOf !== undefined) return t(lang, 'duplicateOf', { page: pageLabel(lang, [c.duplicateOf]) });
@@ -169,6 +170,8 @@ function describeKind(lang: Lang, c: Change): string {
     case 'graphic':
       if (c.minor) return t(lang, 'minorShift', { n: SHIFT_PT });
       if (c.pageChange) return describePage(lang, c);
+      if (c.format?.markup) return describeMarkup(lang, c);
+      if (c.note) return describeNote(lang, c);
       if (c.format?.decoration) {
         const d = c.format.decoration;
         const key = d.line === 'strike' ? (d.added ? 'strikeAdded' : 'strikeRemoved') : d.added ? 'underlineAdded' : 'underlineRemoved';
@@ -179,6 +182,52 @@ function describeKind(lang: Lang, c: Change): string {
       if (!c.new.rects.length) return t(lang, 'graphicRemoved');
       return t(lang, 'graphicChanged');
   }
+}
+
+/** A text-markup annotation added, removed or recoloured on words (see FormatDetail.markup). */
+function describeMarkup(lang: Lang, c: Change): string {
+  const m = c.format!.markup!;
+  const kind = ({ strike: 'Strike', underline: 'Underline', squiggly: 'Squiggly', highlight: 'Highlight' } as const)[m.kind];
+  const change = ({ added: 'Added', removed: 'Removed', recoloured: 'Recoloured' } as const)[m.change];
+  return t(lang, `markup${kind}${change}`, { text: truncate((m.change === 'removed' ? c.old : c.new).text, 32) });
+}
+
+/**
+ * A graphic drawn by a stamp, a free-text note or a comment annotation (see
+ * Change.note), with its text; one that holds other graphic changes as
+ * well (noteChange.beside), as a graphic change with the note's.
+ */
+function describeNote(lang: Lang, c: Change): string {
+  const what = t(lang, ({ stamp: 'noteStamp', freetext: 'noteFreetext', comment: 'noteComment' } as const)[c.note!]);
+  const [o, n] = [c.old.rects.length > 0, c.new.rects.length > 0];
+  const change = c.noteChange?.change ?? (n && !o ? 'added' : o && !n ? 'removed' : 'changed');
+  const note =
+    change === 'added'
+      ? t(lang, 'noteAdded', { what, text: truncate(c.new.text, 48) })
+      : change === 'removed'
+        ? t(lang, 'noteRemoved', { what, text: truncate(c.old.text, 48) })
+        : c.old.text && c.new.text && c.old.text !== c.new.text
+          ? t(lang, 'noteChanged', { what, from: truncate(c.old.text, 40), to: truncate(c.new.text, 40) })
+          : t(lang, 'noteChangedLook', { what, text: truncate(c.new.text || c.old.text, 48) });
+  if (!c.noteChange?.beside) return note;
+  return t(lang, 'noteBeside', { graphic: t(lang, !o ? 'graphicAdded' : !n ? 'graphicRemoved' : 'graphicChanged'), note });
+}
+
+/** "6 annotations (1 stamp, 1 highlight, …)": the subtypes counted on the pages of one version (see PageAnnotations.counts). */
+function annotationList(lang: Lang, counts: Map<string, number>): string {
+  const named: Record<string, 'annotHighlight' | 'annotStrikeOut' | 'annotUnderline' | 'annotSquiggly' | 'annotStamp' | 'annotFreeText' | 'annotText' | 'annotInk'> = {
+    Highlight: 'annotHighlight',
+    StrikeOut: 'annotStrikeOut',
+    Underline: 'annotUnderline',
+    Squiggly: 'annotSquiggly',
+    Stamp: 'annotStamp',
+    FreeText: 'annotFreeText',
+    Text: 'annotText',
+    Ink: 'annotInk',
+  };
+  return [...counts]
+    .map(([type, n]) => (named[type] ? t(lang, named[type], { n }) : t(lang, 'annotOther', { n, type: truncate(type, 24) })))
+    .join(lang === 'zh' ? '、' : ', ');
 }
 
 /** The direction a text reads in (degrees clockwise from left to right). */
@@ -271,6 +320,38 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
     const placed = (cov.outOfOrder ?? []).filter((u) => u.placed > 0);
     if (placed.length) out.push({ level: 'info', text: t(lang, 'noticeOutOfOrder', { side: side(s), pages: pageRuns(lang, placed.map((u) => u.page)), n: placed.reduce((n, u) => n + u.placed, 0) }) });
   }
+  // Annotations other than form fields' widgets and links: how many of
+  // which kind, and that their text is not compared as text. A warning
+  // where one shows or carries text (a stamp, a note, a comment's pop-up)
+  // and the two versions do not carry the same texts (of the same kinds).
+  const carried = (doc: CompareResult['oldDoc'] | undefined) =>
+    (doc?.pages ?? [])
+      .flatMap((pg) => [...(pg.annotations?.contents ?? []), ...(pg.annotations?.notes ?? []).map((n) => `${n.kind}\u0000${n.text}`)])
+      .sort()
+      .join('\u0001');
+  const sameTexts = carried(r.oldDoc) === carried(r.newDoc);
+  for (const s of ['old', 'new'] as const) {
+    const doc = s === 'old' ? r.oldDoc : r.newDoc;
+    const counts = new Map<string, number>();
+    const pages: number[] = [];
+    const unreadPages: number[] = [];
+    let withText = 0;
+    let unread = 0;
+    for (const pg of doc?.pages ?? []) {
+      const an = pg.annotations;
+      if (!an) continue;
+      pages.push(pg.index);
+      for (const [k, n] of Object.entries(an.counts)) counts.set(k, (counts.get(k) ?? 0) + n);
+      withText += an.withText;
+      if (an.unread) {
+        unread += an.unread;
+        unreadPages.push(pg.index);
+      }
+    }
+    const n = [...counts.values()].reduce((x, y) => x + y, 0);
+    if (n) out.push({ level: withText && !sameTexts ? 'warn' : 'info', text: t(lang, 'noticeAnnotations', { side: side(s), pages: pageRuns(lang, pages), n, list: annotationList(lang, counts) }) });
+    if (unread) out.push({ level: 'warn', text: t(lang, 'noticeAnnotationsUnread', { side: side(s), pages: pageRuns(lang, unreadPages), n: unread }) });
+  }
   for (const s of ['old', 'new'] as const) {
     const skipped = r.coverage?.[s]?.visualSkipped ?? [];
     if (skipped.length) out.push({ level: 'warn', text: t(lang, 'noticeVisualSkipped', { side: side(s), pages: pageRuns(lang, skipped) }) });
@@ -279,9 +360,13 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
   if (partly.length) {
     const quote = (w: string) => (lang === 'zh' ? `「${w}」` : `“${w}”`);
     const words = partly.flatMap((u) => u.words).slice(0, 3);
+    const n = partly.reduce((n, u) => n + u.count, 0);
+    // Words counted only for a faint line, all of them or some.
+    const faint = partly.reduce((n, u) => n + (u.faint ?? 0), 0);
+    const key = !faint ? 'noticePartlyCompared' : faint === n ? 'noticePartlyFaint' : 'noticePartlyFaintToo';
     out.push({
       level: 'warn',
-      text: t(lang, 'noticePartlyCompared', { side: side('new'), pages: pageRuns(lang, partly.map((u) => u.page)), n: partly.reduce((n, u) => n + u.count, 0), words: words.map(quote).join(lang === 'zh' ? '、' : ', ') }),
+      text: t(lang, key, { side: side('new'), pages: pageRuns(lang, partly.map((u) => u.page)), n, words: words.map(quote).join(lang === 'zh' ? '、' : ', ') }),
     });
   }
   for (const u of r.coverage?.new.uncertain ?? []) out.push({ level: 'warn', text: t(lang, 'noticeUncertain', { pages: pageRuns(lang, [u.page]), pct: Math.round(u.matched * 100) + '%' }), action: 'pair' });
@@ -291,7 +376,8 @@ export function notices(lang: Lang, r: CompareResult): Notice[] {
     out.push({ level: 'info', text: t(lang, 'noticeImagePaired', { pairs: images.map((l) => pairLabel(lang, l.oldPage, l.newPage)).join(lang === 'zh' ? '、' : ', ') }), action: 'pair' });
   if (r.ignored?.furniture) out.push({ level: 'info', text: t(lang, 'noticeFurniture', { n: r.ignored.furniture }), action: 'furniture' });
   if (r.ignored?.renumbered) out.push({ level: 'info', text: t(lang, 'noticeRenumberedItems', { n: r.ignored.renumbered }), action: 'minor' });
-  if (r.ignored?.repeatedLines) out.push({ level: 'info', text: t(lang, 'noticeRepeatedLines', { n: r.ignored.repeatedLines }), action: 'minor' });
+  if (r.ignored?.repeatedLines)
+    out.push({ level: 'info', text: r.ignored.closingRules ? t(lang, 'noticeRepeatedLinesRules', { n: r.ignored.repeatedLines, m: r.ignored.closingRules }) : t(lang, 'noticeRepeatedLines', { n: r.ignored.repeatedLines }), action: 'minor' });
   if (r.ignored?.minorShifts) out.push({ level: 'info', text: t(lang, 'noticeMinor', { n: r.ignored.minorShifts, pt: SHIFT_PT }), action: 'minor' });
   if (r.ignored?.caseOnly) out.push({ level: 'info', text: t(lang, 'noticeCase', { n: r.ignored.caseOnly }) });
   if (r.options.ignorePunctuation) out.push({ level: 'info', text: t(lang, 'noticePunct') });

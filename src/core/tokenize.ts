@@ -1049,6 +1049,7 @@ export function buildDocModel(doc: DocText): DocModel {
         ...(angle ? { textAngle: angle } : {}),
         ...(p.fieldsUnread ? { fieldsUnread: p.fieldsUnread } : {}),
         ...(outOfOrder.has(p.index) ? { outOfOrder: outOfOrder.get(p.index) } : {}),
+        ...(p.annotations ? { annotations: p.annotations } : {}),
       };
     }),
     tokens: joined.tokens,

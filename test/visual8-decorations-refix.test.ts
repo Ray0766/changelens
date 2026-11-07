@@ -85,8 +85,10 @@ test('V2-decorations-V3: figures turned pure red are a colour change, not a stri
   // Control (SYNTHETIC counter-probe): figures turned red and struck or
   // underlined in red, grey "25" struck in black and "8" turned red and
   // struck are listed as lines; "44" and "17" turned red only are colour
-  // changes. "fee" (black, struck in red at the height of the e's bars) is
-  // a colour item, as before this change: a known limit.
+  // changes. "fee" (black, struck in red at the height of the e's bars)
+  // was a colour item until fix round 9, which measures lines on the
+  // pixels' lowest channel (visual9-thin-lines.test.ts): a red line is
+  // then as dark as a black one.
   const m = await run('probe8-V2V3-cp-before.pdf', 'probe8-V2V3-cp-marks.pdf');
   assert.deepEqual(list(m.changes), [
     'Struck through: “44”',
@@ -94,7 +96,7 @@ test('V2-decorations-V3: figures turned pure red are a colour change, not a stri
     'Underlined: “74”',
     'Struck through: “4”',
     colour,
-    colour,
+    'Struck through: “fee”',
     colour,
     'Struck through: “25”',
     'Struck through: “8”',

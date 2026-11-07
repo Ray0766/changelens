@@ -73,6 +73,50 @@ export interface PageText {
    * not be read at all.
    */
   fieldsUnread?: number;
+  /** The annotations the page shows other than form fields' widgets and links (see PageAnnotations). */
+  annotations?: PageAnnotations;
+}
+
+/**
+ * PDF annotations a page shows (drawn over its content by a viewer), other
+ * than form fields' widgets, links and pop-ups: read so that a mark put on
+ * words as an annotation is listed on them, and so that a notice can say
+ * that the file has annotations.
+ */
+export interface PageAnnotations {
+  /** How many, by PDF subtype ("Highlight", "Stamp", "FreeText", "Ink"…). */
+  counts: Record<string, number>;
+  /** Highlights, strike-outs, underlines and squiggly underlines (text markup). */
+  markup: Markup[];
+  /** Text that stamps, free-text notes and comments show, where it could be read. */
+  notes: AnnotationNote[];
+  /** Annotations that show or carry text (contents, a pop-up comment, a stamp's or a note's own text). */
+  withText: number;
+  /** The contents of those that have any (a comment's pop-up text, a markup annotation's note), one line each. */
+  contents?: string[];
+  /** Text-markup annotations past the bound read per page, not compared on their words. */
+  unread?: number;
+}
+
+export type MarkupKind = 'strike' | 'underline' | 'squiggly' | 'highlight';
+
+/** A text-markup annotation: what it marks, where and in what colour. */
+export interface Markup {
+  kind: MarkupKind;
+  /** The boxes it marks, from its QuadPoints (page space; each quadrilateral's bounding box). */
+  quads: Rect[];
+  /** Its colour (/C, 0–255); null where it has none (a viewer then draws its default). */
+  colour: [number, number, number] | null;
+  /** The box it is drawn in (/Rect, page space). */
+  rect: Rect;
+}
+
+/** A stamp, a free-text note or a comment (sticky note), with the text it shows. */
+export interface AnnotationNote {
+  kind: 'stamp' | 'freetext' | 'comment';
+  rect: Rect;
+  /** A stamp's or a note's own text as drawn, a comment's contents; '' where none could be read. */
+  text: string;
 }
 
 export interface Coverage {
@@ -90,9 +134,10 @@ export interface Coverage {
    * (New version only) pages with words under or next to an overlay (a
    * stamp, a watermark, a fill, a graphic that changed) whose colour,
    * weight, strikethrough and underline could be compared only in part:
-   * how many, and the first few.
+   * how many, and the first few. `faint`: how many of them only because a
+   * line through or under them was too thin or too light to be sure of.
    */
-  partlyCompared?: { page: number; count: number; words: string[] }[];
+  partlyCompared?: { page: number; count: number; words: string[]; faint?: number }[];
   /** Pages with form fields whose values could not be compared as text (count -1: the page's form fields could not be read). */
   fieldsUnread?: { page: number; count: number }[];
   /** Pages with lines of text drawn after the footer, out of reading order, that were placed by their position on the page. */
@@ -189,6 +234,7 @@ export interface DocModel {
     textAngle?: number;
     fieldsUnread?: number;
     outOfOrder?: { placed: number };
+    annotations?: PageAnnotations;
   }[];
   /** All tokens, including furniture, in reading order. */
   tokens: Token[];
@@ -261,6 +307,8 @@ export interface FormatDetail {
   appearanceChanged?: boolean;
   /** A line through or under the text was added or removed (found visually). */
   decoration?: { line: 'strike' | 'underline'; added: boolean };
+  /** A text-markup annotation on the words was added, removed or changed colour (read from the PDF's annotations). */
+  markup?: { kind: MarkupKind; change: 'added' | 'removed' | 'recoloured' };
   /**
    * (Form fields) The value reads in another direction in its box: degrees
    * clockwise from left to right (90: top to bottom, 180: upside down, 270:
@@ -304,12 +352,18 @@ export interface Change {
   blankPage?: boolean;
   /** (pageChange 'resized') The page was turned (/Rotate) by this many degrees clockwise. */
   turned?: 90 | 180 | 270;
+  /** (Graphics) Drawn by a stamp, a free-text note or a comment annotation: its text is on the side(s) that have it. */
+  note?: AnnotationNote['kind'];
+  /** (With `note`) Whether the note came, went or changed; `beside`: the change holds other graphic changes than the note's as well. */
+  noteChange?: { change: 'added' | 'removed' | 'changed'; beside?: boolean };
   /**
    * Not an edit but a consequence of one: list items renumbered after an
    * insertion, or a line repeated at the top of a page (a table's header
-   * row) that came or went because a page break moved.
+   * row) that came or went because a page break moved, or the rule that
+   * closes the table at the foot of the page before it ('closingRule', a
+   * graphic: the side that has the rule has its place).
    */
-  consequence?: 'renumber' | 'repeatedLine';
+  consequence?: 'renumber' | 'repeatedLine' | 'closingRule';
   /** Inserted content that repeats text found elsewhere in the new version (0-based page). */
   duplicateOf?: number;
   /** (Moves) Number of edits inside the moved text; each is listed as its own change. */
@@ -369,6 +423,8 @@ export interface CompareResult {
     renumbered: number;
     /** Lines repeated at the top of a page that came or went with a moved page break (see `consequence`). */
     repeatedLines?: number;
+    /** Rules closing a table at the foot of the page before such a line, which came or went with it (see `consequence`). */
+    closingRules?: number;
   };
   /** Minor layout shifts, kept apart from `changes` (shown on request). */
   minor: Change[];

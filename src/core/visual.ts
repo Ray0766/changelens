@@ -9,7 +9,7 @@
  * the matched words above and below it as anchors). Text itself is masked
  * out, and small anti-aliasing differences are tolerated.
  */
-import type { Change, CompareResult, DocModel, Rect, TextRun, Token } from './types.ts';
+import type { AnnotationNote, Change, CompareResult, DocModel, Line, Markup, MarkupKind, Rect, TextRun, Token } from './types.ts';
 import { expand, intersects, union } from './geometry.ts';
 import { joinTokens } from './tokenize.ts';
 
@@ -66,7 +66,15 @@ export function tooLargeToCompare(widthPt: number, heightPt: number): boolean {
   return renderScale(widthPt, heightPt, Infinity) < MIN_VISUAL_SCALE;
 }
 
-function luminance(r: Raster): Uint8Array {
+/**
+ * Each pixel's luminance, composited on white. `low`: also filled with each
+ * pixel's lowest channel, composited on white: its distance from the paper
+ * in its strongest channel (Chebyshev), as a level like luminance. Grey
+ * and black give their luminance there; a saturated colour is as far from
+ * the paper as black (pure green is 0 there, 150 as luminance), so that a
+ * thin line in a light, saturated colour weighs as much as a black one.
+ */
+function luminance(r: Raster, low?: Uint8Array): Uint8Array {
   const n = r.width * r.height;
   const out = new Uint8Array(n);
   const d = r.data;
@@ -75,6 +83,7 @@ function luminance(r: Raster): Uint8Array {
     const a = d[j + 3] / 255;
     const l = 0.299 * d[j] + 0.587 * d[j + 1] + 0.114 * d[j + 2];
     out[i] = Math.round(l * a + 255 * (1 - a));
+    if (low) low[i] = Math.round(Math.min(d[j], d[j + 1], d[j + 2]) * a + 255 * (1 - a));
   }
   return out;
 }
@@ -274,6 +283,8 @@ function textMask(doc: DocModel, page: number, r: Raster, lum: Uint8Array, angle
 interface Prepared {
   r: Raster;
   lum: Uint8Array;
+  /** Each pixel's lowest channel (see luminance): how lines through or under words are measured. */
+  low: Uint8Array;
   mask: Uint8Array;
   /** Blurred colour planes. */
   planes: Uint8Array[];
@@ -284,12 +295,14 @@ interface Prepared {
 }
 
 function prepare(doc: DocModel, page: number, r: Raster): Prepared {
-  const lum = luminance(r);
+  const low = new Uint8Array(r.width * r.height);
+  const lum = luminance(r, low);
   const p = planes(r).map((c) => blur(c, r.width, r.height));
   const runs = (doc.runs[page] ?? []).filter((run) => slantedRun(run) && run.str.trim());
   return {
     r,
     lum,
+    low,
     mask: textMask(doc, page, r, lum),
     planes: p,
     range: p.map((c) => minMax(c, r.width, r.height)),
@@ -1301,15 +1314,21 @@ function nearCells(d: Unmatched): Uint8Array {
   return near;
 }
 
-/** Some differing pixels lie in or next to a token's ink box (see ink()). */
-function differsNear(d: Unmatched, r: Raster, rect: Rect): boolean {
+/**
+ * Some differing pixels lie in or next to a token's ink box (see ink()),
+ * outside the cells that meet `except` (a rule that is explained, see
+ * closingRules).
+ */
+function differsNear(d: Unmatched, r: Raster, rect: Rect, except: Rect[] = []): boolean {
   const e = expand(rect, 0.15 * rect.h + 3);
   const cx0 = Math.max(0, Math.floor((e.x * r.scale) / CELL));
   const cy0 = Math.max(0, Math.floor((e.y * r.scale) / CELL));
   const cx1 = Math.min(d.cols - 1, Math.floor(((e.x + e.w) * r.scale) / CELL));
   const rowsN = d.cells.length / d.cols;
   const cy1 = Math.min(rowsN - 1, Math.floor(((e.y + e.h) * r.scale) / CELL));
-  for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) if (d.cells[cy * d.cols + cx] >= 3) return true;
+  const c = CELL / r.scale;
+  const skip = (cx: number, cy: number) => except.some((q) => intersects(q, { x: cx * c, y: cy * c, w: c, h: c }));
+  for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) if (d.cells[cy * d.cols + cx] >= 3 && !skip(cx, cy)) return true;
   return false;
 }
 
@@ -1614,8 +1633,90 @@ function coverStates(X: Prepared, r: Rect, own: Cover[], other: Cover[]): Record
   return { any: (x, y) => (get(x, y) & 1) !== 0, hidden: (x, y) => (get(x, y) & 2) !== 0, own: (x, y) => (get(x, y) & 4) !== 0 };
 }
 
-/** Darkness of a token's box; `x0` and `ys` say which pixel column and row (fractional when re-sampled) each cell comes from. */
-type Box = { d: Float32Array; cols: number; rows: number; top: number; x0: number; ys: Float32Array };
+/**
+ * Darkness of a token's box; `x0` and `ys` say which pixel column and row
+ * (fractional when re-sampled) each cell comes from. `bg`: the darkness of
+ * the box's lightest cell, taken off every cell (see offFill), else 0.
+ */
+type Box = { d: Float32Array; cols: number; rows: number; top: number; x0: number; ys: Float32Array; bg?: number; luma?: boolean };
+
+/**
+ * Whether a word's box (extended below as boxDarkness extends it) lies on a
+ * light, saturated fill: a highlighter's yellow, green or cyan. A third or
+ * more of its pixels are half as dark as black or more in their lowest
+ * channel (see luminance) and lighter by 0.3 or more in luminance. In the
+ * lowest channel such a fill is as far from the paper as the glyphs, and a
+ * black or red line over it adds nothing (pure yellow is 0 in blue): a pair
+ * of boxes where either lies on one is measured by luminance, as the
+ * glyphs' darkness was before lines were judged by their distance from the
+ * paper. A line in a light colour on such a fill is then as faint as it is
+ * in luminance. A line itself (2 pt across a 10 pt word: a sixth of the
+ * box's rows), or the glyphs of coloured text, cover less of the box.
+ */
+function onTint(side: Prepared, rect: Rect): boolean {
+  const { r, lum, low } = side;
+  const s = r.scale;
+  const x0 = Math.max(0, Math.round(rect.x * s));
+  const x1 = Math.min(r.width, Math.round((rect.x + rect.w) * s));
+  const y0 = Math.max(0, Math.floor(rect.y * s));
+  const y1 = Math.min(r.height, Math.ceil((rect.y + rect.h * 1.15) * s));
+  let n = 0;
+  let tint = 0;
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const i = y * r.width + x;
+      n++;
+      if (low[i] <= 127 && lum[i] - low[i] >= 77) tint++;
+    }
+  return n > 0 && tint >= n / 3;
+}
+
+/**
+ * Whether the glyphs of a word are set in a light or mid, saturated colour
+ * (an amber, a bright green, orange or sky blue heading, Office's light
+ * green #92d050, whose lowest channel is 80, or the olive (87,124,47) a
+ * browser writes for it, red, a mid green or blue): of the box's pixels
+ * dark in their lowest channel (96 or less, see luminance), a dozen or
+ * more, the median is lighter by 48 levels (about 0.19) or more in
+ * luminance. Black, grey, navy and pure blue glyphs are not. In the lowest
+ * channel such glyphs are darker than a grey line, and a grey line through
+ * them reads as half a line or less (see lineIn's ink unit): a pair of boxes whose
+ * glyphs are so in both versions is measured by luminance, in which the
+ * glyphs are about as dark as the line. Not where only one version's are
+ * (a yellow strike drawn over black text has such pixels too).
+ */
+function inkTinted(side: Prepared, rect: Rect): boolean {
+  const { r, lum, low } = side;
+  const s = r.scale;
+  const lift: number[] = [];
+  for (let y = Math.max(0, Math.floor(rect.y * s)); y < Math.min(r.height, Math.ceil((rect.y + rect.h) * s)); y++)
+    for (let x = Math.max(0, Math.round(rect.x * s)); x < Math.min(r.width, Math.round((rect.x + rect.w) * s)); x++) {
+      const i = y * r.width + x;
+      if (low[i] <= 96) lift.push(lum[i] - low[i]);
+    }
+  if (lift.length < 12) return false;
+  lift.sort((p, q) => p - q);
+  return lift[lift.length >> 1] >= 48;
+}
+
+/**
+ * A box measured against its own background: where no cell of it is
+ * paper (the word stands on a pale fill or a stripe of a table, in one
+ * version only after a re-flow by a row), each cell's darkness is taken
+ * against the lightest cell's, so that the fill adds no darkness to any
+ * row. Not on a fill half as dark as black or more (a yellow highlight,
+ * far from the paper in its lowest channel, see luminance): taken against
+ * it, the strip where two of its quads overlap would read as a line. The
+ * whole box is darker there, too thick to be a line.
+ */
+function offFill(X: Box): Box {
+  let bg = 1;
+  for (let q = 0; q < X.d.length; q++) if (X.d[q] < bg) bg = X.d[q];
+  if (!(bg > 0.02) || bg >= 0.5) return X;
+  for (let q = 0; q < X.d.length; q++) X.d[q] = Math.max(0, (X.d[q] - bg) / (1 - bg));
+  X.bg = bg;
+  return X;
+}
 
 /**
  * Darkness (0–1) of each pixel of a token's box, extended a little below for
@@ -1625,8 +1726,9 @@ type Box = { d: Float32Array; cols: number; rows: number; top: number; x0: numbe
  * fraction of a pixel is interpolated between pixel rows, as if the glyphs
  * had been drawn at the other version's sub-pixel position.
  */
-function boxDarkness(side: Prepared, rect: Rect, on?: { rect: Rect; scale: number }): Box {
-  const { r, lum } = side;
+function boxDarkness(side: Prepared, rect: Rect, on?: { rect: Rect; scale: number }, luma = false): Box {
+  const { r } = side;
+  const lum = luma ? side.lum : side.low;
   const s = r.scale;
   const x0 = Math.max(0, Math.round(rect.x * s));
   const x1 = Math.min(r.width, Math.round((rect.x + rect.w) * s));
@@ -1642,7 +1744,7 @@ function boxDarkness(side: Prepared, rect: Rect, on?: { rect: Rect; scale: numbe
       ys[k] = y0 + k;
       for (let c = 0; c < cols; c++) d[k * cols + c] = dark(y0 + k, c);
     }
-    return { d, cols, rows, top: y0 / s, x0, ys };
+    return { d, cols, rows, top: y0 / s, x0, ys, luma };
   }
   const so = on.scale;
   const oy0 = Math.max(0, Math.floor(on.rect.y * so));
@@ -1657,7 +1759,7 @@ function boxDarkness(side: Prepared, rect: Rect, on?: { rect: Rect; scale: numbe
     ys[k] = y;
     for (let c = 0; c < cols; c++) d[k * cols + c] = (1 - t) * dark(j, c) + t * dark(j + 1, c);
   }
-  return { d, cols, rows, top: oy0 / so - on.rect.y + rect.y, x0, ys };
+  return { d, cols, rows, top: oy0 / so - on.rect.y + rect.y, x0, ys, luma };
 }
 
 /**
@@ -1686,7 +1788,10 @@ type FoundLine = { line: 'strike' | 'underline'; rows: [number, number]; core: [
  * word (listed on its own): a line that is not level must not be a stroke
  * of it, which goes on out of the word's box to pixels where the graphics
  * comparison found differences (`crossing` tells those pixels of a page,
- * see crosses).
+ * see crosses). `faint`: where no line is found, a line too thin or too
+ * light for the test (see lineIn's thin) that passes its other checks is
+ * put here, for the caller to weigh against the words next to it; so is a
+ * slanted one that may be a turned stamp's border (`slanted`, see lineBy).
  */
 type LineOptions = {
   drift?: boolean;
@@ -1696,6 +1801,7 @@ type LineOptions = {
   exact?: boolean;
   level?: boolean;
   crossing?: (X: Prepared, x: number, y: number) => boolean;
+  faint?: { line?: FoundLine; slanted?: boolean };
 };
 
 /**
@@ -1755,8 +1861,34 @@ function addedLine(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, c
  * word does not, at whichever shift its strokes look most like a line.
  */
 function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: Cover | null, cb: Cover | null, opts: LineOptions, shifted = false): FoundLine | 'part' | null {
-  const A = boxDarkness(a, ra, { rect: rb, scale: b.r.scale });
-  const B = boxDarkness(b, rb);
+  // On a light, saturated fill (see onTint), both boxes are measured by
+  // luminance. Where the glyphs are set in a light, saturated colour in
+  // both versions (see inkTinted), a line not found on the lowest channel
+  // is looked for by luminance too: a grey line through amber or sky-blue
+  // glyphs is half as dark as they are on the lowest channel, and as dark
+  // by luminance; a thin black one is clearer on the lowest channel. A line
+  // found so replaces a fainter one (see LineOptions.faint).
+  const tint = onTint(a, ra) || onTint(b, rb);
+  const first = lineBy(a, ra, b, rb, few, ca, cb, opts, shifted, tint);
+  if (tint || (first && first !== 'part') || !inkTinted(a, ra) || !inkTinted(b, rb)) return first;
+  const again = lineBy(a, ra, b, rb, few, ca, cb, { ...opts, faint: undefined }, shifted, true);
+  if (!again || again === 'part') return first;
+  if (opts.faint) {
+    delete opts.faint.line;
+    delete opts.faint.slanted;
+  }
+  return again;
+}
+
+/** The test of lineIn on one plane: the pages' lowest channel, or by luminance (`luma`). */
+function lineBy(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: Cover | null, cb: Cover | null, opts: LineOptions, shifted: boolean, luma: boolean): FoundLine | 'part' | null {
+  // Without an overlay found there, a fill under the word is taken off
+  // (see offFill); an overlay's fill is measured against below.
+  const plain = !ca && !cb;
+  const A0 = boxDarkness(a, ra, { rect: rb, scale: b.r.scale }, luma);
+  const B0 = boxDarkness(b, rb, undefined, luma);
+  const A = plain ? offFill(A0) : A0;
+  const B = plain ? offFill(B0) : B0;
   if (A.cols < 4 || B.cols < 4) return null;
   const n = Math.min(A.rows, B.rows);
   // Rows that belong to the glyphs of the line above or below (see
@@ -1789,10 +1921,11 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
       // Behind the glyphs (a fill, a tint), the overlay's anti-aliased edge
       // is that of the glyphs, and of a line drawn over it: compared, with
       // its darkness taken against the fill's lightness `lf` (a pixel of
-      // the fill is as light as paper).
+      // the fill is as light as paper), in its lowest channel as the box's
+      // darkness is (see luminance), or by luminance (see onTint).
       const fill = cov.behind && cov.clear;
       const [r0, g0, b0] = cov.colours[0];
-      const lf = (0.299 * r0 + 0.587 * g0 + 0.114 * b0) / 255;
+      const lf = (luma ? 0.299 * r0 + 0.587 * g0 + 0.114 * b0 : Math.min(r0, g0, b0)) / 255;
       for (let k = 0; k < n; k++) {
         const y = Math.round(X.ys[k]);
         for (let c = 0; c < C; c++) {
@@ -1824,8 +1957,9 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
   // through a transparent one are darker by its ink in that version only,
   // which its own units would scale up along their edges (a red figure
   // under a red and a blue stamp: a false strike along the bar of a "4").
-  const ua = inkUnit(a, ra);
-  const ub = inkUnit(b, rb);
+  const bare = (u: number, X: Box) => (X.bg ? Math.max(0, (u - X.bg) / (1 - X.bg)) : u);
+  const ua = bare(inkUnit(a, ra, luma), A);
+  const ub = bare(inkUnit(b, rb, luma), B);
   const unit = Math.min(ua, ub);
   const [ha, hb] = [inkHue(a, ra), inkHue(b, rb)];
   const recoloured = !valid && Math.hypot(ha[0] - hb[0], ha[1] - hb[1], ha[2] - hb[2]) > 30;
@@ -1953,141 +2087,370 @@ function lineIn(a: Prepared, ra: Rect, b: Prepared, rb: Rect, few: boolean, ca: 
     return g >= 0.55 || (!shifted && g >= 0.4 && share(A, k, 1) <= 0.7) || (still && filled(k));
   };
   let part = false;
-  for (let k = 0; k < n; k++) {
-    if (!line(k)) {
-      if (!part && win(pb, k, 1) - win(pa, k, 1) >= 0.15 && gained(k, true) >= 0.3) part = true;
-      continue;
-    }
-    let e = k;
-    while (e + 1 < n && line(e + 1)) e++;
-    if (e - k > Math.ceil(1.5 * b.r.scale) + 2) return null;
-    // Unchanged elsewhere: the rest of the profile matches.
-    let diff = 0;
-    let total = 0;
-    for (let j = 1; j < n - 1; j++) {
-      if (j >= k - 3 && j <= e + 3) continue;
-      diff += Math.abs(win(pb, j, 1) - win(pa, j, 1));
-      total += win(pa, j, 1);
-    }
-    // A token of one or two glyphs (or narrower than 8 pt) may have a stroke
-    // across its whole width of its own (the bar of a "4", most CJK
-    // characters: 一 主 重 年); drawn at another sub-pixel position it can
-    // look like a line. That is only so where the glyph in `a` has such a
-    // stroke: at least as much ink in the line's rows (and the row on either
-    // side) as the line adds there. A line through rows that the glyph
-    // leaves blank (between the strokes of 二 or 三, under 王) is not part of
-    // it, however its strokes elsewhere were re-sampled after a re-flow by a
-    // fraction of a pixel.
-    let own = 0;
-    let all = 0;
-    for (let j = Math.max(0, k - 1); j <= Math.min(n - 1, e + 1); j++) {
-      own += pa[j];
-      all += pb[j];
-    }
-    // Where an overlay leaves only a narrow part of the token to compare,
-    // that part is as narrow as a short token.
-    let seen = C;
-    if (valid) {
-      seen = 0;
-      for (let c = 0; c < C; c++) {
-        let ok = true;
-        for (let j = Math.max(0, k - 1); j <= Math.min(n - 1, e + 1) && ok; j++) ok = !!valid[j * C + c];
-        if (ok) seen++;
-      }
-    }
-    let narrow = (few || rb.w < 8 || seen < 8 * b.r.scale) && own >= all - own;
-    if (shifted) {
-      const ext = extent(A, B, C, n, k, e, valid, true);
-      if (ext !== null && ext < 0.75) return null;
-    }
-    if (narrow) {
-      // Such a stroke spans the glyph's ink, a line the whole advance: its
-      // side bearings and the gap between two figures, columns where the
-      // glyph in `a` has no ink near the line's rows. Where there are such
-      // columns, a line covers them and the glyph's own stroke does not.
-      // Otherwise (the glyph fills its box at those rows) the other rows
-      // must match almost exactly: a line added to the same glyph leaves
-      // them as they were. Where the glyph only moved up or down (a re-flow
-      // by a fraction of a pixel), its columns line up and re-sampling its
-      // rows changes up to a fifth of the ink; where it also moved sideways
-      // by a fraction of a pixel, its columns are blurred against each
-      // other as well, and only the strict test tells.
-      // Where a CJK character fills its box there, a line must also add
-      // about its own darkness on average across the box (half a line or
-      // more within two rows of it): a stroke across the character drawn
-      // crisp in one version and spread over two rows in the other comes
-      // out darker by a fifth or so (the bottom stroke of 重), a line on
-      // paper or beside a stroke by nearly its whole darkness. (A figure
-      // that fills its box, an "8", has no stroke across it.)
-      // (For Latin text, only blank columns between the glyphs' first and
-      // last ink tell a stroke of their own: a box estimated a point or two
-      // beside its glyphs has blank columns beyond them, which a line along
-      // the glyphs does not reach either. A CJK character's box is its em
-      // square.)
-      const ext = extent(A, B, C, n, k, e, valid);
-      const tell = opts.cjk ? ext : extent(A, B, C, n, k, e, valid, true);
-      if (tell !== null && tell < 0.5) return null;
-      if (ext !== null && ext >= 0.75) narrow = false;
-      // So must a figure or a short word whose stroke fills the line's rows
-      // (the bar of a "4") where an overlay is passed: measured against a
-      // fill behind it in one version (a stripe a re-flow moved away), the
-      // rest of its box matches as closely as on paper, and its bar drawn
-      // over two rows in one version and one in the other passes for a
-      // line.
-      if (tell === null && (opts.cjk || valid)) {
-        let gain = 0;
-        let m = 0;
+  // A line too thin or too light for that (a 0.4 pt bar that fpdf2 draws
+  // as its strikethrough, 0.6 px at 1.5 px/pt, over a row that re-flowed
+  // by a fraction of a pixel), told column by column. The words' boxes are
+  // estimated from their runs' widths, so in a line that was set again
+  // (justified text re-flowed) a box can lie a few pixels further along its
+  // glyphs in one version than in the other: `a`'s box is first laid over
+  // `b`'s by the whole-pixel shift `dx` that matches their columns best,
+  // up to 3 pt either way (none where the glyphs give the very same pixels,
+  // see samePixels). `ad`: `a`'s darkness at row j and column c of `b`'s box.
+  let dx = 0;
+  const align = () => {
+    const reach = Math.round(3 * b.r.scale);
+    let best = Infinity;
+    for (let d = -reach; d <= reach; d++) {
+      let cost = 0;
+      for (let j = 0; j < n; j++)
         for (let c = 0; c < C; c++) {
-          const d = column(B, c, k - 2, e + 2) - column(A, c, k - 2, e + 2);
-          if (Number.isNaN(d)) continue;
-          gain += d;
-          m++;
+          const x = c + d;
+          cost += Math.abs(B.d[j * B.cols + c] - (x >= 0 && x < A.cols ? A.d[j * A.cols + x] : 0));
         }
-        if (!m || gain / m < 0.5) return null;
+      if (cost < best - 1e-6 || (Math.abs(cost - best) <= 1e-6 && Math.abs(d) < Math.abs(dx))) {
+        best = cost;
+        dx = d;
       }
     }
-    const phase = (r: Rect, sc: number) => r.x * sc - Math.round(r.x * sc);
-    const off = Math.abs(phase(ra, a.r.scale) - phase(rb, b.r.scale));
-    // (Next to a line found at the same height, see LineOptions.weak, the
-    // looser test holds either way.)
-    const loose = !narrow ? 0.35 : opts.weak || Math.min(off, 1 - off) <= 0.2 ? 0.2 : 0.08;
-    if (diff > loose * total + (loose === 0.35 ? 0.5 : loose === 0.2 ? 0.25 : 0.1)) return null;
-    const rel = (B.top + (k + e + 1) / 2 / b.r.scale - rb.y) / rb.h;
-    if (rel < 0.3) return null;
-    // Over all of the box, an overlay's ink too: a stamp's slanted border is
-    // no line where it is left out either. Only where such a graphic or
-    // overlay is there to explain the slant (see LineOptions.level and
-    // crossing): a strike drawn with a line tool can rise by a point or two
-    // over a word, and where nothing else is listed there, it is the only
-    // item that shows the mark. A graphic changed next to the word explains
-    // the slant only where the line is one of its strokes (see crosses): a
-    // tick added after the word, or a mark above it, does not. An overlay
-    // whose ink lies over the glyphs at the line's rows (a seal's ring, a
-    // stamp found as a graphic that changed) is one on the word as well.
-    let lies = !!opts.level;
-    for (let j = Math.max(0, k - 3); j <= Math.min(n - 1, e + 3) && over && !lies; j++) lies = over[j] === 1;
-    if ((lies || opts.crossing) && !level(A, B, C, n, k, e) && (lies || crosses(a, b, A, B, C, k, e, opts.crossing!))) return null;
-    let c0 = k;
-    let c1 = e;
-    let most = 0;
-    for (let j = k; j <= e; j++) most = Math.max(most, pb[j] - pa[j]);
-    // Glyphs drawn heavier as a whole (a synthetic bold, text render mode
-    // 2) gain darkness in every row of theirs, a little more where their
-    // strokes run across (the x-height band of "contract" reads as a line
-    // 3–4 pt thick): where the glyphs' rows gained so (the median of them,
-    // the line's rows among them), a line must gain clearly more in its
-    // own rows. A strike through such a word still does (twice as much and
-    // more in its rows); an underline lies below the glyphs' rows.
-    const rows: number[] = [];
-    for (let j = 0; j < n; j++) if (pa[j] >= 0.1) rows.push(pb[j] - pa[j]);
-    rows.sort((p, q) => p - q);
-    const typical = rows.length >= 5 ? rows[rows.length >> 1] : 0;
-    if (typical >= 0.06 && most < 1.6 * typical + 0.05) return null;
-    while (c0 < c1 && pb[c0] - pa[c0] < 0.4 * most) c0++;
-    while (c1 > c0 && pb[c1] - pa[c1] < 0.4 * most) c1--;
-    return { line: rel >= 0.72 ? 'underline' : 'strike', rows: [Math.round(B.ys[k]), Math.round(B.ys[e])], core: [Math.round(B.ys[c0]), Math.round(B.ys[c1])] };
+  };
+  const ad = (j: number, c: number) => {
+    const x = c + dx;
+    return x >= 0 && x < A.cols ? A.d[j * A.cols + x] : 0;
+  };
+  const columnA = (c: number, j0: number, j1: number) => {
+    let sum = 0;
+    for (let j = Math.max(0, j0); j <= Math.min(n - 1, j1); j++) sum += ad(j, c);
+    return sum;
+  };
+  // A line in a colour between the paper's and the glyphs' (grey over
+  // black text) makes the glyphs lighter where it crosses them: there it is
+  // told by its distance from the glyphs' colour. Only where the glyphs
+  // give the very same pixels in both versions (`still`): elsewhere, glyphs
+  // drawn at another sub-pixel position differ from themselves as much. So
+  // nearly every column (that can be compared) lies a quarter of a line or
+  // more from `A` within rows k-1..k+1, either way, or is dark in both
+  // versions (glyphs that a line in their own colour crosses).
+  const crossed = (k: number) => {
+    if (!still) return false;
+    let m = 0;
+    let seen = 0;
+    for (let c = 0; c < C; c++) {
+      let apart = 0;
+      let ok = true;
+      for (let j = Math.max(0, k - 1); j <= Math.min(n - 1, k + 1) && ok; j++) {
+        if (valid && !valid[j * C + c]) ok = false;
+        else apart += Math.abs(B.d[j * B.cols + c] - ad(j, c));
+      }
+      if (!ok) continue;
+      m++;
+      if (apart >= 0.25 || (column(B, c, k - 1, k + 1) >= 0.6 && columnA(c, k - 1, k + 1) >= 0.6)) seen++;
+    }
+    return m >= 4 && seen >= 0.85 * m;
+  };
+  // About a third of a line's darkness gained around row k (or, see
+  // crossed, the glyphs crossed), and nearly every column that `a` leaves
+  // light within two rows of it (the gaps between the glyphs, their
+  // counters and side bearings) gained a quarter of a line or more, from
+  // the box's first quarter to its last (or, where the glyphs give the very
+  // same pixels in both versions, from the first such column to the last,
+  // where the glyphs fill the box's ends at those rows: the "c" and the "m"
+  // of "cm" over an underline; elsewhere the gaps between the glyphs of a
+  // short word, "all", gain at their feet where the glyphs were drawn at
+  // another sub-pixel position, which the row below loses). Glyph strokes
+  // drawn at another sub-pixel position gain next to strokes that `a` has
+  // there, not across the gaps. Not where `a` gained as much in the columns
+  // that `b` leaves light there: glyphs still a pixel apart gain where the
+  // other version's have gaps, both ways; a line leaves no column light at
+  // its rows.
+  const thin = (k: number) => {
+    if (win(pb, k, 1) - win(pa, k, 1) < 0.2 && !crossed(k)) return false;
+    let open = 0;
+    let up = 0;
+    let lo = C;
+    let hi = -1;
+    let gaps = 0;
+    let back = 0;
+    let first = -1;
+    let last = -1;
+    for (let c = 0; c < C; c++) {
+      if (valid) {
+        let ok = true;
+        for (let j = Math.max(0, k - 2); j <= Math.min(n - 1, k + 2) && ok; j++) ok = !!valid[j * C + c];
+        if (!ok) continue;
+      }
+      let lightA = true;
+      let lightB = true;
+      for (let j = Math.max(0, k - 2); j <= Math.min(n - 1, k + 2); j++) {
+        if (ad(j, c) >= 0.3) lightA = false;
+        if (B.d[j * B.cols + c] >= 0.3) lightB = false;
+      }
+      const gain = column(B, c, k - 1, k + 1) - columnA(c, k - 1, k + 1);
+      if (lightB) {
+        gaps++;
+        if (gain <= -0.25) back++;
+      }
+      if (!lightA) continue;
+      open++;
+      if (first < 0) first = c;
+      last = c;
+      if (gain < 0.25) continue;
+      up++;
+      lo = Math.min(lo, c);
+      hi = Math.max(hi, c);
+    }
+    return open >= Math.max(4, 0.25 * C) && up >= 0.85 * open && lo <= (still ? Math.max(0.25 * C, first) : 0.25 * C) && hi >= (still ? Math.min(0.75 * C, last) : 0.75 * C) && !(gaps >= 4 && back >= 0.3 * gaps);
+  };
+  // The first line found by `test` (see line and thin), checked as below;
+  // undefined where no row passes the test.
+  const scan = (test: (k: number) => boolean, faint: boolean): FoundLine | null | undefined => {
+    for (let k = 0; k < n; k++) {
+      if (!test(k)) {
+        if (!faint && !part && win(pb, k, 1) - win(pa, k, 1) >= 0.15 && gained(k, true) >= 0.3) part = true;
+        continue;
+      }
+      let e = k;
+      while (e + 1 < n && test(e + 1)) e++;
+      if (faint && e - k > 3) return null;
+      if (e - k > Math.ceil(1.5 * b.r.scale) + 2) return null;
+      // The edge of a fill that `b` has and `a` not (a highlight on the line
+      // below, whose top reaches into the word's box) is no line: its ink
+      // goes on past the rows found (see goesOn). Where an overlay was found
+      // there, it is measured against that fill instead. A fainter line is
+      // looked for further down (the lower of a double underline, whose
+      // upper line has the lower one below it).
+      if (!valid && goesOn(a, b, A, B, C, k, e)) {
+        if (!faint) return null;
+        k = e;
+        continue;
+      }
+      // Unchanged elsewhere: the rest of the profile matches.
+      let diff = 0;
+      let total = 0;
+      for (let j = 1; j < n - 1; j++) {
+        if (j >= k - 3 && j <= e + 3) continue;
+        diff += Math.abs(win(pb, j, 1) - win(pa, j, 1));
+        total += win(pa, j, 1);
+      }
+      // A token of one or two glyphs (or narrower than 8 pt) may have a stroke
+      // across its whole width of its own (the bar of a "4", most CJK
+      // characters: 一 主 重 年); drawn at another sub-pixel position it can
+      // look like a line. That is only so where the glyph in `a` has such a
+      // stroke: at least as much ink in the line's rows (and the row on either
+      // side) as the line adds there. A line through rows that the glyph
+      // leaves blank (between the strokes of 二 or 三, under 王) is not part of
+      // it, however its strokes elsewhere were re-sampled after a re-flow by a
+      // fraction of a pixel.
+      let own = 0;
+      let all = 0;
+      for (let j = Math.max(0, k - 1); j <= Math.min(n - 1, e + 1); j++) {
+        own += pa[j];
+        all += pb[j];
+      }
+      // Where an overlay leaves only a narrow part of the token to compare,
+      // that part is as narrow as a short token.
+      let seen = C;
+      if (valid) {
+        seen = 0;
+        for (let c = 0; c < C; c++) {
+          let ok = true;
+          for (let j = Math.max(0, k - 1); j <= Math.min(n - 1, e + 1) && ok; j++) ok = !!valid[j * C + c];
+          if (ok) seen++;
+        }
+      }
+      let narrow = (few || rb.w < 8 || seen < 8 * b.r.scale) && own >= all - own;
+      if (shifted) {
+        const ext = extent(A, B, C, n, k, e, valid, true);
+        if (ext !== null && ext < 0.75) return null;
+      }
+      if (narrow) {
+        // Such a stroke spans the glyph's ink, a line the whole advance: its
+        // side bearings and the gap between two figures, columns where the
+        // glyph in `a` has no ink near the line's rows. Where there are such
+        // columns, a line covers them and the glyph's own stroke does not.
+        // Otherwise (the glyph fills its box at those rows) the other rows
+        // must match almost exactly: a line added to the same glyph leaves
+        // them as they were. Where the glyph only moved up or down (a re-flow
+        // by a fraction of a pixel), its columns line up and re-sampling its
+        // rows changes up to a fifth of the ink; where it also moved sideways
+        // by a fraction of a pixel, its columns are blurred against each
+        // other as well, and only the strict test tells.
+        // Where a CJK character fills its box there, a line must also add
+        // about its own darkness on average across the box (half a line or
+        // more within two rows of it): a stroke across the character drawn
+        // crisp in one version and spread over two rows in the other comes
+        // out darker by a fifth or so (the bottom stroke of 重), a line on
+        // paper or beside a stroke by nearly its whole darkness. (A figure
+        // that fills its box, an "8", has no stroke across it.)
+        // (For Latin text, only blank columns between the glyphs' first and
+        // last ink tell a stroke of their own: a box estimated a point or two
+        // beside its glyphs has blank columns beyond them, which a line along
+        // the glyphs does not reach either. A CJK character's box is its em
+        // square.)
+        const dark = faint ? 0.3 : 0.6;
+        const ext = extent(A, B, C, n, k, e, valid, false, dark);
+        const tell = opts.cjk ? ext : extent(A, B, C, n, k, e, valid, true, dark);
+        if (tell !== null && tell < 0.5) return null;
+        if (ext !== null && ext >= 0.75) narrow = false;
+        // So must a figure or a short word whose stroke fills the line's rows
+        // (the bar of a "4") where an overlay is passed: measured against a
+        // fill behind it in one version (a stripe a re-flow moved away), the
+        // rest of its box matches as closely as on paper, and its bar drawn
+        // over two rows in one version and one in the other passes for a
+        // line.
+        if (tell === null && (opts.cjk || valid)) {
+          let gain = 0;
+          let m = 0;
+          for (let c = 0; c < C; c++) {
+            const d = column(B, c, k - 2, e + 2) - column(A, c, k - 2, e + 2);
+            if (Number.isNaN(d)) continue;
+            gain += d;
+            m++;
+          }
+          if (!m || gain / m < (faint ? 0.25 : 0.5)) return null;
+        }
+      }
+      const phase = (r: Rect, sc: number) => r.x * sc - Math.round(r.x * sc);
+      const off = Math.abs(phase(ra, a.r.scale) - phase(rb, b.r.scale));
+      // (Next to a line found at the same height, see LineOptions.weak, the
+      // looser test holds either way.)
+      const loose = !narrow ? 0.35 : opts.weak || Math.min(off, 1 - off) <= 0.2 ? 0.2 : 0.08;
+      if (diff > loose * total + (loose === 0.35 ? 0.5 : loose === 0.2 ? 0.25 : 0.1)) return null;
+      const rel = (B.top + (k + e + 1) / 2 / b.r.scale - rb.y) / rb.h;
+      if (rel < 0.3) return null;
+      // Over all of the box, an overlay's ink too: a stamp's slanted border is
+      // no line where it is left out either. Only where such a graphic or
+      // overlay is there to explain the slant (see LineOptions.level and
+      // crossing): a strike drawn with a line tool can rise by a point or two
+      // over a word, and where nothing else is listed there, it is the only
+      // item that shows the mark. A graphic changed next to the word explains
+      // the slant only where the line is one of its strokes (see crosses): a
+      // tick added after the word, or a mark above it, does not. An overlay
+      // whose ink lies over the glyphs at the line's rows (a seal's ring, a
+      // stamp found as a graphic that changed) is one on the word as well.
+      let lies = !!opts.level;
+      for (let j = Math.max(0, k - 3); j <= Math.min(n - 1, e + 3) && over && !lies; j++) lies = over[j] === 1;
+      if ((lies || opts.crossing) && !level(A, B, C, n, k, e) && (lies || crosses(a, b, A, B, C, k, e, opts.crossing!))) return null;
+      // One that rises or falls across the word as no strike does (see
+      // steep) and goes on so past the word's box (see runsOnSlanted) from
+      // 3.5 to 10 pt beyond it, wherever it lies, may be the border of a
+      // stamp turned by 10° or more, drawn across the text where the
+      // graphics comparison does not look, or a strike drawn by hand that
+      // overshoots the word over the next one, by however much: nothing
+      // here tells them apart. It is handed to the caller as a fainter line
+      // (see LineOptions.faint), which counts the word as compared only in
+      // part, or lists it with a line next to it; so is one found so at a
+      // placement of the boxes beside the word's (see addedLine). A strike
+      // drawn by hand over a short word ("30", "12") rises as steeply but
+      // ends a point or two past its glyphs: it is listed.
+      const slant = steep(A, B, C, n, k, e);
+      const doubt = !!slant && runsOnSlanted(a, b, A, B, C, slant, 10);
+      let c0 = k;
+      let c1 = e;
+      let most = 0;
+      for (let j = k; j <= e; j++) most = Math.max(most, pb[j] - pa[j]);
+      // Glyphs drawn heavier as a whole (a synthetic bold, text render mode
+      // 2) gain darkness in every row of theirs, a little more where their
+      // strokes run across (the x-height band of "contract" reads as a line
+      // 3–4 pt thick): where the glyphs' rows gained so (the median of them,
+      // the line's rows among them), a line must gain clearly more in its
+      // own rows. A strike through such a word still does (twice as much and
+      // more in its rows); an underline lies below the glyphs' rows.
+      const rows: number[] = [];
+      for (let j = 0; j < n; j++) if (pa[j] >= 0.1) rows.push(pb[j] - pa[j]);
+      rows.sort((p, q) => p - q);
+      const typical = rows.length >= 5 ? rows[rows.length >> 1] : 0;
+      if (typical >= 0.06 && most < 1.6 * typical + 0.05) return null;
+      while (c0 < c1 && pb[c0] - pa[c0] < 0.4 * most) c0++;
+      while (c1 > c0 && pb[c1] - pa[c1] < 0.4 * most) c1--;
+      const found: FoundLine = { line: rel >= 0.72 ? 'underline' : 'strike', rows: [Math.round(B.ys[k]), Math.round(B.ys[e])], core: [Math.round(B.ys[c0]), Math.round(B.ys[c1])] };
+      if (!doubt) return found;
+      if (opts.faint && !opts.weak) [opts.faint.line, opts.faint.slanted] = [found, true];
+      return null;
+    }
+    return undefined;
+  };
+  const found = scan(line, false);
+  if (found !== undefined) return found;
+  // A fainter line is no line found here: the caller weighs it (see
+  // LineOptions.faint). Looked for only where some rows gained a third of
+  // a line or more (see thin), or where the glyphs give the same pixels and
+  // some differ (see crossed).
+  if (opts.faint && !shifted && !opts.weak) {
+    let gain = 0;
+    let moved = 0;
+    for (let k = 0; k < n; k++) {
+      gain = Math.max(gain, win(pb, k, 1) - win(pa, k, 1));
+      if (still && moved < 0.05) {
+        let sum = 0;
+        for (let j = Math.max(0, k - 1); j <= Math.min(n - 1, k + 1); j++) for (let c = 0; c < C; c++) sum += Math.abs(B.d[j * B.cols + c] - A.d[j * A.cols + c]);
+        moved = Math.max(moved, sum / C);
+      }
+    }
+    if (gain >= 0.2 || (still && moved >= 0.05)) {
+      if (!still) align();
+      const f = scan(thin, true);
+      if (f) opts.faint.line = f;
+    }
   }
   return part ? 'part' : null;
+}
+
+/**
+ * Whether the ink that `B` gained in rows k..e (the box of a word on `b`,
+ * compared with `A` on `a`, see lineIn) goes on past them: three and four
+ * pixel rows below or above them, half or more of the columns that `a`
+ * leaves light in those rows gained half as much per row as the line
+ * itself, and a tenth of a line at least. A line through or under a word
+ * has the paper (or the glyphs, unchanged) on both sides; the edge of a
+ * fill or a band does not. Measured on the pages' lowest channel (see
+ * luminance), where a light, saturated fill (a yellow highlight) is as far
+ * from the paper as a line in that colour, and against each box's own
+ * background (see offFill).
+ */
+function goesOn(a: Prepared, b: Prepared, A: Box, B: Box, C: number, k: number, e: number): boolean {
+  const q = a.r.scale / b.r.scale;
+  const darkB = (j: number, c: number) => {
+    const y = Math.round(B.ys[0]) + j;
+    const x = B.x0 + c;
+    const v = y < 0 || y >= b.r.height || x >= b.r.width ? 0 : (255 - (B.luma ? b.lum : b.low)[y * b.r.width + x]) / 255;
+    return B.bg ? (v - B.bg) / (1 - B.bg) : v;
+  };
+  // `a`'s row as the word moved (see boxDarkness), interpolated.
+  const darkA = (j: number, c: number) => {
+    const y = A.ys[0] + j * q;
+    const i = Math.floor(y);
+    const t = y - i;
+    const x = A.x0 + c;
+    const plane = A.luma ? a.lum : a.low;
+    const at = (v: number) => (v < 0 || v >= a.r.height || x >= a.r.width ? 0 : (255 - plane[v * a.r.width + x]) / 255);
+    const v = (1 - t) * at(i) + t * at(i + 1);
+    return A.bg ? (v - A.bg) / (1 - A.bg) : v;
+  };
+  let open = 0;
+  const past = [0, 0];
+  for (let c = 0; c < C; c++) {
+    let glyph = 0;
+    let gain = 0;
+    for (let j = k; j <= e; j++) {
+      glyph = Math.max(glyph, darkA(j, c));
+      gain += darkB(j, c) - darkA(j, c);
+    }
+    if (glyph >= 0.3) continue;
+    open++;
+    const per = gain / (e - k + 1);
+    for (const [side, rows] of [
+      [0, [e + 3, e + 4]],
+      [1, [k - 3, k - 4]],
+    ] as const) {
+      let on = true;
+      for (const j of rows) {
+        const g = darkB(j, c) - darkA(j, c);
+        if (g < Math.max(0.1, 0.5 * per)) on = false;
+      }
+      if (on) past[side]++;
+    }
+  }
+  return open >= 3 && Math.max(...past) >= 0.5 * open;
 }
 
 /**
@@ -2142,6 +2505,112 @@ function level(A: Box, B: Box, C: number, n: number, k: number, e: number): bool
 }
 
 /**
+ * Whether what `B` gained around rows k..e over `A` (see level) rises or
+ * falls across the word at a slope of 0.18 or more (10°), by 3 pixel rows
+ * or more over the columns where it shows: the border of a stamp turned so,
+ * drawn across a word where no graphic was found to change (text masks the
+ * border's pixels from the graphics comparison) and no overlay over it
+ * (its letters lie elsewhere). Such a border can leave the box on one side.
+ * Its height is taken in each column where it gained half a line or more,
+ * within eight rows of the line's and no thicker than the line, in a third
+ * of the columns or more; the slope is the median of those of the pairs of
+ * such columns three or more apart (Theil–Sen), which a few glyph strokes
+ * re-sampled elsewhere do not move. A strike drawn with a line tool rises
+ * a point or two over a word (2.5 pt over "writing": a slope of 0.08); a
+ * line drawn with the text is level.
+ */
+function steep(A: Box, B: Box, C: number, n: number, k: number, e: number): Slant | null {
+  if (C < 6) return null;
+  const j0 = Math.max(0, k - 8);
+  const j1 = Math.min(n - 1, e + 8);
+  const pts: [number, number][] = [];
+  for (let c = 0; c < C; c++) {
+    let first = -1;
+    let last = -1;
+    for (let j = j0; j <= j1; j++) {
+      if (B.d[j * B.cols + c] - A.d[j * A.cols + c] < 0.5) continue;
+      if (first < 0) first = j;
+      last = j;
+    }
+    if (first >= 0 && last - first <= e - k + 3) pts.push([c, (first + last) / 2]);
+  }
+  if (pts.length < Math.max(6, C / 3)) return null;
+  const slopes: number[] = [];
+  for (let i = 0; i < pts.length; i++)
+    for (let j = i + 1; j < pts.length; j++) if (pts[j][0] - pts[i][0] >= 3) slopes.push((pts[j][1] - pts[i][1]) / (pts[j][0] - pts[i][0]));
+  if (!slopes.length) return null;
+  slopes.sort((p, q) => p - q);
+  const slope = slopes[slopes.length >> 1];
+  const m = Math.abs(slope);
+  if (!(m >= 0.18 && m * (pts[pts.length - 1][0] - pts[0][0]) >= 3)) return null;
+  const at = pts.map(([c, y]) => y - slope * c).sort((p, q) => p - q);
+  return { slope, at: at[at.length >> 1], width: e - k + 1 };
+}
+
+/**
+ * A slanted line found by steep: its row in the box at column c is
+ * `at + slope · c`, `width` rows thick.
+ */
+type Slant = { slope: number; at: number; width: number };
+
+/**
+ * Whether the slanted line found across a word (see steep) goes on at the
+ * same slope past the word's box, on either side, from 3.5 to `far` pt
+ * beyond it: in seven in ten of the columns there that `a` leaves light at the
+ * line's course (glyphs of a neighbour are passed), `b` gained a third or
+ * more of a line within a row of it. The border of a turned stamp runs on
+ * across the page; a strike drawn by hand, with a line tool or as an ink
+ * annotation ends a point or two past the word's glyphs (and the box may
+ * lie a point beside them), and the next word's own strike starts again at
+ * its own height. Measured on the pages as the boxes are (lowest channel,
+ * or luminance on a light, saturated fill), each version at its own place
+ * of the word.
+ */
+function runsOnSlanted(a: Prepared, b: Prepared, A: Box, B: Box, C: number, slant: Slant, far: number): boolean {
+  const s = b.r.scale;
+  const q = a.r.scale / s;
+  const planeA = A.luma ? a.lum : a.low;
+  const planeB = B.luma ? b.lum : b.low;
+  const darkB = (c: number, j: number) => {
+    const x = B.x0 + c;
+    const y = Math.round(B.ys[0]) + j;
+    return x < 0 || y < 0 || x >= b.r.width || y >= b.r.height ? NaN : (255 - planeB[y * b.r.width + x]) / 255;
+  };
+  const darkA = (c: number, j: number) => {
+    const x = A.x0 + Math.round(c * q);
+    const y = A.ys[0] + j * q;
+    const i = Math.floor(y);
+    const t = y - i;
+    const at = (v: number) => (x < 0 || v < 0 || x >= a.r.width || v >= a.r.height ? NaN : (255 - planeA[v * a.r.width + x]) / 255);
+    return (1 - t) * at(i) + t * at(i + 1);
+  };
+  const near = Math.round(3.5 * s);
+  const half = Math.ceil(slant.width / 2) + 1;
+  for (const dir of [1, -1]) {
+    let open = 0;
+    let up = 0;
+    for (let step = near; step <= Math.round(far * s); step++) {
+      const c = dir > 0 ? C - 1 + step : -step;
+      const y = slant.at + slant.slope * c;
+      let glyph = 0;
+      let gain = 0;
+      let off = false;
+      for (let j = Math.round(y) - half; j <= Math.round(y) + half; j++) {
+        const vb = darkB(c, j);
+        const va = darkA(c, j);
+        if (Number.isNaN(vb) || Number.isNaN(va)) off = true;
+        else [glyph, gain] = [Math.max(glyph, va), Math.max(gain, vb - va)];
+      }
+      if (off || glyph >= 0.3) continue;
+      open++;
+      if (gain >= 0.33) up++;
+    }
+    if (open >= 4 && up >= 0.7 * open) return true;
+  }
+  return false;
+}
+
+/**
  * A line through or under a word in `b` whose glyphs are not those of `a`
  * (set bold, italic or in another font: a format change that the text
  * comparison lists, and that it cannot see a line on). The glyphs cannot be
@@ -2156,8 +2625,9 @@ function level(A: Box, B: Box, C: number, n: number, k: number, e: number): bool
  * rows).
  */
 function lineAlone(a: Prepared, ra: Rect, b: Prepared, rb: Rect): FoundLine | null {
-  const A = boxDarkness(a, ra);
-  const B = boxDarkness(b, rb);
+  const luma = onTint(a, ra) || onTint(b, rb);
+  const A = boxDarkness(a, ra, undefined, luma);
+  const B = boxDarkness(b, rb, undefined, luma);
   if (A.cols < 6 || B.cols < 6) return null;
   const s = b.r.scale;
   const across = (X: Box, k: number, c0: number, c1: number) => {
@@ -2354,8 +2824,9 @@ function rise(points: [number, number][]): number | null {
  * the luminance per unit of darkness, which anti-aliasing and transparency
  * over paper leave as they are (a red line drawn half-transparent is the
  * same red; black and grey are 0, 0, 0). `differs`: two strokes, each with
- * a few pixels' worth of darkness, are of other colours (by more than a
- * quarter of the scale in a channel: black against red, blue or green).
+ * a few pixels' worth of darkness (`min`), are of other colours (by more
+ * than a quarter of the scale in a channel: black against red, blue or
+ * green).
  */
 class StrokeHue {
   private off = [0, 0, 0];
@@ -2366,15 +2837,23 @@ class StrokeHue {
     for (let c = 0; c < 3; c++) this.off[c] += p[c] - l;
     this.dark += (255 - l) / 255;
   }
-  differs(o: StrokeHue): boolean {
-    if (this.dark < 2 || o.dark < 2) return false;
+  differs(o: StrokeHue, min = 2): boolean {
+    if (this.dark < min || o.dark < min) return false;
     return this.off.some((v, c) => Math.abs(v / this.dark - o.off[c] / o.dark) > 64);
+  }
+  /** Whether the pixel `i` of `r` is of another colour than the stroke (as differs; a stroke with no darkness is black). */
+  apart(r: Raster, i: number): boolean {
+    const p = rgb(r, i);
+    const l = 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2];
+    const d = (255 - l) / 255;
+    return d > 0 && [0, 1, 2].some((c) => Math.abs((p[c] - l) / d - (this.dark ? this.off[c] / this.dark : 0)) > 64);
   }
 }
 
 /** The darkness of a token's glyph ink: the darkest pixel of its box (1 when it is nearly paper). */
-function inkUnit(side: Prepared, rect: Rect): number {
-  const { r, lum } = side;
+function inkUnit(side: Prepared, rect: Rect, luma = false): number {
+  const { r } = side;
+  const lum = luma ? side.lum : side.low;
   const s = r.scale;
   let min = 255;
   for (let y = Math.max(0, Math.floor(rect.y * s)); y < Math.min(r.height, Math.ceil((rect.y + rect.h) * s)); y++)
@@ -2510,12 +2989,12 @@ function heavier(A: Prepared, ra: Rect, B: Prepared, rb: Rect, behindA?: (x: num
 /**
  * Of the columns where the glyphs in `A` have no ink within two rows of a
  * line's rows k..e, the share that `B` covers in those rows (dark as a
- * line: 0.6 over the rows and one on either side); null when fewer than two
- * columns are so blank. `inner`: only the columns between the glyphs'
- * first and last ink (the gaps between letters, not a box's ends beyond
- * them).
+ * line: 0.6 over the rows and one on either side, or `dark`); null when
+ * fewer than two columns are so blank. `inner`: only the columns between
+ * the glyphs' first and last ink (the gaps between letters, not a box's
+ * ends beyond them).
  */
-function extent(A: Box, B: Box, C: number, n: number, k: number, e: number, valid: Uint8Array | null, inner = false): number | null {
+function extent(A: Box, B: Box, C: number, n: number, k: number, e: number, valid: Uint8Array | null, inner = false, dark = 0.6): number | null {
   let blank = 0;
   let covered = 0;
   let c0 = 0;
@@ -2533,33 +3012,104 @@ function extent(A: Box, B: Box, C: number, n: number, k: number, e: number, vali
     blank++;
     let sum = 0;
     for (let j = Math.max(0, k - 1); j <= Math.min(n - 1, e + 1); j++) sum += B.d[j * B.cols + c];
-    if (sum >= 0.6) covered++;
+    if (sum >= dark) covered++;
   }
   return blank >= 2 ? covered / blank : null;
 }
 
 /**
- * Words compared only in part next to an overlay (see appearanceChanges),
- * by new page and token: a stamp, a watermark, a fill or a graphic that
- * changed lies over or around them where it cannot be told from their
- * glyphs, so their colour, weight, strikethrough and underline were judged
- * on what it leaves, or not at all. Finding nothing there is no
- * all-clear: they are counted in a notice (see partlyCompared).
+ * Words compared only in part (see appearanceChanges), by new page and
+ * token: a stamp, a watermark, a fill or a graphic that changed lies over
+ * or around them where it cannot be told from their glyphs, so their
+ * colour, weight, strikethrough and underline were judged on what it
+ * leaves, or not at all; or (`faint`, and nothing of that) a line through
+ * or under them is too thin or too light to tell from their glyphs on its
+ * own (see LineOptions.faint). Finding nothing there is no all-clear: they
+ * are counted in a notice (see partlyCompared).
  */
-const partly = new WeakMap<CompareResult, Map<number, Map<number, string>>>();
-function notePartly(result: CompareResult, page: number, t: Token): void {
+const partly = new WeakMap<CompareResult, Map<number, Map<number, { text: string; faint: boolean }>>>();
+/** The rows of the line of an underline or strike change (see appearanceChanges), in points of the page that has it. */
+const lineRows = new WeakMap<Change, [number, number]>();
+/** The words (old and new token index) an item of appearanceChanges was found on, with its line's rows (points of the page that has it; see markupExplains). */
+const hitPairs = new WeakMap<Change, { a: number; b: number; rows: [number, number] | null }[]>();
+/** The faint line (points of the page that has it) of each new word counted only for one (see appearanceChanges and unnoteMarkup). */
+const faintSeen = new WeakMap<CompareResult, Map<number, { a: number; line: 'strike' | 'underline'; added: boolean; rows: [number, number] }>>();
+function faintLines(result: CompareResult): Map<number, { a: number; line: 'strike' | 'underline'; added: boolean; rows: [number, number] }> {
+  let m = faintSeen.get(result);
+  if (!m) faintSeen.set(result, (m = new Map()));
+  return m;
+}
+function notePartly(result: CompareResult, page: number, t: Token, faint = false): void {
   let pages = partly.get(result);
   if (!pages) partly.set(result, (pages = new Map()));
   let words = pages.get(page);
   if (!words) pages.set(page, (words = new Map()));
-  words.set(t.i, t.text);
+  const seen = words.get(t.i);
+  words.set(t.i, { text: t.text, faint: faint && (!seen || seen.faint) });
 }
 
-/** The words compared only in part next to an overlay, by new page (see notePartly). */
-export function partlyCompared(result: CompareResult): { page: number; words: string[] }[] {
-  return [...(partly.get(result) ?? new Map<number, Map<number, string>>())]
+/**
+ * The words compared only in part, by new page (see notePartly); `faint`:
+ * how many of them only for a line too thin or too light to be sure of.
+ */
+export function partlyCompared(result: CompareResult): { page: number; words: string[]; faint?: number }[] {
+  return [...(partly.get(result) ?? new Map<number, Map<number, { text: string; faint: boolean }>>())]
+    .filter(([, words]) => words.size > 0)
     .sort(([p], [q]) => p - q)
-    .map(([page, words]) => ({ page, words: [...words].sort(([i], [j]) => i - j).map(([, w]) => w) }));
+    .map(([page, words]) => {
+      const all = [...words].sort(([i], [j]) => i - j).map(([, w]) => w);
+      const faint = all.filter((w) => w.faint).length;
+      return { page, words: all.map((w) => w.text), ...(faint ? { faint } : {}) };
+    });
+}
+
+/**
+ * Whether a line through or under the word `t` on `X`, at pixel rows
+ * `rows`, runs on past an end of the word's line of text for 12 pt or more
+ * at about its own darkness: a rule of a table or a fill's edge that the
+ * text moved against, not a line drawn over the words. The line's darkness
+ * is that of the columns of the word's box it darkens least (the gaps
+ * between the glyphs), and past the line it must reach 0.6 of that in 85 %
+ * of the columns, on the pages' lowest channel (see luminance; by
+ * luminance on a light, saturated fill, see onTint). In each column the
+ * line is measured against what lies just above and below it, the lighter
+ * of the two: a fill that the row has on both sides of the line (a filled
+ * cell, a stripe that runs on past the text) is no line there, a rule
+ * between two filled rows, or a fill that ends at the line's rows, is.
+ */
+function runsOn(X: Prepared, lines: DocModel['lines'], t: Token, rows: [number, number]): boolean {
+  const l = lines.find((x) => x.id === t.line);
+  if (!l) return false;
+  const s = X.r.scale;
+  const W = X.r.width;
+  const H = X.r.height;
+  const r = t.rects[0];
+  const plane = onTint(X, r) ? X.lum : X.low;
+  const y0 = Math.max(0, rows[0] - 1);
+  const y1 = Math.min(H - 1, rows[1] + 1);
+  const at = (x: number, y: number) => (y < 0 || y >= H ? 0 : (255 - plane[y * W + x]) / 255);
+  const sum = (x: number) => {
+    let v = 0;
+    for (let y = y0; y <= y1; y++) v += at(x, y);
+    const around = Math.min(at(x, y0 - 2), at(x, y1 + 2));
+    return Math.max(0, v - around * (y1 - y0 + 1));
+  };
+  const under: number[] = [];
+  for (let x = Math.max(0, Math.round(r.x * s)); x < Math.min(W, Math.round((r.x + r.w) * s)); x++) under.push(sum(x));
+  if (!under.length) return false;
+  under.sort((p, q) => p - q);
+  const ref = under[Math.floor(under.length / 4)];
+  if (ref <= 0.05) return false;
+  const dark = (x0: number, x1: number) => {
+    let n = 0;
+    let m = 0;
+    for (let x = Math.max(0, Math.round(x0 * s)); x < Math.min(W, Math.round(x1 * s)); x++) {
+      m++;
+      if (sum(x) >= 0.6 * ref) n++;
+    }
+    return m > 0 && n >= 0.85 * m;
+  };
+  return dark(l.rect.x - 13, l.rect.x - 1) || dark(l.rect.x + l.rect.w + 1, l.rect.x + l.rect.w + 13);
 }
 
 /**
@@ -2594,6 +3144,8 @@ function appearanceChanges(
   graphicIn: (side: 'old' | 'new', r: Rect) => boolean = () => false,
   differs: (X: Prepared, x: number, y: number) => boolean = () => false,
   fillAround: (side: 'old' | 'new', r: Rect, along?: boolean) => number[] | null = () => null,
+  closes: (a: Token, b: Token, line: { line: 'strike' | 'underline'; added: boolean; rows: [number, number] }) => boolean = () => false,
+  ruleBelow: (a: Token, b: Token) => { side: 'old' | 'new'; y: number } | null = () => null,
 ): Change[] {
   const TA = result.oldDoc.tokens;
   const TB = result.newDoc.tokens;
@@ -2908,7 +3460,13 @@ function appearanceChanges(
     }
     return found;
   };
-  type Hit = { a: Token; b: Token; colour: boolean; line?: { line: 'strike' | 'underline'; added: boolean; rows: [number, number] }; ink?: Ink; p: number; bold?: boolean };
+  type Line = { line: 'strike' | 'underline'; added: boolean; rows: [number, number] };
+  type Hit = { a: Token; b: Token; colour: boolean; line?: Line; ink?: Ink; p: number; bold?: boolean };
+  // Words with a line too thin or too light to be found on its own (see
+  // LineOptions.faint), by token index (new side); `alone`: nothing else
+  // found to change at the word could have drawn it; `slanted`: a slanted
+  // line that may be a stamp's border (see lineBy).
+  const faints = new Map<number, { a: Token; b: Token; p: number; line: Line; alone: boolean; plain: boolean; slanted: boolean }>();
   // A word that a form field's widget draws over again in one version only
   // (a form flattened with its widgets kept, see TextRun.overdrawn): drawn
   // twice, its glyphs' edges are darker, as if drawn a little heavier.
@@ -2934,8 +3492,94 @@ function appearanceChanges(
     return Math.abs(u.h - v.h) > 0.1 * Math.max(u.h, v.h) || Math.abs(u.w - v.w) > 0.1 * Math.max(u.w, v.w);
   };
   // The words compared, by token index (new side): how to look for a
-  // fainter line on each (see below).
-  const tried = new Map<number, { a: Token; b: Token; p: number; weak: (added: boolean) => FoundLine | null }>();
+  // fainter line on each (see below); `plain`: no overlay or graphic that
+  // changed lies at the word (see recolouredToo).
+  const tried = new Map<number, { a: Token; b: Token; p: number; plain: boolean; weak: (added: boolean) => FoundLine | null }>();
+  // Words with a line through or under them whose glyphs were also
+  // recoloured (see recolouredToo): listed apart from the line.
+  const also: Hit[] = [];
+  // The colours of a line `l` through or under a word and of its glyphs,
+  // on the version that has the line (see StrokeHue): the line's from its
+  // pixels in its rows where the other version leaves paper there (as the
+  // word moved), the glyphs' from their ink outside the line's rows (two
+  // pixel rows on either side). `il` and `io`: the glyphs' ink outside
+  // those rows on the line's version and on the other (see ink). `moved`:
+  // the share of the glyphs' ink outside those rows, by darkness, in
+  // another colour than the other version's glyphs there.
+  const lineHues = (a: Token, b: Token, l: Line) => {
+    const [L, O] = l.added ? [B, A] : [A, B];
+    const [tl, to] = l.added ? [b, a] : [a, b];
+    const [sL, sO] = [L.r.scale, O.r.scale];
+    const [y0, y1] = [l.rows[0] - 2, l.rows[1] + 2];
+    const mapY = (y: number) => ((y + 0.5) / sL - tl.rects[0].y + to.rects[0].y) * sO - 0.5;
+    const mapX = (x: number) => Math.round(((x + 0.5) / sL - tl.rects[0].x + to.rects[0].x) * sO - 0.5);
+    const [o0, o1] = [Math.floor(mapY(y0)), Math.ceil(mapY(y1))];
+    const [ka, kb] = pitch(a, b);
+    const [kl, ko] = l.added ? [kb, ka] : [ka, kb];
+    const il = ink(L, kl, (_x, y) => y >= y0 && y <= y1);
+    const io = ink(O, ko, (_x, y) => y >= o0 && y <= o1);
+    const line = new StrokeHue();
+    const glyphs = new StrokeHue();
+    const r = tl.rects[0];
+    const W = L.r.width;
+    const bgL = 0.299 * il.bg[0] + 0.587 * il.bg[1] + 0.114 * il.bg[2];
+    const bgO = 0.299 * io.bg[0] + 0.587 * io.bg[1] + 0.114 * io.bg[2];
+    const [ry0, ry1] = [Math.max(0, Math.floor(r.y * sL)), Math.min(L.r.height, Math.ceil((r.y + r.h * 1.15) * sL))];
+    const before = new StrokeHue();
+    const q = to.rects[0];
+    for (let y = Math.max(0, Math.floor(q.y * sO)); y < Math.min(O.r.height, Math.ceil((q.y + q.h * 1.15) * sO)); y++) {
+      if (y >= o0 && y <= o1) continue;
+      for (let x = Math.max(0, Math.round(q.x * sO)); x < Math.min(O.r.width, Math.round((q.x + q.w) * sO)); x++) if (O.lum[y * O.r.width + x] < bgO - 40) before.add(O.r, y * O.r.width + x);
+    }
+    let all = 0;
+    let other = 0;
+    for (let x = Math.max(0, Math.round(r.x * sL)); x < Math.min(W, Math.round((r.x + r.w) * sL)); x++) {
+      const xo = mapX(x);
+      let paper = xo >= 0 && xo < O.r.width;
+      for (let y = Math.max(0, o0); y <= Math.min(O.r.height - 1, o1) && paper; y++) paper = O.lum[y * O.r.width + xo] >= bgO - 12;
+      for (let y = ry0; y < ry1; y++) {
+        const i = y * W + x;
+        if (y >= l.rows[0] && y <= l.rows[1]) {
+          if (paper) line.add(L.r, i);
+        } else if ((y < y0 || y > y1) && L.lum[i] < bgL - 40) {
+          glyphs.add(L.r, i);
+          const d = (255 - L.lum[i]) / 255;
+          all += d;
+          if (before.apart(L.r, i)) other += d;
+        }
+      }
+    }
+    return { il, io, line, glyphs, moved: all ? other / all : 0 };
+  };
+  // Whether the glyphs of a word with a line `l` through or under it (no
+  // overlay or graphic that changed at it) also changed colour, apart from
+  // the line: their chroma, outside the line's rows (two pixel rows on
+  // either side, and the same rows of the other version as the word
+  // moved), apart by more than 30 as a recolour is told without a line,
+  // with most of their ink there in another colour (see lineHues); and the
+  // line not in the glyphs' new colour (see StrokeHue; the line's
+  // colour from its pixels where the other version leaves paper in those
+  // rows). A word given the line's colour with it (a tracked deletion shown
+  // in the reviewer's colour and struck through in it) is the one change,
+  // the line. Where the line is too faint to tell its colour, or the word
+  // lies on a fill, the line is listed alone, as it was.
+  const recolouredToo = (a: Token, b: Token, l: Line, p: number): Hit | null => {
+    const { il, io, line, glyphs, moved } = lineHues(a, b, l);
+    if (il.n < 6 || io.n < 6) return null;
+    // On paper only: over a fill (a highlight), the glyphs' anti-aliased
+    // edges are of the fill's colour in part, the more so the thinner the
+    // stroke, and re-sampled after a re-flow they change chroma.
+    if (Math.min(...il.bg, ...io.bg) < 240) return null;
+    if (Math.hypot(il.chroma[0] - io.chroma[0], il.chroma[1] - io.chroma[1], il.chroma[2] - io.chroma[2]) <= 30) return null;
+    // Most of the glyphs' ink there took another colour: not a few pixels
+    // of a coloured mark that crosses the word at a slant, past the line's
+    // rows (a stamp's frame turned by a few degrees).
+    if (moved < 0.5) return null;
+    // (A thin line in a light colour, yellow, has little darkness: half a
+    // pixel's worth is enough to tell its colour from the glyphs'.)
+    if (!line.differs(glyphs, 0.5)) return null;
+    return { a, b, colour: true, ink: l.added ? il : io, p };
+  };
   const hits: Hit[] = [];
   // A word whose text runs another way than in the other version, by a
   // quarter or a half turn (a label set upright in one and turned in the
@@ -2983,12 +3627,23 @@ function appearanceChanges(
     // slant (see level and crosses).
     const g = near(a, b);
     const opts = { drift: b.kind !== 'cjk', cjk: b.kind === 'cjk', rows: own(a, b), exact, level: !!(ca || cb), crossing: g || graphicAt(a, b) ? differs : undefined };
-    const lines = (ga: Cover | null, gb: Cover | null, o: LineOptions = opts) => {
-      const added = framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, ga, gb, o), B, pageLines.new, b, a), B, A, b, a);
-      const removed = added ? null : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, gb, ga, o), A, pageLines.old, a, b), A, B, a, b);
+    // `weigh`: keep a fainter line found where no line is (see
+    // LineOptions.faint), checked as a line is, in `faint`.
+    let faint: Line | null = null;
+    let slanted = false;
+    const lines = (ga: Cover | null, gb: Cover | null, o: LineOptions = opts, [ta, tb] = [a, b], weigh = false): Line | null => {
+      const [fa, fr]: NonNullable<LineOptions['faint']>[] = [{}, {}];
+      const added = framed(rowEdge(addedLine(A, ta.rects[0], B, tb.rects[0], few, ga, gb, weigh ? { ...o, faint: fa } : o), B, pageLines.new, tb, ta), B, A, tb, ta);
+      const removed = added ? null : framed(rowEdge(addedLine(B, tb.rects[0], A, ta.rects[0], few, gb, ga, weigh ? { ...o, faint: fr } : o), A, pageLines.old, ta, tb), A, B, ta, tb);
+      if (weigh && !added && !removed) {
+        const f = fa.line ? framed(rowEdge(fa.line, B, pageLines.new, tb, ta), B, A, tb, ta) : null;
+        const g = !f && fr.line ? framed(rowEdge(fr.line, A, pageLines.old, ta, tb), A, B, ta, tb) : null;
+        faint = f ? { line: f.line, added: true, rows: f.rows } : g ? { line: g.line, added: false, rows: g.rows } : null;
+        slanted = !!(f ? fa.slanted : g && fr.slanted);
+      }
       return added ? { line: added.line, added: true, rows: added.rows } : removed ? { line: removed.line, added: false, rows: removed.rows } : null;
     };
-    let line = turned ? null : lines(ca, cb);
+    let line = turned ? null : lines(ca, cb, opts, [a, b], true);
     // A graphic that changed next to (or behind) the word explains its ink
     // where it lies: the word is measured outside the graphic's ink, or not
     // at all where that ink cannot be told apart. So is a line looked for
@@ -3009,23 +3664,73 @@ function appearanceChanges(
     const again = !turned && !line && g && g !== 'skip' && (g[0] || g[1]) && !(ca && g[0]) && !(cb && g[1]) && !(sharedBg(g[0]) && sharedBg(g[1]));
     // Behind the word (a fill, a tint), the overlay leaves the glyphs where
     // they were: the word's box is not tried shifted (see addedLine) again.
-    if (again) line = lines(ca ?? g[0], cb ?? g[1], g[0]?.behind || g[1]?.behind ? { ...opts, drift: false } : opts);
+    // A fainter line found on the word as it is (see faint below) is then
+    // looked for again outside the graphic's ink where the word moved: the
+    // glyphs of a paragraph that an image beside it moved, drawn at another
+    // sub-pixel position, are no line. Not where the graphic is a fill
+    // behind the text (taken off the word's darkness there, see offFill),
+    // nor where the glyphs give the very same pixels (see samePixels): a
+    // grey strike there with an arrow drawn after it is counted as before.
+    const filled = (side: 'old' | 'new') => !!fillAround(side, (side === 'old' ? a : b).rects[0]);
+    const behind = (c: Cover | null, side: 'old' | 'new') => !c || (c.clear && filled(side));
+    const fills = !!g && g !== 'skip' && behind(g[0], 'old') && behind(g[1], 'new');
+    const still = exact && samePixels(a.rects[0], A.r.scale, b.rects[0], B.r.scale);
+    if (again) line = lines(ca ?? g[0], cb ?? g[1], g[0]?.behind || g[1]?.behind ? { ...opts, drift: false } : opts, [a, b], !!faint && !fills && !still);
     const [wa, wb] = again ? [ca ?? g[0], cb ?? g[1]] : [ca, cb];
     // So is a line under a watermark that moved, turned or was recoloured
     // (see slant), outside its ink; where its ink cannot be told, the word
-    // is measured as it is.
+    // is measured as it is. So is a fainter line: the edges of the
+    // watermark's letters that changed (made lighter) are no line.
     const sl = slant(a, b);
     const t = sl === 'skip' ? null : sl;
-    if (!turned && !line && t && (t[0] || t[1])) line = lines(wa ?? t[0], wb ?? t[1]);
+    if (!turned && !line && t && (t[0] || t[1])) line = lines(wa ?? t[0], wb ?? t[1], opts, [a, b], !!faint);
     const weak = { ...opts, weak: true, drift: false };
     const fainter = (added: boolean) =>
       added
         ? framed(rowEdge(addedLine(A, a.rects[0], B, b.rects[0], few, wa, wb, weak), B, pageLines.new, b, a), B, A, b, a)
         : framed(rowEdge(addedLine(B, b.rects[0], A, a.rects[0], few, wb, wa, weak), A, pageLines.old, a, b), A, B, a, b);
-    tried.set(b.i, { a, b, p, weak: (added) => (turned ? null : fainter(added)) });
+    tried.set(b.i, { a, b, p, plain: !ca && !cb && !g && !(t && (t[0] || t[1])), weak: (added) => (turned ? null : fainter(added)) });
+    // The rule that closes a table fragment at a moved page break, found
+    // under the word (see closingRules): part of that consequence. The
+    // word's colour and weight are compared as where no line is found. A
+    // line through or under the word besides that rule is looked for with
+    // the word's boxes cut off above the rule (whose rows, in one version
+    // only, read as a change of the glyphs, so that a strike on the row
+    // was not found): one found there is the word's own.
+    if (line && closes(a, b, line)) line = null;
+    const top = turned || line ? null : ruleBelow(a, b);
+    if (top !== null) {
+      const r = (top.side === 'old' ? a : b).rects[0];
+      const h = Math.min(r.h, (top.y - r.y) / 1.15);
+      if (h >= 0.5 * r.h) {
+        const cut = (t: Token): Token => ({ ...t, rects: [{ ...t.rects[0], h }] });
+        const [ta, tb] = [cut(a), cut(b)];
+        line = lines(ca, cb, { ...opts, rows: own(ta, tb) }, [ta, tb]);
+        // Through or under the word as its whole box places it (see lineIn).
+        if (line) {
+          const q = (line.added ? b : a).rects[0];
+          const mid = (line.rows[0] + line.rows[1] + 1) / 2 / (line.added ? B : A).r.scale;
+          line = { ...line, line: (mid - q.y) / q.h >= 0.72 ? 'underline' : 'strike' };
+        }
+      }
+    }
+    // No overlay or graphic that changed at the word.
+    const plain = !ca && !cb && !g && !(t && (t[0] || t[1]));
     if (line) {
       hits.push({ a, b, colour: false, line, p });
+      const tint = plain ? recolouredToo(a, b, line, p) : null;
+      if (tint) also.push(tint);
       continue;
+    }
+    // A fainter line, weighed below with the words next to it. Only where
+    // nothing else that changed at the word could have drawn it: no text
+    // over it (a stamp, a watermark), no graphic that changed next to it or
+    // around it other than a fill behind the text (a table's stripes that
+    // a re-flow by a row flipped, taken off the word's darkness; a fill's
+    // edge in the box is no line, see goesOn).
+    if (faint && !closes(a, b, faint)) {
+      const quiet = !ca && !cb && !(t && (t[0] || t[1])) && (!g || fills) && (!graphicAt(a, b) || filled('old') || filled('new'));
+      faints.set(b.i, { a, b, p, line: faint, alone: quiet, plain, slanted });
     }
     if (g === 'skip') {
       notePartly(result, newPage, b);
@@ -3205,6 +3910,60 @@ function appearanceChanges(
   // word): such a word, next to it (one punctuation mark may lie between),
   // with a fainter line at the same rows (within a pixel), is struck or
   // underlined as well, not only recoloured. Followed along the line.
+  // A fainter line (see faints) on two words next to each other (one
+  // punctuation mark may lie between), or on a word next to one where a
+  // line was found, at the same rows (within a pixel) and of the same kind,
+  // is a line through or under both: a thin strike drawn over a phrase.
+  // Elsewhere it is no more than a likeness: the word is counted as
+  // compared in part, not listed and not dropped. Not one that runs on
+  // past either end of its line of text, as a table's rule does. Nor one in
+  // another colour than the line next to it (see StrokeHue): a red arrow
+  // drawn after a black strike, at its height over the next word, is
+  // another mark (listed as a graphic where it reaches out of the text).
+  // The words counted so are counted once the lines found have been
+  // followed along (below): a word a line was followed onto is listed.
+  const doubtful: Token[] = [];
+  {
+    const lineAt = new Map(hits.filter((h) => h.line).map((h) => [h.b.i, h]));
+    const same = (u: Line, v: Line) => u.line === v.line && u.added === v.added && Math.abs(u.rows[0] + u.rows[1] - v.rows[0] - v.rows[1]) <= 2;
+    // (Told on paper only: over a fill, a line's anti-aliased pixels are
+    // of the fill's colour in part, and the share varies with the line's
+    // place on the pixel grid.)
+    const hue = new Map<number, ReturnType<typeof lineHues>>();
+    const hueOf = (a: Token, b: Token, l: Line) => {
+      let h = hue.get(b.i);
+      if (!h) hue.set(b.i, (h = lineHues(a, b, l)));
+      return h;
+    };
+    const alike = (a: Token, b: Token, l: Line, c: Token, d: Token, m: Line) => {
+      const [u, v] = [hueOf(a, b, l), hueOf(c, d, m)];
+      return Math.min(...u.il.bg, ...v.il.bg) < 240 || !u.line.differs(v.line, 0.5);
+    };
+    const promoted: Hit[] = [];
+    for (const [i, f] of faints) {
+      const next = [-2, -1, 1, 2].some((d) => {
+        const o = faints.get(i + d);
+        if (o) return o.alone && o.b.line === f.b.line && same(o.line, f.line) && alike(f.a, f.b, f.line, o.a, o.b, o.line);
+        const h = lineAt.get(i + d);
+        return !!h && TB[i + d].line === f.b.line && same(h.line!, f.line) && alike(f.a, f.b, f.line, h.a, h.b, h.line!);
+      });
+      // A rule along the row (see runsOn) is compared as a graphic where it
+      // runs on outside the text: neither the word's line nor in doubt.
+      if (runsOn(f.line.added ? B : A, f.line.added ? pageLines.new : pageLines.old, f.line.added ? f.b : f.a, f.line.rows)) continue;
+      if (f.alone && next) promoted.push({ a: f.a, b: f.b, colour: false, line: f.line, p: f.p });
+      else doubtful.push(f.b);
+    }
+    // A colour or weight found at the word was measured with the line's
+    // pixels: told again outside them (see recolouredToo).
+    for (const h of promoted) {
+      const k = hits.findIndex((x) => x.b.i === h.b.i);
+      if (k >= 0) {
+        const tint = faints.get(h.b.i)!.plain ? recolouredToo(h.a, h.b, h.line!, h.p) : null;
+        if (tint) also.push(tint);
+        hits[k] = h;
+      } else hits.push(h);
+    }
+  }
   const byToken = new Map(hits.map((h) => [h.b.i, h]));
   const queue = hits.filter((h) => h.line);
   while (queue.length) {
@@ -3215,13 +3974,45 @@ function appearanceChanges(
       if (!t || t.b.line !== h.b.line || byToken.get(t.b.i)?.line) continue;
       const f = t.weak(l.added);
       if (!f || f.line !== l.line || Math.abs(f.rows[0] + f.rows[1] - l.rows[0] - l.rows[1]) > 2) continue;
-      const next: Hit = { a: t.a, b: t.b, colour: false, line: { line: f.line, added: l.added, rows: f.rows }, p: t.p };
+      // Not onto a word where the line found is the rule that closes a
+      // table fragment at a moved page break (see closingRules), which runs
+      // under every word of the row: it is no line of the word, and what
+      // was found on the word (a colour) stays as it is.
+      const found = { line: f.line, added: l.added, rows: f.rows };
+      if (closes(t.a, t.b, found)) continue;
+      const next: Hit = { a: t.a, b: t.b, colour: false, line: found, p: t.p };
       const old = byToken.get(t.b.i);
-      if (old) hits[hits.indexOf(old)] = next;
-      else hits.push(next);
+      if (old) {
+        const tint = old.colour && t.plain ? recolouredToo(t.a, t.b, found, t.p) : null;
+        if (tint) also.push(tint);
+        hits[hits.indexOf(old)] = next;
+      } else hits.push(next);
       byToken.set(t.b.i, next);
       queue.push(next);
     }
+  }
+  // Nor a word between two words of one line item (see flush below), whose
+  // text takes it in: "were" in a struck "wrenches were missing".
+  const within = new Set<number>();
+  const struck = hits.filter((h) => h.line).sort((u, v) => u.b.i - v.b.i);
+  for (let k = 1; k < struck.length; k++) {
+    const [u, v] = [struck[k - 1], struck[k]];
+    if (u.b.line === v.b.line && v.b.i - u.b.i <= 2 && u.line!.line === v.line!.line && u.line!.added === v.line!.added) for (let i = u.b.i + 1; i < v.b.i; i++) within.add(i);
+  }
+  for (const t of doubtful) {
+    if (byToken.has(t.i) || within.has(t.i)) continue;
+    // A slanted line that may be a stamp's border (see lineBy) is counted
+    // with the words a graphic lies over, not as too thin or too light.
+    const f = faints.get(t.i);
+    notePartly(result, newPage, t, !f?.slanted);
+    // The faint line, to be told from a markup annotation's (see unnoteMarkup).
+    if (f) faintLines(result).set(t.i, { a: f.a.i, line: f.line.line, added: f.line.added, rows: [f.line.rows[0] / (f.line.added ? B : A).r.scale, (f.line.rows[1] + 1) / (f.line.added ? B : A).r.scale] });
+  }
+  // The same rule found on a word next to one (see above), or on a word
+  // whose format changed: part of that consequence, not a line under them.
+  for (let k = hits.length - 1; k >= 0; k--) {
+    const l = hits[k].line;
+    if (l && closes(hits[k].a, hits[k].b, l)) hits.splice(k, 1);
   }
   hits.sort((u, v) => u.p - v.p);
   // Text of a group: every token from the first hit to the last, so a word
@@ -3254,6 +4045,9 @@ function appearanceChanges(
     // convincing on its own.
     if (group.length && (group.length >= 2 || group[0].colour || group[0].line || group[0].bold)) {
       const newRects = group.map((h) => h.b.rects[0]);
+      const line = group[0].line;
+      const scale = line?.added ? B.r.scale : A.r.scale;
+      const rows: [number, number] | null = line ? [Math.min(...group.map((h) => h.line!.rows[0])) / scale, (Math.max(...group.map((h) => h.line!.rows[1])) + 1) / scale] : null;
       out.push({
         id: '',
         kind: 'graphic',
@@ -3267,6 +4061,11 @@ function appearanceChanges(
         contextAfter: '',
         order: newPage * 100000 + newRects[0].y,
       });
+      if (rows) lineRows.set(out[out.length - 1], rows);
+      hitPairs.set(
+        out[out.length - 1],
+        group.map((h) => ({ a: h.a.i, b: h.b.i, rows: h.line ? [h.line.rows[0] / scale, (h.line.rows[1] + 1) / scale] : null })),
+      );
     }
     group = [];
   };
@@ -3289,12 +4088,17 @@ function appearanceChanges(
     h.a.i > last.a.i &&
     h.a.i - last.a.i <= 2 &&
     (!!h.line || (!!h.ink && !!last.ink && last.colour === h.colour && alike(last.ink, h.ink)));
-  for (const h of hits) {
-    const last = group[group.length - 1];
-    if (last && ((last.b.line !== h.b.line && !wraps(last, h)) || h.b.i - last.b.i > 2 || key(last) !== key(h))) flush();
-    group.push(h);
+  // The recolours of words with a line (see recolouredToo) are grouped
+  // among themselves, after the lines.
+  also.sort((u, v) => u.p - v.p);
+  for (const list of [hits, also]) {
+    for (const h of list) {
+      const last = group[group.length - 1];
+      if (last && ((last.b.line !== h.b.line && !wraps(last, h)) || h.b.i - last.b.i > 2 || key(last) !== key(h))) flush();
+      group.push(h);
+    }
+    flush();
   }
-  flush();
   return out;
 }
 
@@ -4489,7 +5293,14 @@ function unturnedView(result: CompareResult, oldPage: number, page: number, turn
   const pages = doc.pages.slice();
   const p = doc.pages[page];
   const [width, height] = turn.deg === 180 ? [p.width, p.height] : [p.height, p.width];
-  pages[page] = { ...p, width, height, textAngle: result.oldDoc.pages[oldPage].textAngle };
+  // Its annotations' places turned back with it.
+  const an = p.annotations;
+  const annotations = an && {
+    ...an,
+    markup: an.markup.map((m) => ({ ...m, quads: m.quads.map(back), rect: back(m.rect) })),
+    notes: an.notes.map((n) => ({ ...n, rect: back(n.rect) })),
+  };
+  pages[page] = { ...p, width, height, textAngle: result.oldDoc.pages[oldPage].textAngle, ...(annotations ? { annotations } : {}) };
   return {
     ...result,
     newDoc: {
@@ -4572,6 +5383,502 @@ export function compareRasters(
   return out;
 }
 
+/**
+ * The rule that closes a table fragment at the foot of a page, in the
+ * version whose next page starts with the table's header row repeated only
+ * because a page break moved (consequence 'repeatedLine', see
+ * closingRules). The rule comes and goes with that break, as the header
+ * row does: it is shown with it (consequence 'closingRule'), counted in the
+ * same notice.
+ */
+interface ClosingRule {
+  side: 'old' | 'new';
+  /** The page of the row and rule in `side`, and the page of the same row in the other version. */
+  page: number;
+  other: number;
+  /** The lines of the fragment's last row in `side`. */
+  lines: Set<number>;
+  /** The rule, in points and in pixel rows of `side`'s raster (with a row of blur on each side). */
+  rect: Rect;
+  rows: [number, number];
+  /** The pixel rows its ink lies in (see closingRules): what is drawn beside them is looked at. */
+  core: [number, number];
+  /** The same place in the other version, under the row there (where it has no line). */
+  away: Rect;
+  /** Its darkness summed down each column, along it (median, pixels). */
+  weight: number;
+  /** Whether it is black or grey (of no hue within 12). */
+  grey: boolean;
+  /** The row's text. */
+  text: string;
+  /** Where it lies in the new version's order (see Change.order). */
+  order: number;
+  /** The text of the header row repeated after it: its table (see openFragment). */
+  table: string;
+  /** The change it is shown with, made on its first fold (see compareAligned). */
+  change?: Change;
+}
+
+/**
+ * The feet of table fragments looked at for a closing rule (see
+ * closingRules), per result: the tables, by the text of the header row
+ * repeated after the foot, that have a foot without a rule under its last
+ * row in either version; and the table of each closing rule shown with a
+ * moved page break.
+ */
+const fragmentFeet = new WeakMap<CompareResult, { open: Set<string>; tables: WeakMap<Change, string> }>();
+function feetOf(result: CompareResult): { open: Set<string>; tables: WeakMap<Change, string> } {
+  let v = fragmentFeet.get(result);
+  if (!v) fragmentFeet.set(result, (v = { open: new Set(), tables: new WeakMap() }));
+  return v;
+}
+
+/** Forget the fragment feet seen by an earlier run on the result (see openFragment). */
+export function clearFragmentFeet(result: CompareResult): void {
+  fragmentFeet.delete(result);
+}
+
+/**
+ * A closing rule shown with a moved page break (consequence 'closingRule')
+ * whose table has another fragment foot, in either version, with no rule
+ * under its last row: the producer does not close the table's fragments,
+ * so the rule was drawn there as a graphic of its own, not with the break.
+ * Known once every page pair has been compared (see addVisualChanges).
+ */
+export function openFragment(result: CompareResult, c: Change): boolean {
+  const v = fragmentFeet.get(result);
+  const table = v?.tables.get(c);
+  return table !== undefined && v!.open.has(table);
+}
+
+/** The document token facing each token of either version (-1 where none), per result. */
+const matesOf = new WeakMap<CompareResult, { old: Int32Array; new: Int32Array }>();
+function mates(result: CompareResult): { old: Int32Array; new: Int32Array } {
+  let v = matesOf.get(result);
+  if (v) return v;
+  const old = new Int32Array(result.oldDoc.tokens.length).fill(-1);
+  const nw = new Int32Array(result.newDoc.tokens.length).fill(-1);
+  for (let p = 0; p < result.matches.length; p += 2) {
+    old[result.matches[p]] = result.matches[p + 1];
+    nw[result.matches[p + 1]] = result.matches[p];
+  }
+  matesOf.set(result, (v = { old, new: nw }));
+  return v;
+}
+
+/**
+ * A horizontal rule along pixel columns x0–x1 of `P`, searched for between
+ * pixel rows y0 and y1: the first run of rows in which 95 % of the columns
+ * or more are dark (a row and its neighbours summing to half a dark pixel
+ * or more: a thin line drawn between two pixel rows), at most `thick` rows
+ * high. Its rows, its extent along them (followed past x0–x1 while the
+ * columns stay dark) and its weight and hue (see ruleLook); null where no
+ * run of rows is found, or the first is thicker (a fill, a band).
+ */
+function ruleIn(P: Prepared, x0: number, x1: number, y0: number, y1: number, thick: number): { rows: [number, number]; ext: [number, number]; weight: number; hue: number[] } | null {
+  const W = P.r.width;
+  const H = P.r.height;
+  const dark = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= H ? 0 : (255 - P.lum[y * W + x]) / 255);
+  const col = (x: number, y: number) => dark(x, y - 1) + dark(x, y) + dark(x, y + 1) >= 0.5;
+  const a = Math.max(0, Math.round(x0));
+  const b = Math.min(W - 1, Math.round(x1));
+  if (b - a < 8) return null;
+  const full = (y: number) => {
+    let n = 0;
+    for (let x = a; x <= b; x++) if (col(x, y)) n++;
+    return n >= 0.95 * (b - a + 1);
+  };
+  let top = -1;
+  for (let y = Math.max(1, Math.round(y0)); y <= Math.min(H - 2, Math.round(y1)); y++)
+    if (full(y)) {
+      top = y;
+      break;
+    }
+  if (top < 0) return null;
+  let bottom = top;
+  while (bottom + 1 < H - 1 && full(bottom + 1)) bottom++;
+  if (bottom - top + 1 > thick) return null;
+  const mid = (top + bottom) >> 1;
+  let xa = a;
+  let xb = b;
+  while (xa > 0 && col(xa - 1, mid)) xa--;
+  while (xb < W - 1 && col(xb + 1, mid)) xb++;
+  const { weight, hue } = ruleLook(P, xa, xb, top - 1, bottom + 1);
+  return { rows: [top - 1, bottom + 1], ext: [xa, xb], weight, hue };
+}
+
+/**
+ * The look of a rule along pixel columns x0–x1 and rows y0–y1 of `P`: its
+ * weight, the darkness summed down each column (median over the columns,
+ * so that a glyph's descender reaching into a few of them does not count),
+ * and its hue (each channel's difference from the luminance, weighted by
+ * darkness: black and grey are 0, 0, 0).
+ */
+function ruleLook(P: Prepared, x0: number, x1: number, y0: number, y1: number): { weight: number; hue: number[] } {
+  const W = P.r.width;
+  const sums: number[] = [];
+  const hue = [0, 0, 0];
+  let w = 0;
+  for (let x = Math.max(0, x0); x <= Math.min(W - 1, x1); x++) {
+    let sum = 0;
+    for (let y = Math.max(0, y0); y <= Math.min(P.r.height - 1, y1); y++) {
+      const i = y * W + x;
+      const v = 255 - P.lum[i];
+      sum += v / 255;
+      if (v < 40) continue;
+      const p = rgb(P.r, i);
+      for (let k = 0; k < 3; k++) hue[k] += (p[k] - P.lum[i]) * v;
+      w += v;
+    }
+    sums.push(sum);
+  }
+  sums.sort((u, v) => u - v);
+  return { weight: sums.length ? sums[sums.length >> 1] : 0, hue: w ? hue.map((v) => v / w) : [0, 0, 0] };
+}
+
+/**
+ * A line of word `t`'s own besides a rule along pixel rows `rows` of `S`
+ * right under it, of weight `weight` (see closingRules), in either version
+ * (an underline drawn just above the rule, whose rows the rule's may join):
+ * what the word in `S` gains over its counterpart `u` in `O`, summed down
+ * each of its columns from its lower part to the rule's last row, goes
+ * beyond the rule's weight (by 0.3 of a dark pixel), or what it loses
+ * reaches 0.3 (a line under `u`). `O` is sampled where its word puts each
+ * pixel (see boxDarkness), so the glyphs cancel out; the median of the
+ * columns is taken.
+ */
+function ownLineBy(S: Prepared, O: Prepared, rows: [number, number], weight: number, t: Token, u: Token): boolean {
+  const s = S.r.scale;
+  const so = O.r.scale;
+  const r = t.rects[0];
+  const q = u.rects[0];
+  const at = (x: number, y: number) => sampleDark(O, ((x + 0.5) / s - r.x + q.x) * so - 0.5, ((y + 0.5) / s - r.y + q.y) * so - 0.5);
+  const gains: number[] = [];
+  const losses: number[] = [];
+  for (let x = Math.round(r.x * s); x < Math.round((r.x + r.w) * s); x++) {
+    let g = 0;
+    let l = 0;
+    for (let y = Math.floor((r.y + 0.7 * r.h) * s); y <= rows[1] + 1; y++) {
+      const d = darkAt(S, x, y) - at(x, y);
+      if (d > 0) g += d;
+      else l -= d;
+    }
+    gains.push(g);
+    losses.push(l);
+  }
+  const median = (v: number[]) => v.sort((a, b) => a - b)[v.length >> 1] ?? 0;
+  return median(gains) > weight + 0.3 || median(losses) > 0.3;
+}
+
+/** The darkness of a pixel of `P` (0 outside the page). */
+function darkAt(P: Prepared, x: number, y: number): number {
+  return x < 0 || y < 0 || x >= P.r.width || y >= P.r.height ? 0 : (255 - P.lum[y * P.r.width + x]) / 255;
+}
+
+/** The darkness of `P` at a point between pixel centres (pixel units), interpolated. */
+function sampleDark(P: Prepared, fx: number, fy: number): number {
+  const [i, j] = [Math.floor(fx), Math.floor(fy)];
+  const [u0, v0] = [fx - i, fy - j];
+  return (1 - u0) * (1 - v0) * darkAt(P, i, j) + u0 * (1 - v0) * darkAt(P, i + 1, j) + (1 - u0) * v0 * darkAt(P, i, j + 1) + u0 * v0 * darkAt(P, i + 1, j + 1);
+}
+
+/**
+ * How much darker the pixel (x, y) of `P` is than `Q` at a point between
+ * its pixel centres (pixel units, interpolated; paper outside the page),
+ * in the channel it darkens most (0–1). A mark in a pale, saturated colour
+ * (a yellow or pink dash) takes little of the paper's luminance and much
+ * of one channel; a grey one takes as much of each.
+ */
+function toneGain(P: Prepared, x: number, y: number, Q: Prepared, fx: number, fy: number): number {
+  const p = rgb(P.r, y * P.r.width + x);
+  const [i, j] = [Math.floor(fx), Math.floor(fy)];
+  const [u0, v0] = [fx - i, fy - j];
+  const at = (u: number, v: number) => (u < 0 || v < 0 || u >= Q.r.width || v >= Q.r.height ? [255, 255, 255] : rgb(Q.r, v * Q.r.width + u));
+  const [a, b, c, d] = [at(i, j), at(i + 1, j), at(i, j + 1), at(i + 1, j + 1)];
+  let most = 0;
+  for (let k = 0; k < 3; k++) most = Math.max(most, (1 - u0) * (1 - v0) * a[k] + u0 * (1 - v0) * b[k] + (1 - u0) * v0 * c[k] + u0 * v0 * d[k] - p[k]);
+  return most / 255;
+}
+
+/**
+ * Rules that close a table fragment at a page break that moved, on the
+ * page pair compared (see ClosingRule). Where a header row repeated at the
+ * top of page p + 1 of one version came or went only because the page
+ * break moved (consequence 'repeatedLine'), the row that follows the header
+ * there goes on in the other version on the page compared, right below the
+ * line that this version has last on page p: the fragment's last row. Only
+ * what lies below the rule may come between that row and the header in the
+ * reading order (a footnote at the page foot), and no line of text lies
+ * right below the row. The rule right under the row, across it (95 % of its
+ * width or more), is that fragment's closing rule when:
+ * - the other version has no line at the same place under the row;
+ * - it closes the same table further down that page with a rule of the
+ *   same extent (within 2 pt at each end), weight (within a quarter: a thin
+ *   line's anti-aliased darkness varies with its sub-pixel place) and hue,
+ *   right under a line that this version has after the break: the table's
+ *   end, or the fragment's end at its own page break;
+ * - and it is alike that rule along its whole length, column by column (but
+ *   under a word with a line of its own, listed on the word), with no mark
+ *   drawn across it: no column gains more than the rule's own profile both
+ *   above and below its ink, and none of a black or grey rule has another
+ *   hue.
+ * A rule recoloured, thickened or doubled, over the whole of it or a part,
+ * broken, drawn longer, or drawn where the other version closes the table
+ * with none, so stays a change; and one at a page foot where no page break
+ * moved is not looked at.
+ */
+function closingRules(result: CompareResult, oldPage: number, newPage: number, A: Prepared, B: Prepared): ClosingRule[] {
+  const out: ClosingRule[] = [];
+  const headers = result.minor.filter((c) => c.consequence === 'repeatedLine');
+  if (!headers.length) return out;
+  for (const side of ['old', 'new'] as const) {
+    const [page, other] = side === 'old' ? [oldPage, newPage] : [newPage, oldPage];
+    const [doc, odoc] = side === 'old' ? [result.oldDoc, result.newDoc] : [result.newDoc, result.oldDoc];
+    const [P, Q] = side === 'old' ? [A, B] : [B, A];
+    const mate = mates(result)[side];
+    for (const c of headers) {
+      const h = c[side];
+      if (h.start === undefined || h.end === undefined || h.pages[0] !== page + 1) continue;
+      // The row that follows the header (the table going on), and the line
+      // right above that row in the other version, on the page compared: the
+      // fragment's last row there, which this version has on this page.
+      let k = h.end;
+      while (k < doc.tokens.length && doc.tokens[k].furniture) k++;
+      if (k >= doc.tokens.length || doc.tokens[k].page !== page + 1) continue;
+      const next = doc.lines[doc.tokens[k].line];
+      const nextFacing = doc.tokens.slice(next.start, next.end).map((t) => mate[t.i]).filter((q) => q >= 0);
+      if (!nextFacing.length || nextFacing.some((q) => odoc.tokens[q].page !== other)) continue;
+      const onext = odoc.lines[odoc.tokens[nextFacing[0]].line].rect;
+      const obody = odoc.lines.filter((l) => l.page === other && l.end > l.start && !l.furniture);
+      let olast: Line | null = null;
+      for (const l of obody) if (l.rect.y + l.rect.h <= onext.y + 0.5 && (!olast || l.rect.y + l.rect.h > olast.rect.y + olast.rect.h)) olast = l;
+      if (!olast) continue;
+      const otherMate = mates(result)[side === 'old' ? 'new' : 'old'];
+      const back = odoc.tokens.slice(olast.start, olast.end).filter((t) => t.kind !== 'punct');
+      const facing = back.map((t) => otherMate[t.i]).filter((q) => q >= 0);
+      if (!back.length || facing.length < 0.5 * back.length || facing.some((q) => doc.tokens[q].page !== page)) continue;
+      // That row here, with the other cells set on its line; no text of the
+      // table below it: what comes before the header in the reading order
+      // lies below the rule (a footnote at the page foot).
+      const body = doc.lines.filter((l) => l.page === page && l.end > l.start && !l.furniture);
+      const own = new Set(facing.map((q) => doc.tokens[q].line));
+      const band = union([...own].map((id) => doc.lines[id].rect));
+      const row = body.filter((l) => own.has(l.id) || (l.rect.y + l.rect.h / 2 >= band.y && l.rect.y + l.rect.h / 2 <= band.y + band.h));
+      const rowRect = union(row.map((l) => l.rect));
+      const bottom = rowRect.y + rowRect.h;
+      const lh = Math.max(...row.map((l) => l.rect.h));
+      const end = Math.max(...row.map((l) => l.end));
+      let foot = true;
+      for (let q = end; q < h.start && foot; q++) {
+        const t = doc.tokens[q];
+        if (!t.furniture && (t.page !== page || t.rects[0].y < bottom + 0.3 * lh)) foot = false;
+      }
+      if (!foot || body.some((l) => !row.includes(l) && l.rect.y + l.rect.h / 2 > rowRect.y + rowRect.h / 2 && l.rect.y < bottom + 0.3 * lh)) continue;
+      const words = row.flatMap((l) => doc.tokens.slice(l.start, l.end)).filter((t) => t.kind !== 'punct' && mate[t.i] >= 0);
+      if (!words.length) continue;
+      // The rule, right under the row: within 0.6 of a line below it, and
+      // above the next line of the page (a footnote, a footer).
+      const s = P.r.scale;
+      const below = doc.lines.filter((l) => l.page === page && l.end > l.start && l.rect.y >= bottom - 0.5).map((l) => l.rect.y);
+      const limit = Math.min(bottom + 0.6 * lh, ...below);
+      const rule = ruleIn(P, rowRect.x * s, (rowRect.x + rowRect.w) * s, (bottom - 0.3 * lh) * s, limit * s - 1, Math.round(3 * s) + 2);
+      // The table, by its header row's text; a foot without a rule under its
+      // last row makes every closing rule of the table a graphic of its own
+      // (see openFragment).
+      const table = joinTokens(doc.tokens.slice(h.start, h.end).filter((t) => !t.furniture));
+      if (!rule) {
+        feetOf(result).open.add(table);
+        continue;
+      }
+      // Where the other version has the row: the same words, displaced alike.
+      const t0 = words[0];
+      const u0 = odoc.tokens[mate[t0.i]];
+      const dx = u0.rects[0].x - t0.rects[0].x;
+      const dy = u0.rects[0].y - t0.rects[0].y;
+      const so = Q.r.scale;
+      const ox = (x: number) => (x / s + dx) * so;
+      const oy = (y: number) => (y / s + dy) * so;
+      // No line there in the other version: under a third of the columns dark.
+      const W = Q.r.width;
+      const darkO = (x: number, y: number) => (x < 0 || y < 0 || x >= W || y >= Q.r.height ? 0 : (255 - Q.lum[y * W + x]) / 255);
+      const [ca, cb] = [Math.round(ox(rule.ext[0])), Math.round(ox(rule.ext[1]))];
+      let line = false;
+      for (let y = Math.floor(oy(rule.rows[0])) - 1; y <= Math.ceil(oy(rule.rows[1])) + 1 && !line; y++) {
+        let n = 0;
+        for (let x = ca; x <= cb; x++) if (darkO(x, y - 1) + darkO(x, y) + darkO(x, y + 1) >= 0.5) n++;
+        line = n >= 0.3 * (cb - ca + 1);
+      }
+      if (line) continue;
+      // The same table closed further down in the other version, alike.
+      const ref = ruleIn(Q, ca, cb, Math.ceil(oy(rule.rows[1])) + 2, Q.r.height - 2, rule.rows[1] - rule.rows[0] + 3);
+      if (!ref || Math.abs(ref.ext[0] - ca) > 2 * so || Math.abs(ref.ext[1] - cb) > 2 * so) continue;
+      // Right under a line that this version has after the break (the
+      // table's last row, or the last row before the other version's own
+      // break), as this rule lies under its row: not a rule a paragraph's
+      // space below the text (another table's top rule, a section rule).
+      const mid = (ref.rows[0] + ref.rows[1] + 1) / 2 / so;
+      let above: Line | null = null;
+      for (const l of obody) if (l.rect.y + l.rect.h <= mid + 0.5 && (!above || l.rect.y + l.rect.h > above.rect.y + above.rect.h)) above = l;
+      if (!above || mid - (above.rect.y + above.rect.h) > 0.6 * lh) continue;
+      const later = odoc.tokens.slice(above.start, above.end).map((t) => otherMate[t.i]).filter((q) => q >= 0);
+      if (!later.length || later.some((q) => doc.tokens[q].page <= page)) continue;
+      const wa = rule.weight / s;
+      const wb = ref.weight / so;
+      if (Math.abs(wa - wb) > 0.25 * Math.max(wa, wb) || Math.hypot(rule.hue[0] - ref.hue[0], rule.hue[1] - ref.hue[1], rule.hue[2] - ref.hue[2]) > 30) continue;
+      // Alike along the whole rule, not only on the whole (a red segment
+      // drawn over a part of it, a gap cut out of it, a rule drawn longer at
+      // its ends): the other version's rule runs on from its middle to the
+      // ends of this one (within 2 pt), and down each column of this rule
+      // what this version gains over the other at the same place under the
+      // row (where it has no line, so that the glyphs of the row, a
+      // descender, cancel out) is the other rule's weight within 40 % and
+      // hue. Columns unlike it in a run of 3 pixels or more make it a
+      // change, but under a word with a line of its own (see ownLineBy),
+      // which is listed on the word.
+      const omid = (ref.rows[0] + ref.rows[1]) >> 1;
+      const colO = (x: number) => darkAt(Q, x, omid - 1) + darkAt(Q, x, omid) + darkAt(Q, x, omid + 1) >= 0.5;
+      let [oa, ob] = [(ca + cb) >> 1, (ca + cb) >> 1];
+      if (!colO(oa)) continue;
+      while (oa > 0 && colO(oa - 1)) oa--;
+      while (ob < W - 1 && colO(ob + 1)) ob++;
+      if (Math.abs(oa - ca) > 2 * so || Math.abs(ob - cb) > 2 * so) continue;
+      const lined = words
+        .filter((t) => ownLineBy(P, Q, rule.rows, rule.weight, t, odoc.tokens[mate[t.i]]))
+        .map((t) => [t.rects[0].x * s - 2, (t.rects[0].x + t.rects[0].w) * s + 2]);
+      const wRef = (ref.weight / so) * s;
+      const under = (x: number) => lined.some(([u, v]) => x >= u && x <= v);
+      // What this version gains over the other at the same place under the
+      // row, from the row of blur above the rule to the row below it, and
+      // its median down the rule (its own profile): the rows the median
+      // gains a tenth of a dark pixel or more in hold its ink (its core).
+      const gainAt = (x: number, y: number) => darkAt(P, x, y) - sampleDark(Q, ox(x + 0.5) - 0.5, oy(y + 0.5) - 0.5);
+      const toneAt = (x: number, y: number) => toneGain(P, x, y, Q, ox(x + 0.5) - 0.5, oy(y + 0.5) - 0.5);
+      const [g0, g1] = [rule.rows[0] - 1, rule.rows[1] + 1];
+      const prof: number[] = [];
+      for (let y = g0; y <= g1; y++) {
+        const v: number[] = [];
+        for (let x = rule.ext[0] + 2; x <= rule.ext[1] - 2; x++) v.push(gainAt(x, y));
+        v.sort((a, b) => a - b);
+        prof.push(v[v.length >> 1] ?? 0);
+      }
+      const inked = prof.map((v, k) => (v >= 0.1 ? g0 + k : -1)).filter((y) => y >= 0);
+      const core: [number, number] = inked.length ? [inked[0], inked[inked.length - 1]] : [rule.rows[0] + 1, rule.rows[1] - 1];
+      // An achromatic rule (black, grey): any column of another hue there is a mark.
+      const grey = Math.hypot(ref.hue[0], ref.hue[1], ref.hue[2]) <= 12;
+      // The longest run of columns unlike the other rule; and any column
+      // that gained half a dark pixel more than 1.4 times its weight, or
+      // more than the rule's profile both above its core and below it, or
+      // of another hue on a black or grey rule (a thin tick drawn across
+      // it, one or two pixels wide). Beside a black or grey rule, a column
+      // gains what it gains in the channel it darkens most where that is
+      // more (see toneGain): a light grey tick over a tinted last row takes
+      // less of the tint's luminance than of its blue.
+      let run = 0;
+      let longest = 0;
+      let tick = false;
+      for (let x = rule.ext[0] + 2; x <= rule.ext[1] - 2; x++) {
+        if (!under(x)) {
+          let up = 0;
+          let down = 0;
+          let cw = 0;
+          const ch = [0, 0, 0];
+          for (let y = g0; y <= g1; y++) {
+            const d = gainAt(x, y);
+            const e = (grey ? Math.max(d, toneAt(x, y)) : d) - prof[y - g0];
+            const i = y * P.r.width + x;
+            if (e > 0 && y < core[0]) up += e;
+            if (e > 0 && y > core[1] && P.mask[i] !== GLYPH) down += e;
+            if (!grey || d < 40 / 255 || P.mask[i] === GLYPH || P.mask[i] === PAD) continue;
+            const px = rgb(P.r, i);
+            for (let k = 0; k < 3; k++) ch[k] += (px[k] - P.lum[i]) * d;
+            cw += d;
+          }
+          if (up >= 0.12 && down >= 0.12 && up + down >= 0.3) tick = true;
+          if (cw >= 0.3 && Math.hypot(ch[0] / cw, ch[1] / cw, ch[2] / cw) > 30) tick = true;
+        }
+        let g = 0;
+        let hw = 0;
+        const hue = [0, 0, 0];
+        for (let y = rule.rows[0]; y <= rule.rows[1]; y++) {
+          const d = darkAt(P, x, y) - sampleDark(Q, ox(x + 0.5) - 0.5, oy(y + 0.5) - 0.5);
+          if (d <= 0) continue;
+          g += d;
+          if (d < 40 / 255) continue;
+          const i = y * P.r.width + x;
+          const px = rgb(P.r, i);
+          for (let k = 0; k < 3; k++) hue[k] += (px[k] - P.lum[i]) * d;
+          hw += d;
+        }
+        const h = hw ? hue.map((v) => v / hw) : [0, 0, 0];
+        const off = g < 0.6 * wRef || g > 1.4 * wRef || (hw >= 0.3 && Math.hypot(h[0] - ref.hue[0], h[1] - ref.hue[1], h[2] - ref.hue[2]) > 30);
+        run = off && !under(x) ? run + 1 : 0;
+        if (run > longest) longest = run;
+        if (g >= 1.4 * wRef + 0.5 && !under(x)) tick = true;
+      }
+      if (longest >= 3 || tick) continue;
+      out.push({
+        side,
+        page,
+        other,
+        lines: new Set(row.map((l) => l.id)),
+        rect: { x: rule.ext[0] / s, y: rule.rows[0] / s, w: (rule.ext[1] - rule.ext[0] + 1) / s, h: (rule.rows[1] - rule.rows[0] + 1) / s },
+        rows: rule.rows,
+        core,
+        away: { x: rule.ext[0] / s + dx, y: rule.rows[0] / s + dy, w: (rule.ext[1] - rule.ext[0] + 1) / s, h: (rule.rows[1] - rule.rows[0] + 1) / s },
+        weight: rule.weight,
+        grey,
+        text: joinTokens(row.flatMap((l) => doc.tokens.slice(l.start, l.end))),
+        // Right before the header row it came or went with (on the old side,
+        // which the new version's order does not place).
+        order: side === 'new' ? newPage * 100000 + rule.rows[0] / s : c.order - 0.01,
+        table,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Nothing but a line is drawn in region `r` of page `P` (points), the line
+ * along pixel rows y0–y1: in every other pixel row of the region, past a
+ * row of blur on each side of the line, under a tenth of the region's
+ * columns hold dark ink outside the text's mask (a second rule a few points
+ * below it is a graphic of its own). With `gain` (how much darker than
+ * the other version at the same place each pixel is: a table's closing
+ * rule, see compareAligned's closesAt), y0–y1 are the rows the rule's ink
+ * lies in (its core, see closingRules) and every other row is read, its
+ * blur included: only pixels a third of a dark pixel darker count, under
+ * three in a row (a short line a point or a few below the rule), and no
+ * column gains half a dark pixel or more over those rows (a thin tick
+ * beside it); the table's column rules, which both versions draw, do not
+ * count. With `tone` (beside a black or grey rule, see toneGain), so do
+ * pixels a third darker in the channel they darken most: a dash in pale
+ * orange, yellow or pink, as dark there as a black one.
+ */
+function lineOnly(P: Prepared, r: Rect, y0: number, y1: number, gain?: (x: number, y: number) => number, tone?: (x: number, y: number) => number): boolean {
+  const s = P.r.scale;
+  const [x0, x1] = [Math.max(0, Math.floor(r.x * s)), Math.min(P.r.width, Math.ceil((r.x + r.w) * s))];
+  const cols = gain ? new Float32Array(Math.max(0, x1 - x0)) : null;
+  const blur = gain ? 0 : 1;
+  for (let y = Math.max(0, Math.floor(r.y * s)); y < Math.min(P.r.height, Math.ceil((r.y + r.h) * s)); y++) {
+    if (y >= y0 - blur && y <= y1 + blur) continue;
+    let n = 0;
+    for (let x = x0; x < x1; x++) {
+      const i = y * P.r.width + x;
+      if (P.mask[i] === GLYPH || P.mask[i] === PAD) continue;
+      if (!gain) {
+        if (P.lum[i] <= DARK) n++;
+        continue;
+      }
+      const d = gain(x, y);
+      if (d >= 0.15) cols![x - x0] += d;
+      if ((d >= 0.3 && P.lum[i] <= DARK) || (tone && tone(x, y) >= 0.3)) n++;
+    }
+    if (n >= (gain ? 3 : Math.max(3, 0.1 * (x1 - x0)))) return false;
+  }
+  return !cols || cols.every((g) => g < 0.5);
+}
+
 /** Compare one old page with one new page drawn in the same orientation (see compareRasters). */
 function compareAligned(
   result: CompareResult,
@@ -4600,6 +5907,45 @@ function compareAligned(
   }
   const ownF = fwd.filter((a) => a.own);
   const ownB = bwd.filter((a) => a.own);
+  // The rules that close a table fragment at a page break that moved (see
+  // closingRules): shown with that consequence, made on the first fold.
+  const closing = options.turned || identity ? [] : closingRules(result, oldPage, newPage, A, B);
+  const shownWith = (R: ClosingRule): Change => {
+    if (R.change) return R.change;
+    const place = { pages: [R.page], rects: [{ page: R.page, rect: R.rect }], text: R.text };
+    const none = { pages: [], rects: [], text: '' };
+    R.change = { id: '', kind: 'graphic', category: 'visual', minor: true, consequence: 'closingRule', old: R.side === 'old' ? place : none, new: R.side === 'new' ? place : none, size: 0, cjk: false, contextBefore: '', contextAfter: '', order: R.order };
+    feetOf(result).tables.set(R.change, R.table);
+    return R.change;
+  };
+  // A line of the word's own besides such a rule (see ownLineBy).
+  const ownLine = (R: ClosingRule, t: Token, u: Token) => (R.side === 'old' ? ownLineBy(A, B, R.rows, R.weight, t, u) : ownLineBy(B, A, R.rows, R.weight, t, u));
+  // An underline found on a word of the fragment's last row that is that
+  // rule (its rows meet the rule's), and no line of the word's own: part of
+  // the consequence, not a change (see appearanceChanges).
+  const closes = (a: Token, b: Token, line: { line: 'strike' | 'underline'; added: boolean; rows: [number, number] }) => {
+    if (line.line !== 'underline') return false;
+    const side = line.added ? 'new' : 'old';
+    const [t, u] = line.added ? [b, a] : [a, b];
+    const R = closing.find((x) => x.side === side && x.lines.has(t.line));
+    if (!R || line.rows[1] < R.rows[0] - 1 || line.rows[0] > R.rows[1] + 1 || ownLine(R, t, u)) return false;
+    shownWith(R);
+    return true;
+  };
+  // A difference region that is such a rule: within it, give or take a cell
+  // (the regions are whole cells) and 6 pt at the ends, with nothing else
+  // drawn there (see lineOnly).
+  const closesAt = (R: ClosingRule, r: Rect) => {
+    const [P, Q] = R.side === 'old' ? [A, B] : [B, A];
+    const c = CELL / P.r.scale;
+    if (r.y < R.rect.y - c - 1 || r.y + r.h > R.rect.y + R.rect.h + c + 1 || r.x < R.rect.x - 6 || r.x + r.w > R.rect.x + R.rect.w + 6) return false;
+    // Darker than the other version where the row lies there (see ClosingRule.away).
+    const [s, so] = [P.r.scale, Q.r.scale];
+    const [dx, dy] = [R.away.x - R.rect.x, R.away.y - R.rect.y];
+    const gain = (x: number, y: number) => darkAt(P, x, y) - sampleDark(Q, ((x + 0.5) / s + dx) * so - 0.5, ((y + 0.5) / s + dy) * so - 0.5);
+    const tone = R.grey ? (x: number, y: number) => toneGain(P, x, y, Q, ((x + 0.5) / s + dx) * so - 0.5, ((y + 0.5) / s + dy) * so - 0.5) : undefined;
+    return lineOnly(P, r, R.core[0], R.core[1], gain, tone);
+  };
   // The running header rows of a page compared with its counterpart (see
   // furnitureRows) are compared at the same place even where the text
   // next to them came from, or went to, another page.
@@ -4625,6 +5971,7 @@ function compareAligned(
 
   const appearance: Change[] = [];
   const furniture: Change[] = [];
+  let markupOn = { old: [] as Markup[], new: [] as Markup[] };
   if (options.appearance !== false) {
     // Tokens a formatting change already reports — every place of an
     // aggregated one, found by position as well as by token range.
@@ -4647,8 +5994,13 @@ function compareAligned(
       return v;
     };
     const nearOf = (a: Token, b: Token): [Cover | null, Cover | null] | 'skip' | null => {
-      const na = differsNear(fwdDiff, ra, a.rects[0]);
-      const nb = differsNear(bwdDiff, rb, b.rects[0]);
+      // On the last row of a table fragment at a moved page break, the
+      // rule that closes it (see closingRules) is no graphic next to the
+      // words, in either version: a colour or highlight put on them is
+      // compared as elsewhere.
+      const rule = closing.filter((R) => (R.side === 'old' ? R.lines.has(a.line) : R.lines.has(b.line)));
+      const na = differsNear(fwdDiff, ra, a.rects[0], rule.map((R) => (R.side === 'old' ? R.rect : R.away)));
+      const nb = differsNear(bwdDiff, rb, b.rects[0], rule.map((R) => (R.side === 'new' ? R.rect : R.away)));
       if (!na && !nb) return null;
       if (!sameShape(a.rects[0], b.rects[0])) return 'skip';
       const seenA = { differs: 0 };
@@ -4797,7 +6149,13 @@ function compareAligned(
       }
       return null;
     };
-    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, slant, !options.turned, graphicAt, graphicIn, differs, fillAround));
+    // The top of such a rule under a word of the fragment's last row (see
+    // appearanceChanges), in points of the version that has it.
+    const ruleBelow = (a: Token, b: Token) => {
+      const R = closing.find((x) => x.lines.has((x.side === 'old' ? a : b).line));
+      return R ? { side: R.side, y: R.rect.y } : null;
+    };
+    appearance.push(...appearanceChanges(result, oldPage, newPage, A, B, (b) => inFormat(b), near, under, cover, slant, !options.turned, graphicAt, graphicIn, differs, fillAround, closes, ruleBelow));
     // Words under the letters of a watermark that both versions have at the
     // same place relative to them (a twin, see slant), dark enough to hide
     // part of a glyph: its ink mixes with their glyphs in both, so a strike
@@ -4831,7 +6189,37 @@ function compareAligned(
           furniture.push(c);
         }
     }
+    // Highlights, strike-outs and underlines that a PDF has as annotations,
+    // read from it, which came, went or changed colour on matched words (see
+    // markupChanges): listed on those words, and not found again in their
+    // pixels (see withoutMarkup). On running headers and footers, a
+    // difference in them, counted with the others (see furnitureMarks).
+    const body = markupChanges(result, oldPage, newPage, result.matches, A, B);
+    const atFurniture = result.options.ignoreFurniture && result.oldToNew[oldPage] === newPage ? markupChanges(result, oldPage, newPage, furniturePairs(result, oldPage, newPage), A, B) : null;
+    markupOn = { old: [...body.areas.old, ...(atFurniture?.areas.old ?? [])], new: [...body.areas.new, ...(atFurniture?.areas.new ?? [])] };
+    if (markupOn.old.length || markupOn.new.length) {
+      appearance.splice(0, appearance.length, ...withoutMarkup(result, oldPage, newPage, appearance, A, B, markupOn), ...body.items);
+      furniture.splice(0, furniture.length, ...withoutMarkup(result, oldPage, newPage, furniture, A, B, markupOn));
+      for (const c of atFurniture?.items ?? []) {
+        furnitureMarked.add(c);
+        furniture.push(c);
+      }
+      unnoteMarkup(result, oldPage, newPage, A, B, markupOn);
+    }
   }
+  // What those annotations draw, a few points around their quadrilaterals
+  // (a highlight's rounded ends): shown with their items, not as graphics
+  // (see drawnByMarkup).
+  const markupDrawn = { old: markupOn.old.flatMap((m) => m.quads.map((q) => expand(q, 3))), new: markupOn.new.flatMap((m) => m.quads.map((q) => expand(q, 3))) };
+  const byMarkup = (side: 'old' | 'new', r: Rect, map: (r: Rect) => Rect): boolean => {
+    if (!markupDrawn.old.length && !markupDrawn.new.length) return false;
+    const o = side === 'old' ? 'new' : 'old';
+    const mine = markupDrawn[side].length > 0 && coveredShare(r, markupDrawn[side]) >= 0.6;
+    const m = map(r);
+    if (!mine && !(markupDrawn[o].length > 0 && coveredShare(m, markupDrawn[o]) >= 0.6)) return false;
+    const [X, Y] = side === 'old' ? [A, B] : [B, A];
+    return mine ? drawnByMarkup(X, r, Y, m, markupOn[side], markupOn[o]) : drawnByMarkup(Y, m, X, r, markupOn[o], markupOn[side]);
+  };
 
   // Regions explained by text changes on the same page. Text that moved
   // sideways explains the spot it left and where it went, and a frame or
@@ -4967,6 +6355,9 @@ function compareAligned(
     const [src, dst] = side === 'old' ? [A, B] : [B, A];
     const [map, mapBelow] = side === 'old' ? [toNew, toNewBelow] : [toOld, toOldBelow];
     const rest = (r: Rect): boolean => {
+      // What a markup annotation that changed draws (see markupChanges), on
+      // the side that has it and at the same place on the other side alike.
+      if (byMarkup(side, r, map)) return false;
       // A change bar in the margin beside the lines of a change.
       const bar = real ? changeBar(result, side, page, r, src.r.scale, appearance) : null;
       if (bar) {
@@ -4985,6 +6376,33 @@ function compareAligned(
       );
       if (twice) {
         if (!dry) twice[side].rects.push({ page, rect: r });
+        return false;
+      }
+      // The rule that closes a table fragment at a moved page break (see
+      // closingRules): shown with that consequence.
+      const closed = closing.find((R) => R.side === side && closesAt(R, r));
+      if (closed) {
+        if (!dry) shownWith(closed);
+        return false;
+      }
+      // The line of an underline or a strike found on this side (see
+      // appearanceChanges), where it lies outside the text's mask (beyond
+      // the glyphs, between the words): a thin region at its rows, along its
+      // words (up to 12 pt past them: a rule drawn on to the margin is more
+      // than the line), with nothing else drawn in it (see lineOnly). Shown
+      // as part of that change, so that one line gives one item.
+      const lined = appearance.find((c) => {
+        const rows = lineRows.get(c);
+        if (!rows || c.format?.decoration?.added !== (side === 'new') || r.h > rows[1] - rows[0] + (2 * CELL) / src.r.scale + 2) return false;
+        if (r.y > rows[1] + 1 || r.y + r.h < rows[0] - 1) return false;
+        const along = c[side].rects.filter((q) => q.page === page).map((q) => q.rect);
+        if (!along.length) return false;
+        const u = union(along);
+        const s = src.r.scale;
+        return r.x >= u.x - 12 && r.x + r.w <= u.x + u.w + 12 && lineOnly(src, r, Math.round(rows[0] * s), Math.round(rows[1] * s) - 1);
+      });
+      if (lined) {
+        if (!dry && !lined[side].rects.some((q) => q.page === page && coveredShare(r, [q.rect]) >= 0.6)) lined[side].rects.push({ page, rect: r });
         return false;
       }
       // The fill and rules of a table row whose text is a change of its own
@@ -5039,6 +6457,15 @@ function compareAligned(
     const raw = side === 'old' ? fwdDiff.real : bwdDiff.real;
     const angledShapes = [...along[side], ...rows[side].flatMap((x) => x.angled ?? [])];
     const parts = (r: Rect) => {
+      // A region that took in a closing rule (see closingRules) and
+      // something else near it (a footnote's separator below it): the rule
+      // and the rest are judged apart.
+      const R = real ? closing.find((x) => x.side === side && intersects(r, x.rect) && !closesAt(x, r)) : undefined;
+      if (R) {
+        const own = raw.filter((q) => coveredShare(q, [r]) >= 0.99);
+        const at = own.filter((q) => closesAt(R, q));
+        if (at.length && at.length < own.length) return [union(at), ...cluster(own.filter((q) => !closesAt(R, q)), src.r.width / src.r.scale)];
+      }
       if (!real || !inks[side].length || !angledShapes.some((f) => intersects(f.box, r))) return [r];
       const own = cluster(raw.filter((q) => coveredShare(q, [r]) >= 0.99), src.r.width / src.r.scale, 18, false);
       return own.length > 1 ? own : [r];
@@ -5136,6 +6563,9 @@ function compareAligned(
     c[other].pages = c[other].rects.length ? [page] : [];
   }
 
+  // Graphics drawn by a stamp or a note annotation: named with its text.
+  nameNotes(result, oldPage, newPage, changes);
+
   // Minor shifts: only where neither side has a real difference.
   const clear = (r: Rect, same: Rect[], other: Rect[], map: (r: Rect) => Rect) =>
     !same.some((q) => intersects(expand(q, 4), r)) && !other.some((q) => intersects(expand(q, 6), map(r)));
@@ -5147,9 +6577,876 @@ function compareAligned(
     changes.push(minor);
   }
 
-  changes.push(...appearance, ...furniture);
+  changes.push(...appearance, ...furniture, ...closing.flatMap((R) => (R.change ? [R.change] : [])));
   for (const c of changes) foundOn.set(c, `${oldPage}:${newPage}`);
   return changes;
+}
+
+// ------------------------------------------------------------ annotations ---
+
+/** The colour a viewer draws a markup annotation without /C in (PDF.js: yellow for a highlight, black for the lines). */
+function markupColour(m: Markup): [number, number, number] {
+  return m.colour ?? (m.kind === 'highlight' ? [255, 255, 0] : [0, 0, 0]);
+}
+
+/** Share of a word's box (both parts of a hyphenated one) that the quadrilaterals of a markup annotation cover, `pad` points around them. */
+function markedShare(t: Token, m: Markup, pad = 0): number {
+  let area = 0;
+  let over = 0;
+  for (const r of t.rects) {
+    area += r.w * r.h;
+    for (const q of m.quads) {
+      const w = Math.min(r.x + r.w, q.x + q.w + pad) - Math.max(r.x, q.x - pad);
+      const h = Math.min(r.y + r.h, q.y + q.h + pad) - Math.max(r.y, q.y - pad);
+      if (w > 0 && h > 0) over += w * h;
+    }
+  }
+  return area > 0 ? Math.min(1, over / area) : 0;
+}
+
+/**
+ * A word is marked by a markup annotation when half its box or more lies in
+ * the annotation's quadrilaterals, and unmarked when less than a fifth
+ * does. In between (a quadrilateral that reaches part way into it), it
+ * is taken for neither: no change is listed for it on that count.
+ */
+const MARKED = 0.5;
+const UNMARKED = 0.2;
+
+/** A markup annotation of one kind that a matched word has in one version only, or in both in colours apart by more than 32 levels. */
+interface MarkupEvent {
+  kind: MarkupKind;
+  change: 'added' | 'removed' | 'recoloured';
+  old: Markup | null;
+  new: Markup | null;
+}
+
+/** The markup annotations of a page with the box around their quadrilaterals (page space; turned with a page compared turned back). */
+function markupOf(doc: DocModel, page: number): { m: Markup; box: Rect }[] {
+  return (doc.pages[page]?.annotations?.markup ?? []).map((m) => ({ m, box: union(m.quads) }));
+}
+
+/** What changed in the markup annotations on a matched word, `a` on the old page and `b` on the new one. */
+function markupEvents(a: Token, b: Token, ma: { m: Markup; box: Rect }[], mb: { m: Markup; box: Rect }[]): MarkupEvent[] {
+  const out: MarkupEvent[] = [];
+  // The annotation of the kind that marks the word most, with its share.
+  const on = (t: Token, list: { m: Markup; box: Rect }[], kind: MarkupKind): [Markup | null, number] => {
+    let best: [Markup | null, number] = [null, 0];
+    for (const x of list) {
+      if (x.m.kind !== kind || !t.rects.some((r) => intersects(r, x.box))) continue;
+      const v = markedShare(t, x.m);
+      if (v > best[1]) best = [x.m, v];
+    }
+    return best;
+  };
+  for (const kind of ['highlight', 'strike', 'underline', 'squiggly'] as const) {
+    const [x0, u] = on(a, ma, kind);
+    const [y0, v] = on(b, mb, kind);
+    if ((u >= UNMARKED && u < MARKED) || (v >= UNMARKED && v < MARKED)) continue;
+    const x = u >= MARKED ? x0 : null;
+    const y = v >= MARKED ? y0 : null;
+    if (!x && !y) continue;
+    if (x && y) {
+      const [u, v] = [markupColour(x), markupColour(y)];
+      if (Math.max(...u.map((c, k) => Math.abs(c - v[k]))) > 32) out.push({ kind, change: 'recoloured', old: x, new: y });
+    } else out.push({ kind, change: y ? 'added' : 'removed', old: x, new: y });
+  }
+  return out;
+}
+
+/**
+ * Text-markup annotations (highlights, strike-outs, underlines, squiggly
+ * underlines) read from the PDF that came, went or changed colour on
+ * matched words of a page pair (`pairs`: old and new token indices, as
+ * result.matches): one change per kind and colour over words that follow
+ * each other in both versions (punctuation the annotation covers
+ * included), "Highlighted (annotation)" and so on, at the words on both
+ * pages; and `areas`, the annotations that changed, per side, which
+ * explain the pixels they draw (see markupExplains and compareAligned). A
+ * word marked alike in both versions (the annotation moved with it) gives
+ * nothing, nor does one that shows the same pixels in both (`A`, `B`: the
+ * pages' rasters; see sameOutside).
+ */
+function markupChanges(
+  result: CompareResult,
+  oldPage: number,
+  newPage: number,
+  pairs: ArrayLike<number>,
+  A?: Prepared,
+  B?: Prepared,
+): { items: Change[]; areas: { old: Markup[]; new: Markup[] } } {
+  const areas = { old: [] as Markup[], new: [] as Markup[] };
+  const ma = markupOf(result.oldDoc, oldPage);
+  const mb = markupOf(result.newDoc, newPage);
+  if (!ma.length && !mb.length) return { items: [], areas };
+  const TA = result.oldDoc.tokens;
+  const TB = result.newDoc.tokens;
+  const found: { a: Token; b: Token; e: MarkupEvent }[] = [];
+  for (let p = 0; p + 1 < pairs.length; p += 2) {
+    const a = TA[pairs[p]];
+    const b = TB[pairs[p + 1]];
+    if (!a || !b || a.page !== oldPage || b.page !== newPage || !a.rects.length || !b.rects.length) continue;
+    const es = markupEvents(a, b, ma, mb);
+    // The word shows the same pixels in both versions (the marks flattened
+    // into the page content, or drawn there in the other version): nothing
+    // to see changed on it.
+    if (es.length && A && B && a.rects.length === 1 && b.rects.length === 1 && sameOutside(A, a.rects[0], B, b.rects[0], [-1e6, -1e6])) continue;
+    for (const e of es) {
+      found.push({ a, b, e });
+      if (e.old && !areas.old.includes(e.old)) areas.old.push(e.old);
+      if (e.new && !areas.new.includes(e.new)) areas.new.push(e.new);
+    }
+  }
+  const key = (e: MarkupEvent) => `${e.kind}:${e.change}:${markupColour((e.new ?? e.old)!).join(',')}`;
+  found.sort((u, v) => (key(u.e) < key(v.e) ? -1 : key(u.e) > key(v.e) ? 1 : u.b.i - v.b.i));
+  // The words from the first to the last of a group, on their lines.
+  const span = (all: Token[], hit: Token[]) => {
+    const first = hit[0].i;
+    const last = hit[hit.length - 1].i;
+    const lines = new Set(hit.map((t) => t.line));
+    const run = all.slice(first, last + 1).filter((t) => lines.has(t.line));
+    return joinTokens(run.length && last - first < Math.max(8, 2 * hit.length) ? run : hit);
+  };
+  const perLine = (page: number, ts: Token[]) => {
+    const byLine = new Map<number, Rect[]>();
+    for (const t of ts) {
+      const rs = byLine.get(t.line);
+      if (rs) rs.push(...t.rects);
+      else byLine.set(t.line, [...t.rects]);
+    }
+    return [...byLine.values()].map((rs) => ({ page, rect: union(rs) }));
+  };
+  const items: Change[] = [];
+  let group: typeof found = [];
+  const flush = () => {
+    if (!group.length) return;
+    const as = group.map((g) => g.a);
+    const bs = group.map((g) => g.b);
+    const { kind, change } = group[0].e;
+    items.push({
+      id: '',
+      kind: 'graphic',
+      category: 'visual',
+      old: { pages: [oldPage], rects: perLine(oldPage, as), text: span(TA, as) },
+      new: { pages: [newPage], rects: perLine(newPage, bs), text: span(TB, bs) },
+      format: { appearanceChanged: true, markup: { kind, change } },
+      size: bs.filter((t) => t.kind !== 'punct').length,
+      cjk: bs.some((t) => t.kind === 'cjk'),
+      contextBefore: '',
+      contextAfter: '',
+      order: newPage * 100000 + bs[0].rects[0].y,
+    });
+    group = [];
+  };
+  for (const f of found) {
+    const last = group[group.length - 1];
+    if (last && (key(last.e) !== key(f.e) || f.b.block !== last.b.block || f.a.block !== last.a.block || f.b.i - last.b.i > 2 || f.a.i - last.a.i > 2 || f.a.i <= last.a.i)) flush();
+    group.push(f);
+  }
+  flush();
+  return { items: items.sort((u, v) => u.order - v.order), areas };
+}
+
+/**
+ * The colour a highlight annotation of `list` (if any) tints the paper with
+ * on the word `t` of `X` (`u` of `Y` in the other version): from the pixels
+ * in its quadrilaterals within the word's box where the other version shows
+ * paper, their median per channel; its /C where there are too few. Null
+ * where no highlight of `list` lies there.
+ */
+function markupTint(X: Prepared, t: Rect, Y: Prepared, u: Rect, list: Markup[]): number[] | null {
+  const lit = list.filter((m) => m.kind === 'highlight');
+  if (!lit.length) return null;
+  const quads = lit.flatMap((m) => m.quads);
+  const s = X.r.scale;
+  const so = Y.r.scale;
+  const px: number[][] = [];
+  for (let y = Math.max(0, Math.floor(t.y * s)); y < Math.min(X.r.height, Math.ceil((t.y + t.h) * s)); y++)
+    for (let x = Math.max(0, Math.floor(t.x * s)); x < Math.min(X.r.width, Math.ceil((t.x + t.w) * s)); x++) {
+      const [fx, fy] = [(x + 0.5) / s, (y + 0.5) / s];
+      if (!quads.some((q) => fx >= q.x && fx <= q.x + q.w && fy >= q.y && fy <= q.y + q.h)) continue;
+      const xo = Math.round((fx - t.x + u.x) * so - 0.5);
+      const yo = Math.round((fy - t.y + u.y) * so - 0.5);
+      if (xo < 0 || yo < 0 || xo >= Y.r.width || yo >= Y.r.height) continue;
+      const j = (yo * Y.r.width + xo) * 4;
+      if (Math.min(Y.r.data[j], Y.r.data[j + 1], Y.r.data[j + 2]) < 245) continue;
+      const i = (y * X.r.width + x) * 4;
+      px.push([X.r.data[i], X.r.data[i + 1], X.r.data[i + 2]]);
+    }
+  if (px.length < 12) return markupColour(lit[0]);
+  return [0, 1, 2].map((c) => px.map((p) => p[c]).sort((a, b) => a - b)[px.length >> 1]);
+}
+
+/**
+ * Whether the pixel `p` is the colour `c` drawn over the pixel `q`, in part
+ * (anti-aliased, or with an opacity): within 40 levels (Euclidean) of the
+ * segment from `q` to `c`.
+ */
+function overDrawn(p: number[], q: number[], c: readonly number[]): boolean {
+  const v = [c[0] - q[0], c[1] - q[1], c[2] - q[2]];
+  const vv = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+  const w = [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
+  const k = vv > 0 ? Math.max(0, Math.min(1, (w[0] * v[0] + w[1] * v[1] + w[2] * v[2]) / vv)) : 0;
+  return Math.hypot(w[0] - k * v[0], w[1] - k * v[1], w[2] - k * v[2]) <= 40;
+}
+
+/**
+ * How a highlight annotation `h` of `X` tints what lies under it, about
+ * the region `rx`: its colour /C and the opacity α it is drawn with, from
+ * the lighter half of its pixels (by luminance) within its quadrilaterals
+ * and 12 pt of the region, the paper under its tint (text and graphics are
+ * darker): α = (255 − tint) / (255 − C) on average over the channels in
+ * which /C is not light (below 250). Over the paper a highlight drawn in
+ * multiply blend at that opacity gives the same tint as one in normal
+ * blend. Opaque (α = 1) where too few pixels show it, which predicts the
+ * darkest pixels a highlight can give. `f`: the factor by which it
+ * multiplies each channel, 1 − α + α·C/255.
+ */
+function highlightTint(X: Prepared, rx: Rect, h: Markup): { quads: Rect[]; c: number[]; alpha: number; f: number[] } {
+  const c = markupColour(h);
+  const s = X.r.scale;
+  const near = expand(rx, 12);
+  const px: number[][] = [];
+  for (const q of h.quads) {
+    const x0 = Math.max(0, Math.ceil(Math.max(q.x, near.x) * s));
+    const x1 = Math.min(X.r.width, Math.floor(Math.min(q.x + q.w, near.x + near.w) * s));
+    const y0 = Math.max(0, Math.ceil(Math.max(q.y, near.y) * s));
+    const y1 = Math.min(X.r.height, Math.floor(Math.min(q.y + q.h, near.y + near.h) * s));
+    for (let y = y0; y < y1; y++)
+      for (let x = x0; x < x1; x++) {
+        const i = (y * X.r.width + x) * 4;
+        px.push([X.r.data[i], X.r.data[i + 1], X.r.data[i + 2]]);
+      }
+  }
+  const ks = [0, 1, 2].filter((k) => c[k] < 250);
+  let alpha = 1;
+  if (px.length >= 24 && ks.length) {
+    const lum = (u: number[]) => 0.299 * u[0] + 0.587 * u[1] + 0.114 * u[2];
+    const light = px.sort((u, v) => lum(v) - lum(u)).slice(0, px.length >> 1);
+    const tint = [0, 1, 2].map((k) => light.map((p) => p[k]).sort((u, v) => u - v)[light.length >> 1]);
+    alpha = Math.max(0, Math.min(1, ks.reduce((sum, k) => sum + (255 - tint[k]) / (255 - c[k]), 0) / ks.length));
+  }
+  return { quads: h.quads, c, alpha, f: c.map((v) => 1 - alpha + (alpha * v) / 255) };
+}
+
+/**
+ * Whether what differs in the region `rx` of `X` from `ry` of `Y` (the same
+ * place in the other version) is what markup annotations of `X` (`list`)
+ * draw there: in 97 % of the pixels that differ by more than 24 levels, the
+ * pixel of `X` is
+ * - under a highlight, the pixel of `Y` multiplied by the highlight's
+ *   factor at its measured opacity (see highlightTint), within 24 levels
+ *   per channel: the blend mode in which highlights are drawn, which never
+ *   makes a pixel lighter. Where a highlight of `Y` (`others`, one whose
+ *   colour changed) lies there too, `Y`'s pixel is first divided by its
+ *   factor (a channel it takes down below a fifth, the blue of a yellow
+ *   one, is told only by `X`'s factor over the paper). Within a pixel of a
+ *   quadrilateral's edge, and in the 3 pt beyond it (a highlight's rounded
+ *   ends), the highlight covers the pixel in part: on the course from
+ *   `Y`'s pixel to that product, within 40 levels;
+ * - under a strike-out, an underline or a squiggly line (opaque lines in
+ *   normal blend), the annotation's colour drawn over the pixel of `Y`, in
+ *   part (see overDrawn).
+ * A graphic of the page's own that changed under a highlight (a dot
+ * recoloured, red to amber or to the highlight's own yellow) is not: its
+ * pixels are lighter than the old ones, or of another hue than the tint
+ * over them. Nor is the region where such a graphic is small beside a long
+ * highlighted row (a status dot in a highlighted table row), whatever the
+ * share: where the pixels within a highlight's quadrilaterals that it leaves
+ * unexplained because they are lighter than the other version's, or darker
+ * than its tint makes them within one quadrilateral (beyond the 24 levels;
+ * red to dark red or black), fill a block of 2 × 2 pt, which no highlight
+ * in multiply blend draws and no glyph edge a fraction of a pixel off
+ * fills.
+ */
+function drawnByMarkup(X: Prepared, rx: Rect, Y: Prepared, ry: Rect, list: Markup[], others: Markup[]): boolean {
+  const on = list.filter((m) => m.quads.some((q) => intersects(expand(q, 3), rx)));
+  if (!on.length) return false;
+  const lines = on.filter((m) => m.kind !== 'highlight').map(markupColour);
+  const lit = on.filter((m) => m.kind === 'highlight').map((m) => highlightTint(X, rx, m));
+  const under = others.filter((m) => m.kind === 'highlight' && m.quads.some((q) => intersects(expand(q, 3), ry))).map((m) => highlightTint(Y, ry, m));
+  const s = X.r.scale;
+  const so = Y.r.scale;
+  const inside = (quads: Rect[], fx: number, fy: number, pad: number) => quads.some((q) => fx >= q.x - pad && fx <= q.x + q.w + pad && fy >= q.y - pad && fy <= q.y + q.h + pad);
+  let n = 0;
+  let ok = 0;
+  const x0 = Math.max(0, Math.floor(rx.x * s));
+  const x1 = Math.min(X.r.width, Math.ceil((rx.x + rx.w) * s));
+  const y0 = Math.max(0, Math.floor(rx.y * s));
+  const y1 = Math.min(X.r.height, Math.ceil((rx.y + rx.h) * s));
+  const W = Math.max(0, x1 - x0);
+  // Pixels inside a highlight's quadrilaterals that it leaves unexplained
+  // because they are lighter than the other version's, or darker than its
+  // tint makes them (see the block test below); not at an edge or in the
+  // rounded ends, of this highlight or of the other version's, whose cover
+  // is told only in part.
+  const brighter = new Uint8Array(W * Math.max(0, y1 - y0));
+  let nBright = 0;
+  const cores = lit.map((h) => h.quads.map((r) => expand(r, -1 / s)));
+  const underCores = under.map((u) => u.quads.map((r) => expand(r, -1 / so)));
+  // Darker than the one highlight over it tints the other version's pixel
+  // (a dot recoloured from red to dark red or black): within one
+  // quadrilateral's core only, not where two overlap and tint twice.
+  const darker = (was: (number | null)[], p: number[], fx: number, fy: number) => {
+    const hs = lit.filter((_h, m) => inside(cores[m], fx, fy, 0));
+    if (hs.length !== 1 || lit.reduce((n, h) => n + h.quads.filter((q) => inside([q], fx, fy, 1 / s)).length, 0) !== 1) return false;
+    return was.some((v, k) => v !== null && p[k] < v * hs[0].f[k] - 24);
+  };
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const xo = Math.round(((x + 0.5) / s - rx.x + ry.x) * so - 0.5);
+      const yo = Math.round(((y + 0.5) / s - rx.y + ry.y) * so - 0.5);
+      if (xo < 0 || yo < 0 || xo >= Y.r.width || yo >= Y.r.height) continue;
+      const i = (y * X.r.width + x) * 4;
+      const j = (yo * Y.r.width + xo) * 4;
+      const p = [X.r.data[i], X.r.data[i + 1], X.r.data[i + 2]];
+      const q = [Y.r.data[j], Y.r.data[j + 1], Y.r.data[j + 2]];
+      if (Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Math.abs(p[2] - q[2])) <= 24) continue;
+      n++;
+      if (lines.some((c) => overDrawn(p, q, c))) {
+        ok++;
+        continue;
+      }
+      if (!lit.length) continue;
+      const [fx, fy] = [(x + 0.5) / s, (y + 0.5) / s];
+      const [gx, gy] = [(xo + 0.5) / so, (yo + 0.5) / so];
+      // `Y`'s pixel without its own highlight (null: a channel it does not tell).
+      const was: (number | null)[] = q.slice();
+      for (const u of under)
+        if (inside(u.quads, gx, gy, 0)) for (let k = 0; k < 3; k++) was[k] = was[k] === null || u.f[k] < 0.2 ? null : Math.min(255, was[k]! / u.f[k]);
+      const fits = lit.some((h) => {
+        if (!inside(h.quads, fx, fy, 3)) return false;
+        const whole = inside(h.quads.map((r) => expand(r, -1 / s)), fx, fy, 0);
+        const to = was.map((v, k) => (v === null ? null : v * h.f[k]));
+        if (was.some((v, k) => v !== null && p[k] > v + 24)) return false;
+        if (to.some((v, k) => v === null && p[k] > 255 * h.f[k] + 24)) return false;
+        if (whole) return to.every((v, k) => v === null || Math.abs(p[k] - v) <= 24);
+        const a = was.map((v, k) => v ?? p[k]);
+        const b = to.map((v, k) => v ?? p[k]);
+        return overDrawn(p, a, b);
+      });
+      if (fits) ok++;
+      else if ((was.some((v, k) => v !== null && p[k] > v + 24) || darker(was, p, fx, fy)) && cores.some((qs) => inside(qs, fx, fy, 0)) && !under.some((u, m) => inside(u.quads, gx, gy, 3) && !inside(underCores[m], gx, gy, 0))) {
+        brighter[(y - y0) * W + (x - x0)] = 1;
+        nBright++;
+      }
+    }
+  if (ok < 0.97 * n) return false;
+  const k = Math.max(2, Math.round(2 * s));
+  return nBright < k * k || !filledBlock(brighter, W, y1 - y0, k);
+}
+
+/**
+ * Whether the bitmap `bits` (`w` × `h`, row by row) has a `k` × `k` block
+ * whose pixels are all set (a summed-area table).
+ */
+function filledBlock(bits: Uint8Array, w: number, h: number, k: number): boolean {
+  if (w < k || h < k) return false;
+  const sum = new Uint32Array((w + 1) * (h + 1));
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) sum[(y + 1) * (w + 1) + x + 1] = bits[y * w + x] + sum[y * (w + 1) + x + 1] + sum[(y + 1) * (w + 1) + x] - sum[y * (w + 1) + x];
+  for (let y = k; y <= h; y++)
+    for (let x = k; x <= w; x++) if (sum[y * (w + 1) + x] - sum[(y - k) * (w + 1) + x] - sum[y * (w + 1) + x - k] + sum[(y - k) * (w + 1) + x - k] === k * k) return true;
+  return false;
+}
+
+/**
+ * Whether a line found on a word (boxes `rects`) of `X` at the rows `rows`
+ * (points) is no darker than a highlight's tint `tint` there, as the edge
+ * of the tint is: in at least half of the word's columns, the darkest pixel
+ * in those rows is at most 24 levels of luminance darker than the tint. A
+ * line of the page's own under highlighted words (a black underline) is
+ * darker in nearly every column; the glyphs' strokes (a descender through
+ * the rows) in only a few.
+ */
+function tintEdge(X: Prepared, rects: Rect[], rows: [number, number], tint: number[]): boolean {
+  const s = X.r.scale;
+  const floor = 0.299 * tint[0] + 0.587 * tint[1] + 0.114 * tint[2] - 24;
+  const y0 = Math.max(0, Math.floor(rows[0] * s));
+  const y1 = Math.min(X.r.height, Math.ceil(rows[1] * s));
+  let n = 0;
+  let light = 0;
+  for (const r of rects)
+    for (let x = Math.max(0, Math.ceil(r.x * s)); x < Math.min(X.r.width, Math.floor((r.x + r.w) * s)); x++) {
+      let low = 255;
+      for (let y = y0; y < y1; y++) low = Math.min(low, X.lum[y * X.r.width + x]);
+      n++;
+      if (low >= floor) light++;
+    }
+  return n > 0 && light >= 0.5 * n;
+}
+
+/**
+ * Whether markup annotations that came, went or changed colour (`on`, per
+ * side, see markupChanges) explain what appearanceChanges found on the
+ * word `a` → `b` as part of the item `c`, so that one mark is not listed
+ * twice. Positive evidence only (D11):
+ * - a line through or under the word, found in the version that has an
+ *   annotation of that kind on it (a strike-out for a strike; an underline
+ *   or a squiggly one for an underline), at its rows: through the middle
+ *   of the annotation's quadrilateral, or in its lower half or just below
+ *   it; or the edge of a highlight, no darker than its tint (see tintEdge);
+ * - a colour, weight or background found on a word that such an annotation
+ *   covers or touches, where its glyphs outside the annotation's ink are
+ *   the same in both versions: the rows of the annotation's line left out
+ *   (the rows within its quadrilateral where 40 % of the word's columns
+ *   differ from the other version), and under a highlight, the glyphs'
+ *   chroma within what the highlight's colour explains (see
+ *   beyondOverlays) and their darkness against the background within 12 %.
+ *   A word recoloured, made bold or struck as well under the annotation
+ *   keeps its item.
+ * A line found on a word that is the annotation's, where the glyphs outside
+ * the annotation's ink differ as well (a line of the page's own under a
+ * strike-out that the pixels found as the strike), gives 'line': the line
+ * is explained, the word's other change is not.
+ */
+function markupExplains(c: Change, a: Token, b: Token, rows: [number, number] | null, A: Prepared, B: Prepared, on: { old: Markup[]; new: Markup[] }): boolean | 'line' {
+  const d = c.format?.decoration;
+  if (d) {
+    const side = d.added ? 'new' : 'old';
+    const [t, u] = d.added ? [b, a] : [a, b];
+    const [X, Y] = d.added ? [B, A] : [A, B];
+    if (!rows) return false;
+    const [y0, y1] = rows;
+    const own = on[side].some(
+      (m) =>
+        markedShare(t, m, 1) >= 0.3 &&
+        m.quads.some((q) => {
+          if (!t.rects.some((r) => intersects(r, expand(q, 1)))) return false;
+          if (m.kind === 'highlight') {
+            // The edge of its tint: at its quadrilateral's top or bottom, and
+            // no darker than the tint, which a line of the page's own (a black
+            // underline under the highlighted words) is.
+            const edge = Math.abs(y0 - q.y) <= 1.5 || Math.abs(y1 - q.y) <= 1.5 || Math.abs(y0 - q.y - q.h) <= 1.5 || Math.abs(y1 - q.y - q.h) <= 1.5;
+            if (!edge) return false;
+            const tint = (t.rects.length === 1 && u.rects.length === 1 && markupTint(X, t.rects[0], Y, u.rects[0], [m])) || markupColour(m);
+            return tintEdge(X, t.rects, rows, tint);
+          }
+          const band = d.line === 'strike' ? (m.kind === 'strike' ? [q.y + 0.2 * q.h, q.y + 0.85 * q.h] : null) : m.kind !== 'strike' ? [q.y + 0.5 * q.h, q.y + 1.35 * q.h] : null;
+          return !!band && y1 >= band[0] && y0 <= band[1];
+        }),
+    );
+    if (!own) return false;
+    // (A word in two parts, hyphenated: its line only.)
+    if (a.rects.length !== 1 || b.rects.length !== 1) return true;
+    return sameBesideMarkup(a, b, A, B, on) || 'line';
+  }
+  return sameBesideMarkup(a, b, A, B, on);
+}
+
+/**
+ * Whether the word `ra` of `A` and `rb` of `B` show the same glyphs once
+ * the highlights on them (`ma`, `mb`) are taken off, where every highlight
+ * there is drawn see-through: the opacity α that its tint over the paper
+ * shows (the median of its pixels in the word's box, against its /C) is
+ * below 85 % (an opaque highlight in multiply blend is weighed by
+ * markupExplains). A pixel within a highlight's quadrilaterals is taken
+ * back as drawn in normal blend, p = (1 − α)·q + α·C, or in multiply blend
+ * at that opacity, p = q·(1 − α + α·C/255), whichever fits the word best;
+ * in 97 % of the word's pixels (those within a pixel of a quadrilateral's
+ * edge left out) both versions are then within 24 levels. Grey glyphs under
+ * a highlight that were black are not. Null where that cannot be told: a
+ * highlight there is opaque (or mixes colours), or too few pixels compare.
+ */
+function seeThroughAlike(A: Prepared, ra: Rect, B: Prepared, rb: Rect, ma: Markup[], mb: Markup[]): boolean | null {
+  type Side = { quads: Rect[]; c: number[]; alpha: number } | null;
+  const sideOf = (X: Prepared, t: Rect, list: Markup[]): Side | false => {
+    const lit = list.filter((m) => m.kind === 'highlight');
+    if (!lit.length) return null;
+    const c = markupColour(lit[0]);
+    if (lit.some((m) => markupColour(m).some((v, k) => Math.abs(v - c[k]) > 8))) return false;
+    const quads = lit.flatMap((m) => m.quads);
+    const s = X.r.scale;
+    const px: number[][] = [];
+    for (let y = Math.max(0, Math.floor(t.y * s)); y < Math.min(X.r.height, Math.ceil((t.y + t.h) * s)); y++)
+      for (let x = Math.max(0, Math.floor(t.x * s)); x < Math.min(X.r.width, Math.ceil((t.x + t.w) * s)); x++) {
+        const [fx, fy] = [(x + 0.5) / s, (y + 0.5) / s];
+        if (!quads.some((q) => fx >= q.x && fx <= q.x + q.w && fy >= q.y && fy <= q.y + q.h)) continue;
+        const i = (y * X.r.width + x) * 4;
+        px.push([X.r.data[i], X.r.data[i + 1], X.r.data[i + 2]]);
+      }
+    const ks = [0, 1, 2].filter((k) => c[k] < 200);
+    if (px.length < 30 || !ks.length) return false;
+    const tint = [0, 1, 2].map((k) => px.map((p) => p[k]).sort((u, v) => u - v)[px.length >> 1]);
+    const alpha = ks.reduce((sum, k) => sum + (255 - tint[k]) / (255 - c[k]), 0) / ks.length;
+    return alpha < 0.85 && alpha > 0.05 ? { quads, c, alpha } : false;
+  };
+  const sa = sideOf(A, ra, ma);
+  const sb = sideOf(B, rb, mb);
+  if (sa === false || sb === false || (!sa && !sb)) return null;
+  // A pixel taken back from under a side's highlight, by blend: 0 normal, 1 multiply.
+  const back = (S: Side, s: number, x: number, y: number, p: number[], blend: number): number[] | null => {
+    if (!S) return p;
+    const [fx, fy] = [(x + 0.5) / s, (y + 0.5) / s];
+    const e = 1 / s;
+    const q = S.quads.find((q) => fx >= q.x && fx <= q.x + q.w && fy >= q.y && fy <= q.y + q.h);
+    if (!q) return S.quads.some((q) => fx >= q.x - e && fx <= q.x + q.w + e && fy >= q.y - e && fy <= q.y + q.h + e) ? null : p;
+    if (fx < q.x + e || fx > q.x + q.w - e || fy < q.y + e || fy > q.y + q.h - e) return null;
+    const a = S.alpha;
+    return p.map((v, k) => (blend === 0 ? (v - a * S.c[k]) / (1 - a) : v / (1 - a + (a * S.c[k]) / 255)));
+  };
+  const s = A.r.scale;
+  const so = B.r.scale;
+  let best = Infinity;
+  let all = 0;
+  for (const [ba, bb] of [
+    [0, 0],
+    [0, 1],
+    [1, 0],
+    [1, 1],
+  ]) {
+    if ((!sa && ba) || (!sb && bb)) continue;
+    let n = 0;
+    let bad = 0;
+    for (let y = Math.max(0, Math.floor(ra.y * s)); y < Math.min(A.r.height, Math.ceil((ra.y + ra.h) * s)); y++)
+      for (let x = Math.max(0, Math.floor(ra.x * s)); x < Math.min(A.r.width, Math.ceil((ra.x + ra.w) * s)); x++) {
+        const xo = Math.round(((x + 0.5) / s - ra.x + rb.x) * so - 0.5);
+        const yo = Math.round(((y + 0.5) / s - ra.y + rb.y) * so - 0.5);
+        if (xo < 0 || yo < 0 || xo >= B.r.width || yo >= B.r.height) continue;
+        const i = (y * A.r.width + x) * 4;
+        const j = (yo * B.r.width + xo) * 4;
+        const u = back(sa, s, x, y, [A.r.data[i], A.r.data[i + 1], A.r.data[i + 2]], ba);
+        const v = back(sb, so, xo, yo, [B.r.data[j], B.r.data[j + 1], B.r.data[j + 2]], bb);
+        if (!u || !v) continue;
+        n++;
+        if (u.some((w, k) => Math.abs(w - v[k]) > 24)) bad++;
+      }
+    if (bad < best) [best, all] = [bad, n];
+  }
+  if (all < 30) return null;
+  return best <= 0.03 * all;
+}
+
+/**
+ * Whether the glyphs of the word `a` → `b` outside the ink of the markup
+ * annotations that changed (`on`) on it are the same in both versions (see
+ * markupExplains).
+ */
+function sameBesideMarkup(a: Token, b: Token, A: Prepared, B: Prepared, on: { old: Markup[]; new: Markup[] }): boolean {
+  if (a.rects.length !== 1 || b.rects.length !== 1) return false;
+  const ma = on.old.filter((m) => markedShare(a, m, 3) > 0);
+  const mb = on.new.filter((m) => markedShare(b, m, 3) > 0);
+  if (!ma.length && !mb.length) return false;
+  // Highlights drawn see-through (see seeThroughAlike): where every
+  // annotation on the word is one, their model tells, either way. The
+  // glyphs of navy text under a highlight in multiply blend at 50 % are
+  // as dark as black ones under it, which the opaque path below takes
+  // the highlight's tint to explain.
+  if ([...ma, ...mb].every((m) => m.kind === 'highlight')) {
+    const alike = seeThroughAlike(A, a.rects[0], B, b.rects[0], ma, mb);
+    if (alike !== null) return alike;
+  }
+  // The rows of the annotations' lines over the word, in both versions:
+  // rows where the line of an annotation of `X` lies (a strike-out's
+  // through the middle of its quadrilateral, an underline's in its lower
+  // half or just below it), where 40 % of the word's columns differ from
+  // the other version, and where 70 % of those pixels are the annotation's
+  // colour drawn over what the other version shows there (see overDrawn).
+  // A line of the page's own in another colour there (a black underline
+  // under a red strike-out) is not one of them. An annotation draws one
+  // line over a word: of the runs of such rows apart from each other, only
+  // the one where it draws the most pixels is its line, not a line of the
+  // page's own in a near hue beside it (a dark red underline, its
+  // anti-aliased rows as pale as the red strike-out's, in the band).
+  const ra = a.rects[0];
+  const rb = b.rects[0];
+  const skip = { old: new Set<number>(), new: new Set<number>() };
+  const lineRowsOf = (X: Prepared, t: Rect, Y: Prepared, u: Rect, list: Markup[], own: Set<number>, other: Set<number>) => {
+    const lines = list.filter((m) => m.kind !== 'highlight');
+    if (!lines.length) return;
+    const s = X.r.scale;
+    const so = Y.r.scale;
+    const x0 = Math.max(0, Math.ceil(t.x * s));
+    const x1 = Math.min(X.r.width, Math.floor((t.x + t.w) * s));
+    const y0 = Math.max(0, Math.floor(t.y * s));
+    const y1 = Math.min(X.r.height, Math.ceil((t.y + 1.15 * t.h) * s));
+    if (x1 - x0 < 2) return;
+    const d = X.r.data;
+    const e = Y.r.data;
+    const band = (m: Markup, q: Rect, py: number) => (m.kind === 'strike' ? py >= q.y + 0.2 * q.h && py <= q.y + 0.85 * q.h : py >= q.y + 0.5 * q.h && py <= q.y + 1.4 * q.h);
+    // A pixel row's pixels that differ by more than 40 levels from the
+    // other version's, and of those, the most that one of `here` draws.
+    const rowOf = (y: number, here: Markup[]) => {
+      const yo = Math.round(((y + 0.5) / s - t.y + u.y) * so - 0.5);
+      let n = 0;
+      const drawn = here.map(() => 0);
+      if (y < 0 || y >= X.r.height || yo < 0 || yo >= Y.r.height) return { yo, n, drawn: 0, by: here[0] };
+      for (let x = x0; x < x1; x++) {
+        const xo = Math.round(((x + 0.5) / s - t.x + u.x) * so - 0.5);
+        if (xo < 0 || xo >= Y.r.width) continue;
+        const i = (y * X.r.width + x) * 4;
+        const j = (yo * Y.r.width + xo) * 4;
+        if (Math.max(Math.abs(d[i] - e[j]), Math.abs(d[i + 1] - e[j + 1]), Math.abs(d[i + 2] - e[j + 2])) <= 40) continue;
+        n++;
+        here.forEach((m, k) => {
+          if (overDrawn([d[i], d[i + 1], d[i + 2]], [e[j], e[j + 1], e[j + 2]], markupColour(m))) drawn[k]++;
+        });
+      }
+      const most = Math.max(...drawn);
+      return { yo, n, drawn: most, by: here[drawn.indexOf(most)] };
+    };
+    // The rows found, by the annotation that draws the most of them.
+    const found = new Map<Markup, Map<number, { yo: number; drawn: number }>>();
+    const put = (m: Markup, y: number, yo: number, drawn: number) => {
+      let rows = found.get(m);
+      if (!rows) found.set(m, (rows = new Map()));
+      const was = rows.get(y);
+      if (!was || was.drawn < drawn) rows.set(y, { yo, drawn });
+    };
+    for (let y = y0; y < y1; y++) {
+      const py = (y + 0.5) / s;
+      const here = lines.filter((m) => m.quads.some((q) => band(m, q, py) && q.x < t.x + t.w && q.x + q.w > t.x));
+      if (!here.length) continue;
+      const row = rowOf(y, here);
+      if (row.yo < 0 || row.yo >= Y.r.height || row.n < 0.4 * (x1 - x0) || row.drawn < 0.7 * row.n) continue;
+      put(row.by, y, row.yo, row.drawn);
+      // A row of blur on either side, where what differs there is the
+      // annotation's too, or next to nothing: not a line of the page's own
+      // in another colour right above or below the annotation's (a black
+      // underline over a green underline annotation).
+      for (const k of [-1, 1]) {
+        const next = rowOf(y + k, here);
+        if (next.n > 3 && next.drawn < 0.7 * next.n) continue;
+        put(row.by, y + k, next.yo, 0);
+      }
+    }
+    for (const rows of found.values()) {
+      const ys = [...rows.keys()].sort((p, q) => p - q);
+      let best: number[] = [];
+      let bestDrawn = -1;
+      for (let i = 0; i < ys.length; ) {
+        let j = i + 1;
+        while (j < ys.length && ys[j] === ys[j - 1] + 1) j++;
+        const run = ys.slice(i, j);
+        const drawn = run.reduce((sum, y) => sum + rows.get(y)!.drawn, 0);
+        if (drawn > bestDrawn) [best, bestDrawn] = [run, drawn];
+        i = j;
+      }
+      for (const y of best) {
+        own.add(y);
+        other.add(rows.get(y)!.yo);
+      }
+    }
+  };
+  lineRowsOf(A, ra, B, rb, ma, skip.old, skip.new);
+  lineRowsOf(B, rb, A, ra, mb, skip.new, skip.old);
+  const ia = ink(A, ra, skip.old.size ? (_x, y) => skip.old.has(y) : undefined);
+  const ib = ink(B, rb, skip.new.size ? (_x, y) => skip.new.has(y) : undefined);
+  if (ia.n < 6 || ib.n < 6) return false;
+  // A highlight is a tint behind the glyphs, which their anti-aliased
+  // edges take (see beyondOverlays and markupTint).
+  const ta = markupTint(A, ra, B, rb, ma);
+  const tb = markupTint(B, rb, A, ra, mb);
+  const oa = ta ? [{ colours: [ta] } as unknown as Cover] : [];
+  const ob = tb ? [{ colours: [tb] } as unknown as Cover] : [];
+  const shift = [ib.chroma[0] - ia.chroma[0], ib.chroma[1] - ia.chroma[1], ib.chroma[2] - ia.chroma[2]];
+  if (beyondOverlays(shift, oa, oa.length ? 1 : 0, ob, ob.length ? 1 : 0) > 30) return false;
+  // The background: the highlight's where one lies there, else as it was.
+  const gap = Math.max(...ia.bg.map((v, k) => Math.abs(v - ib.bg[k])));
+  if (gap > 12 && !ta && !tb) return false;
+  // Their darkness, each pixel's against what lies behind it: the
+  // highlight's colour within its quadrilaterals, else the paper (see
+  // glyphWeight).
+  const lum = (u: number[]) => 0.299 * u[0] + 0.587 * u[1] + 0.114 * u[2];
+  const behind = (X: Prepared, list: Markup[], tint: number[] | null) => {
+    const quads = tint ? list.filter((m) => m.kind === 'highlight').flatMap((m) => m.quads) : [];
+    const v = tint ? Math.max(1, lum(tint)) : 0;
+    const s = X.r.scale;
+    return (x: number, y: number) => {
+      const [px, py] = [(x + 0.5) / s, (y + 0.5) / s];
+      return quads.some((q) => px >= q.x && px <= q.x + q.w && py >= q.y && py <= q.y + q.h) ? v : 0;
+    };
+  };
+  const wa = glyphWeight(A, ra, (_x, y) => skip.old.has(y), behind(A, ma, ta));
+  const wb = glyphWeight(B, rb, (_x, y) => skip.new.has(y), behind(B, mb, tb));
+  return wa.n >= 6 && wb.n >= 6 && Math.abs(wa.total - wb.total) / Math.max(wa.total, wb.total, 1e-6) <= 0.12;
+}
+
+/**
+ * The items of appearanceChanges (`found`) that markup annotations which
+ * changed explain (see markupExplains), taken off: an item whose every word
+ * they explain is dropped, and one where they explain some of its words
+ * keeps the others (its text and places made again from them).
+ */
+function withoutMarkup(result: CompareResult, oldPage: number, newPage: number, found: Change[], A: Prepared, B: Prepared, on: { old: Markup[]; new: Markup[] }): Change[] {
+  if (!on.old.length && !on.new.length) return found;
+  const TA = result.oldDoc.tokens;
+  const TB = result.newDoc.tokens;
+  type Hits = { a: number; b: number; rows: [number, number] | null }[];
+  // Words whose line is the annotation's, with another change beside it
+  // (see markupExplains): that change, as one of colour or weight, in the
+  // line's item's place, unless an item of the kind already lists the word.
+  const out: (Change | { of: Change; rest: Hits })[] = [];
+  // New words an item other than a line's keeps.
+  const listed = new Set<number>();
+  for (const c of found) {
+    const hits = hitPairs.get(c);
+    if (!hits || c.format?.markup) {
+      out.push(c);
+      for (const h of hits ?? []) if (!c.format?.decoration) listed.add(h.b);
+      continue;
+    }
+    const why = hits.map((h) => markupExplains(c, TA[h.a], TB[h.b], h.rows, A, B, on));
+    const kept = hits.filter((_h, k) => !why[k]);
+    if (!c.format?.decoration) for (const h of kept) listed.add(h.b);
+    const rest = hits.filter((_h, k) => why[k] === 'line');
+    const of = { ...c };
+    if (kept.length === hits.length) out.push(c);
+    else if (kept.length) out.push(withHits(c, kept, oldPage, newPage, TA, TB));
+    if (rest.length) out.push({ of, rest });
+  }
+  return out.flatMap((x) => {
+    if (!('rest' in x)) return [x];
+    const rest = x.rest.filter((h) => !listed.has(h.b));
+    return rest.length ? [withHits({ ...x.of, format: { appearanceChanged: true } }, rest, oldPage, newPage, TA, TB)] : [];
+  });
+}
+
+/** The item `c` of appearanceChanges made again on some of its words (`hits`): its text, places and size. */
+function withHits(c: Change, hits: { a: number; b: number; rows: [number, number] | null }[], oldPage: number, newPage: number, TA: Token[], TB: Token[]): Change {
+  const as = hits.map((h) => TA[h.a]);
+  const bs = hits.map((h) => TB[h.b]);
+  const lines = (page: number, ts: Token[]) => {
+    const by = new Map<number, Rect[]>();
+    for (const t of ts) by.set(t.line, [...(by.get(t.line) ?? []), t.rects[0]]);
+    return [...by.values()].map((rs) => ({ page, rect: union(rs) }));
+  };
+  c.old = { pages: [oldPage], rects: lines(oldPage, as), text: joinTokens(as) };
+  c.new = { pages: [newPage], rects: lines(newPage, bs), text: joinTokens(bs) };
+  c.size = hits.length;
+  c.order = newPage * 100000 + bs[0].rects[0].y;
+  hitPairs.set(c, hits);
+  return c;
+}
+
+/**
+ * Whether the word `t` on `X` and `u` on `Y` show the same pixels outside
+ * the rows `rows` (points of `X`, two pixel rows more on either side): the
+ * word did not move by a fraction of a pixel, and at most 1 % of its
+ * pixels there differ by more than 32 levels in a channel.
+ */
+function sameOutside(X: Prepared, t: Rect, Y: Prepared, u: Rect, rows: [number, number]): boolean {
+  const s = X.r.scale;
+  if (Math.abs(Y.r.scale - s) > 1e-6) return false;
+  const dx = (u.x - t.x) * s;
+  const dy = (u.y - t.y) * s;
+  if (Math.abs(dx - Math.round(dx)) > 0.05 || Math.abs(dy - Math.round(dy)) > 0.05) return false;
+  const [ox, oy] = [Math.round(dx), Math.round(dy)];
+  const [r0, r1] = [Math.floor(rows[0] * s) - 2, Math.ceil(rows[1] * s) + 2];
+  let n = 0;
+  let off = 0;
+  for (let y = Math.max(0, Math.floor(t.y * s)); y < Math.min(X.r.height, Math.ceil((t.y + 1.15 * t.h) * s)); y++) {
+    if (y >= r0 && y <= r1) continue;
+    for (let x = Math.max(0, Math.floor(t.x * s)); x < Math.min(X.r.width, Math.ceil((t.x + t.w) * s)); x++) {
+      const [xo, yo] = [x + ox, y + oy];
+      if (xo < 0 || yo < 0 || xo >= Y.r.width || yo >= Y.r.height) return false;
+      const i = (y * X.r.width + x) * 4;
+      const j = (yo * Y.r.width + xo) * 4;
+      n++;
+      if (Math.max(Math.abs(X.r.data[i] - Y.r.data[j]), Math.abs(X.r.data[i + 1] - Y.r.data[j + 1]), Math.abs(X.r.data[i + 2] - Y.r.data[j + 2])) > 32) off++;
+    }
+  }
+  return n > 0 && off <= 0.01 * n;
+}
+
+/**
+ * Words of the new page counted as compared in part only for a line too
+ * faint to be sure of (see appearanceChanges) where a markup annotation
+ * that changed (`on`) draws that line: of its kind, in the version that has
+ * it, at its rows (see markupExplains), and the word shows the same pixels
+ * in both versions outside those rows (see sameOutside), so that no other
+ * line lies there. The line is the annotation's, which is listed: the word
+ * is not counted.
+ */
+function unnoteMarkup(result: CompareResult, oldPage: number, newPage: number, A: Prepared, B: Prepared, on: { old: Markup[]; new: Markup[] }): void {
+  const words = partly.get(result)?.get(newPage);
+  const seen = faintSeen.get(result);
+  if (!words || !seen) return;
+  for (const [i, f] of seen) {
+    const w = words.get(i);
+    const a = result.oldDoc.tokens[f.a];
+    const b = result.newDoc.tokens[i];
+    if (!w?.faint || !a || !b || a.page !== oldPage || b.page !== newPage) continue;
+    const line: Change = { id: '', kind: 'graphic', category: 'visual', old: { pages: [], rects: [], text: '' }, new: { pages: [], rects: [], text: '' }, format: { decoration: { line: f.line, added: f.added } }, size: 0, cjk: false, contextBefore: '', contextAfter: '', order: 0 };
+    if (a.rects.length !== 1 || b.rects.length !== 1 || markupExplains(line, a, b, f.rows, A, B, on) !== true) continue;
+    const ok = f.added ? sameOutside(B, b.rects[0], A, a.rects[0], f.rows) : sameOutside(A, a.rects[0], B, b.rects[0], f.rows);
+    if (ok) words.delete(i);
+  }
+}
+
+/**
+ * Graphic changes drawn by a stamp, a free-text note or a comment
+ * annotation that one version has and the other does not have alike (of
+ * the same kind, at the same place within 3 pt, with the same text): the
+ * change that covers most of its box on that page is marked with its kind
+ * (`note`) and given its text, so that it reads "Stamp added (annotation):
+ * “FOR COMMENT”", "Note changed (annotation): “…” → “…”" (`noteChange`:
+ * added or removed where the other version has no note there, changed
+ * where it has one with other text). The note explains the change alone
+ * only where the change lies within its box (90 % of its area, the box
+ * 6 pt wider) on the side that has it, and on the other side within the
+ * other note's box, or, where the other side has none, the change there
+ * is at most a quarter of its size (what the note covers of the page's
+ * own drawing). Otherwise the change holds more than the note (a logo
+ * recoloured under or beside a stamp): it is marked `beside`, and reads as
+ * a graphic change with the note's. A note whose text could not be read
+ * leaves the change as it is.
+ */
+function nameNotes(result: CompareResult, oldPage: number, newPage: number, changes: Change[]): void {
+  const na = result.oldDoc.pages[oldPage]?.annotations?.notes ?? [];
+  const nb = result.newDoc.pages[newPage]?.annotations?.notes ?? [];
+  if (!na.length && !nb.length) return;
+  const place = (x: AnnotationNote, y: AnnotationNote) =>
+    x.kind === y.kind && Math.abs(x.rect.x - y.rect.x) <= 3 && Math.abs(x.rect.y - y.rect.y) <= 3 && Math.abs(x.rect.w - y.rect.w) <= 3 && Math.abs(x.rect.h - y.rect.h) <= 3;
+  const area = (r: Rect, s: Rect) => Math.max(0, Math.min(r.x + r.w, s.x + s.w) - Math.max(r.x, s.x)) * Math.max(0, Math.min(r.y + r.h, s.y + s.h) - Math.max(r.y, s.y));
+  const plain = (c: Change) => c.kind === 'graphic' && !c.format && !c.minor && !c.pageChange && !c.consequence;
+  const pageOf = (side: 'old' | 'new') => (side === 'old' ? oldPage : newPage);
+  const size = (c: Change, side: 'old' | 'new') => c[side].rects.filter((q) => q.page === pageOf(side)).reduce((s, q) => s + q.rect.w * q.rect.h, 0);
+  // Share of the change's area on one side within a note's box (6 pt
+  // wider: a region of the pixels takes in whole cells around them).
+  const within = (c: Change, side: 'old' | 'new', r: Rect) => {
+    const all = size(c, side);
+    const box = expand(r, 6);
+    return all > 0 ? c[side].rects.filter((q) => q.page === pageOf(side)).reduce((s, q) => s + area(q.rect, box), 0) / all : 1;
+  };
+  const alone = (c: Change, side: 'old' | 'new', n: AnnotationNote, twin: AnnotationNote | undefined) => {
+    const o = side === 'old' ? 'new' : 'old';
+    return within(c, side, n.rect) >= 0.9 && (twin ? within(c, o, twin.rect) >= 0.9 : size(c, o) <= 0.25 * size(c, side));
+  };
+  const best = (side: 'old' | 'new', n: AnnotationNote): Change | null => {
+    let top: Change | null = null;
+    let most = 0.25 * n.rect.w * n.rect.h;
+    for (const c of changes) {
+      if (!plain(c)) continue;
+      const v = c[side].rects.filter((q) => q.page === pageOf(side)).reduce((s, q) => s + area(q.rect, n.rect), 0);
+      if (v > most) [top, most] = [c, v];
+    }
+    return top;
+  };
+  for (const n of nb) {
+    const twin = na.find((o) => place(o, n));
+    if (twin && twin.text === n.text) continue;
+    if (!n.text && !twin?.text) continue;
+    const c = best('new', n) ?? (twin ? best('old', twin) : null);
+    if (!c || c.note) continue;
+    c.note = n.kind;
+    c.noteChange = { change: twin ? 'changed' : 'added', ...(alone(c, 'new', n, twin) ? {} : { beside: true }) };
+    c.new.text = n.text;
+    if (twin) c.old.text = twin.text;
+  }
+  for (const o of na) {
+    if (!o.text || nb.some((n) => place(o, n))) continue;
+    const c = best('old', o);
+    if (!c || (c.note && c.old.text)) continue;
+    if (c.note) {
+      // A note added where another went: changed.
+      c.noteChange = { change: 'changed', ...(c.noteChange?.beside || within(c, 'old', o.rect) < 0.9 ? { beside: true } : {}) };
+    } else {
+      c.note = o.kind;
+      c.noteChange = { change: 'removed', ...(alone(c, 'old', o, undefined) ? {} : { beside: true }) };
+    }
+    c.old.text = o.text;
+  }
 }
 
 /** Appearance changes of running header and footer words (see compareAligned): counted, not listed. */

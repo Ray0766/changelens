@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
-import type { DocText, PageText, TextRun } from '../core/types.ts';
+import type { AnnotationNote, DocText, Markup, MarkupKind, PageAnnotations, PageText, Rect, TextRun } from '../core/types.ts';
 import { charWeight, isWide } from '../core/fontwidths.ts';
 import { upright } from '../core/tokenize.ts';
 
@@ -104,15 +104,25 @@ export async function extractPage(page: PDFPageProxy, index: number, formFonts: 
     runs.push(run);
   }
   let fields: FieldRuns = { runs: [], unread: 0 };
+  let annotations: (WidgetData & AnnotationData)[] = [];
   try {
-    const annotations = (await page.getAnnotations({ intent: 'display' })) as WidgetData[];
+    annotations = (await page.getAnnotations({ intent: 'display' })) as (WidgetData & AnnotationData)[];
     fields = fieldRuns(annotations, viewport.transform, runs, await drawnFieldFonts(page, annotations, formFonts));
   } catch {
     // The page's annotations could not be read: their values are compared as images only.
     fields = { runs: [], unread: -1 };
   }
+  // The other annotations it shows: text markup, stamps, notes (see pageAnnotations).
+  let shown: PageAnnotations | null = null;
+  try {
+    shown = pageAnnotations(annotations, viewport.transform, { width: viewport.width, height: viewport.height });
+    if (shown) await readStampTexts(page, annotations, shown);
+  } catch {
+    shown = null;
+  }
   const page_: PageText = { index, width: viewport.width, height: viewport.height, runs: placeFieldRuns(runs, fields.runs), unmapped };
   if (fields.unread) page_.fieldsUnread = fields.unread;
+  if (shown) page_.annotations = shown;
   return page_;
 }
 
@@ -123,6 +133,8 @@ export const OPS_READ = {
   setFont: 37,
   setTextRenderingMode: 38,
   showText: [44, 45, 46, 47],
+  /** beginText, moveText, setLeadingMoveText, setTextMatrix, nextLine: text placed anew. */
+  placeText: [31, 40, 41, 42, 43],
   paintFormXObjectBegin: 74,
   paintFormXObjectEnd: 75,
   beginAnnotation: 80,
@@ -241,6 +253,176 @@ async function drawnFieldFonts(page: PDFPageProxy, annotations: WidgetData[], by
     for (const k of missing) byKey.set(k, '');
   }
   return byKey;
+}
+
+// ------------------------------------------------------------ annotations ---
+
+/** The parts of a PDF.js annotation (page.getAnnotations()) read for text markup, stamps and notes. */
+export interface AnnotationData {
+  id?: string;
+  subtype?: string;
+  annotationFlags?: number;
+  rect?: number[];
+  /** Each quadrilateral as 8 numbers (PDF.js gives each one's bounding box, in user space). */
+  quadPoints?: ArrayLike<number> | null;
+  /** /C as 0–255 (PDF.js: a Uint8ClampedArray of 3, or null). */
+  color?: ArrayLike<number> | null;
+  contentsObj?: { str?: unknown };
+  textContent?: unknown;
+  hasAppearance?: boolean;
+}
+
+/**
+ * The most text-markup annotations, and quadrilaterals in all, read on one
+ * page: past them, the annotations are counted as not compared on their
+ * words (PageAnnotations.unread) and are compared as images only.
+ */
+export const MAX_MARKUP = 1000;
+export const MAX_QUADS = 5000;
+/** A stamp's text is read from its appearance only on a page with at most this many annotations (see readStampTexts). */
+const MAX_STAMP_PAGE = 100;
+
+const MARKUP_KINDS: Record<string, MarkupKind> = { StrikeOut: 'strike', Underline: 'underline', Squiggly: 'squiggly', Highlight: 'highlight' };
+const NOTE_KINDS: Record<string, AnnotationNote['kind']> = { Stamp: 'stamp', FreeText: 'freetext', Text: 'comment' };
+/** Annotation flags (PDF 32000-1, 12.5.3) of an annotation not shown on screen: Invisible, Hidden, NoView. */
+const NOT_SHOWN = 1 | 2 | 32;
+
+/** The stamps of a page whose text is to be read from their appearance (see readStampTexts). */
+const stampIds = new WeakMap<AnnotationNote, string>();
+
+/** Text from a PDF string, in one line ('' for anything else). */
+function oneLine(s: unknown): string {
+  return typeof s === 'string' ? cleanText(s).replace(/\s+/g, ' ').trim().slice(0, 500) : '';
+}
+
+/** The box (page space) of user-space points, or null when a coordinate is not finite or it has no area. */
+function boxOf(vt: number[], xs: number[], ys: number[]): Rect | null {
+  const pts = xs.map((x, k) => apply(vt, x, ys[k]));
+  const px = pts.map((p) => p[0]);
+  const py = pts.map((p) => p[1]);
+  if (![...px, ...py].every(Number.isFinite)) return null;
+  const x = Math.min(...px);
+  const y = Math.min(...py);
+  const w = Math.max(...px) - x;
+  const h = Math.max(...py) - y;
+  return w > 0 && h > 0 ? { x, y, w, h } : null;
+}
+
+/**
+ * The annotations a page shows (getAnnotations with the display intent,
+ * which leaves out those flagged NoView or Invisible, and those without
+ * QuadPoints that PDF.js cannot draw), other than form fields' widgets,
+ * links and pop-ups: counted by subtype; text markup (StrikeOut,
+ * Underline, Squiggly, Highlight) with its quadrilaterals and colour, in
+ * page space (the viewport turns them with the page's /Rotate); stamps,
+ * free-text notes and comments with their text. Annotations flagged
+ * Hidden are not drawn, and are left out. A markup annotation is drawn
+ * whether or not it has an appearance stream (PDF.js makes one from its
+ * QuadPoints and colour), so it is read either way. A quadrilateral off
+ * the page, or more than one and a half times its width or height (none
+ * marks words: a viewer draws it out of sight), is left out; `page`: the
+ * page's size in page space, where known. Null when there is none.
+ */
+export function pageAnnotations(annotations: AnnotationData[], vt: number[], page?: { width: number; height: number }): PageAnnotations | null {
+  const onPage = (b: Rect) =>
+    !page || (b.w <= 1.5 * page.width && b.h <= 1.5 * page.height && b.x < page.width && b.y < page.height && b.x + b.w > 0 && b.y + b.h > 0);
+  const counts: Record<string, number> = {};
+  const markup: Markup[] = [];
+  const notes: AnnotationNote[] = [];
+  let withText = 0;
+  let unread = 0;
+  let quads = 0;
+  const texts: string[] = [];
+  for (const a of annotations) {
+    const sub = typeof a.subtype === 'string' ? a.subtype : '';
+    if (!sub || sub === 'Widget' || sub === 'Link' || sub === 'Popup') continue;
+    if ((Number(a.annotationFlags) || 0) & NOT_SHOWN) continue;
+    counts[sub] = (counts[sub] ?? 0) + 1;
+    const r = a.rect;
+    const rect = Array.isArray(r) && r.length === 4 ? boxOf(vt, [r[0], r[2], r[2], r[0]], [r[1], r[1], r[3], r[3]]) : null;
+    const contents = oneLine(a.contentsObj?.str);
+    const note = NOTE_KINDS[sub];
+    if (contents || note) withText++;
+    if (contents) texts.push(contents);
+    const kind = MARKUP_KINDS[sub];
+    if (kind) {
+      const q = a.quadPoints;
+      const boxes: Rect[] = [];
+      if (q && typeof q.length === 'number' && q.length % 8 === 0)
+        for (let i = 0; i + 8 <= q.length; i += 8) {
+          // The corners in any order: their bounding box.
+          const b = boxOf(vt, [q[i], q[i + 2], q[i + 4], q[i + 6]].map(Number), [q[i + 1], q[i + 3], q[i + 5], q[i + 7]].map(Number));
+          if (b && onPage(b)) boxes.push(b);
+        }
+      if (!boxes.length || !rect) continue;
+      if (markup.length >= MAX_MARKUP || quads + boxes.length > MAX_QUADS) {
+        unread++;
+        continue;
+      }
+      quads += boxes.length;
+      const c = a.color;
+      const colour = c && c.length === 3 && [0, 1, 2].every((k) => Number.isFinite(Number(c[k]))) ? ([0, 1, 2].map((k) => Math.round(Number(c[k]))) as [number, number, number]) : null;
+      markup.push({ kind, quads: boxes, colour, rect });
+    } else if (note && rect) {
+      // A free-text note's text as its appearance draws it (PDF.js reads it
+      // from there, or from its contents when it has none); a comment's
+      // contents (its pop-up's text); a stamp's from its appearance (see
+      // readStampTexts).
+      const lines = Array.isArray(a.textContent) ? a.textContent.filter((l): l is string => typeof l === 'string') : [];
+      const n: AnnotationNote = { kind: note, rect, text: note === 'freetext' ? oneLine(lines.join(' ')) || contents : note === 'comment' ? contents : '' };
+      if (note === 'stamp' && a.hasAppearance && typeof a.id === 'string') stampIds.set(n, a.id);
+      notes.push(n);
+    }
+  }
+  if (!Object.keys(counts).length) return null;
+  return { counts, markup, notes, withText, ...(texts.length ? { contents: texts } : {}), ...(unread ? { unread } : {}) };
+}
+
+/**
+ * The text a stamp's appearance draws ("FOR COMMENT", "APPROVED"), read
+ * from the page's operator list with the annotations drawn: the glyphs
+ * shown between the stamp's beginAnnotation and endAnnotation, a space
+ * where the text is placed anew (another line). PDF.js gives no text
+ * content for stamps. That list loads every annotation's appearance on the
+ * page, so it is read only for pages with at most MAX_STAMP_PAGE
+ * annotations; elsewhere, and where it cannot be read, a stamp's text
+ * stays ''.
+ */
+async function readStampTexts(page: PDFPageProxy, annotations: AnnotationData[], shown: PageAnnotations): Promise<void> {
+  const byId = new Map<string, AnnotationNote>();
+  for (const n of shown.notes) {
+    const id = stampIds.get(n);
+    if (id) byId.set(id, n);
+  }
+  if (!byId.size || annotations.length > MAX_STAMP_PAGE) return;
+  try {
+    const { fnArray, argsArray } = await page.getOperatorList({ annotationMode: 1 });
+    let note: AnnotationNote | null = null;
+    let text = '';
+    let moved = false;
+    for (let k = 0; k < fnArray.length; k++) {
+      const fn = fnArray[k];
+      if (fn === OPS_READ.beginAnnotation) {
+        note = byId.get(String((argsArray[k] as unknown[] | null)?.[0] ?? '')) ?? null;
+        text = '';
+        moved = false;
+      } else if (fn === OPS_READ.endAnnotation) {
+        if (note) note.text = oneLine(text);
+        note = null;
+      } else if (!note) continue;
+      else if (OPS_READ.placeText.includes(fn)) moved = true;
+      else if (OPS_READ.showText.includes(fn)) {
+        const args = (argsArray[k] as unknown[] | null) ?? [];
+        const glyphs = [...args].reverse().find(Array.isArray) as unknown[] | undefined;
+        let s = '';
+        for (const g of glyphs ?? []) if (g && typeof g === 'object' && typeof (g as { unicode?: unknown }).unicode === 'string') s += (g as { unicode: string }).unicode;
+        text += (moved && text ? ' ' : '') + s;
+        moved = false;
+      }
+    }
+  } catch {
+    // The appearances could not be read: the stamps' text stays unknown.
+  }
 }
 
 /** Every coordinate of the run is a finite number. */

@@ -17,6 +17,8 @@ import {
   rowCopies,
   rowDiffers,
   rowFolds,
+  clearFragmentFeet,
+  openFragment,
   listRow,
   pageTurn,
   sameGraphic,
@@ -52,8 +54,10 @@ export async function addVisualChanges(
   // the ones it finds in their look (an earlier run on this result).
   const textFurniture = furnitureText.get(result) ?? result.ignored.furniture;
   furnitureText.set(result, textFurniture);
-  // Regions shown with repeated header rows by an earlier run on this result.
+  // Regions shown with repeated header rows by an earlier run on this result,
+  // and the table fragment feet it saw (see openFragment).
   rowFolds(result).splice(0);
+  clearFragmentFeet(result);
   const skipped = { old: new Set<number>(), new: new Set<number>() };
   const large = (side: 'old' | 'new', p: number) => {
     const pg = docs[side].pages[p];
@@ -338,17 +342,29 @@ export async function addVisualChanges(
   if (marks.length) found.splice(0, found.length, ...found.filter((c) => !furnitureMark(c)));
   result.ignored.furniture = textFurniture + marks.length;
   await graphicsOfUnpairedPages(result, pairs, render, large);
+  // A rule shown with a table's moved page break, where another foot of the
+  // same table has no such rule (see openFragment): a graphic of its own.
+  for (const c of found) {
+    if (c.consequence !== 'closingRule' || !openFragment(result, c)) continue;
+    c.minor = false;
+    delete c.consequence;
+  }
   const visual = [...dedupeGraphics(found.filter((c) => !c.minor)), ...pageChanges];
-  const shifts = found.filter((c) => c.minor);
-  result.minor = [...result.minor.filter((c) => c.consequence), ...shifts].sort((a, b) => a.order - b.order);
+  // Rules that close a table at a page foot, which came or went with a
+  // header row repeated at the next page top (see compareRasters): counted
+  // with those rows, and shown on request.
+  const closingRules = found.filter((c) => c.consequence === 'closingRule');
+  const shifts = found.filter((c) => c.minor && !c.consequence);
+  result.minor = [...result.minor.filter((c) => c.consequence && c.consequence !== 'closingRule'), ...closingRules, ...shifts].sort((a, b) => a.order - b.order);
   result.minor.forEach((c, k) => (c.id = 'm' + (k + 1)));
   result.ignored.minorShifts = shifts.length;
+  result.ignored.closingRules = closingRules.length;
   for (const side of ['old', 'new'] as const) {
     if (skipped[side].size && result.coverage?.[side]) result.coverage[side].visualSkipped = [...skipped[side]].sort((x, y) => x - y);
   }
-  // Words next to an overlay compared only in part (see partlyCompared).
+  // Words next to an overlay, or with a faint line, compared only in part (see partlyCompared).
   const partly = partlyCompared(result);
-  if (partly.length && result.coverage) result.coverage.new.partlyCompared = partly.map((u) => ({ page: u.page, count: u.words.length, words: u.words.slice(0, 3) }));
+  if (partly.length && result.coverage) result.coverage.new.partlyCompared = partly.map((u) => ({ page: u.page, count: u.words.length, words: u.words.slice(0, 3), ...(u.faint ? { faint: u.faint } : {}) }));
   result.changes.push(...visual);
   sortAndNumber(result.changes);
   return visual;
