@@ -6822,7 +6822,12 @@ function highlightTint(X: Prepared, rx: Rect, h: Markup): { quads: Rect[]; c: nu
  * A graphic of the page's own that changed under a highlight (a dot
  * recoloured, red to amber or to the highlight's own yellow) is not: its
  * pixels are lighter than the old ones, or of another hue than the tint
- * over them.
+ * over them. Nor is the region where such a graphic is small beside a long
+ * highlighted row (a status dot in a highlighted table row), whatever the
+ * share: where the pixels within a highlight's quadrilaterals that it leaves
+ * unexplained because they are lighter than the other version's (beyond the
+ * 24 levels) fill a block of 2 × 2 pt, which no highlight in multiply blend
+ * draws and no glyph edge a fraction of a pixel off fills.
  */
 function drawnByMarkup(X: Prepared, rx: Rect, Y: Prepared, ry: Rect, list: Markup[], others: Markup[]): boolean {
   const on = list.filter((m) => m.quads.some((q) => intersects(expand(q, 3), rx)));
@@ -6835,8 +6840,21 @@ function drawnByMarkup(X: Prepared, rx: Rect, Y: Prepared, ry: Rect, list: Marku
   const inside = (quads: Rect[], fx: number, fy: number, pad: number) => quads.some((q) => fx >= q.x - pad && fx <= q.x + q.w + pad && fy >= q.y - pad && fy <= q.y + q.h + pad);
   let n = 0;
   let ok = 0;
-  for (let y = Math.max(0, Math.floor(rx.y * s)); y < Math.min(X.r.height, Math.ceil((rx.y + rx.h) * s)); y++)
-    for (let x = Math.max(0, Math.floor(rx.x * s)); x < Math.min(X.r.width, Math.ceil((rx.x + rx.w) * s)); x++) {
+  const x0 = Math.max(0, Math.floor(rx.x * s));
+  const x1 = Math.min(X.r.width, Math.ceil((rx.x + rx.w) * s));
+  const y0 = Math.max(0, Math.floor(rx.y * s));
+  const y1 = Math.min(X.r.height, Math.ceil((rx.y + rx.h) * s));
+  const W = Math.max(0, x1 - x0);
+  // Pixels inside a highlight's quadrilaterals that it leaves unexplained
+  // because they are lighter than the other version's (see the block test
+  // below); not at an edge or in the rounded ends, of this highlight or of
+  // the other version's, whose cover is told only in part.
+  const brighter = new Uint8Array(W * Math.max(0, y1 - y0));
+  let nBright = 0;
+  const cores = lit.map((h) => h.quads.map((r) => expand(r, -1 / s)));
+  const underCores = under.map((u) => u.quads.map((r) => expand(r, -1 / so)));
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
       const xo = Math.round(((x + 0.5) / s - rx.x + ry.x) * so - 0.5);
       const yo = Math.round(((y + 0.5) / s - rx.y + ry.y) * so - 0.5);
       if (xo < 0 || yo < 0 || xo >= Y.r.width || yo >= Y.r.height) continue;
@@ -6869,8 +6887,28 @@ function drawnByMarkup(X: Prepared, rx: Rect, Y: Prepared, ry: Rect, list: Marku
         return overDrawn(p, a, b);
       });
       if (fits) ok++;
+      else if (was.some((v, k) => v !== null && p[k] > v + 24) && cores.some((qs) => inside(qs, fx, fy, 0)) && !under.some((u, m) => inside(u.quads, gx, gy, 3) && !inside(underCores[m], gx, gy, 0))) {
+        brighter[(y - y0) * W + (x - x0)] = 1;
+        nBright++;
+      }
     }
-  return ok >= 0.97 * n;
+  if (ok < 0.97 * n) return false;
+  const k = Math.max(2, Math.round(2 * s));
+  return nBright < k * k || !filledBlock(brighter, W, y1 - y0, k);
+}
+
+/**
+ * Whether the bitmap `bits` (`w` × `h`, row by row) has a `k` × `k` block
+ * whose pixels are all set (a summed-area table).
+ */
+function filledBlock(bits: Uint8Array, w: number, h: number, k: number): boolean {
+  if (w < k || h < k) return false;
+  const sum = new Uint32Array((w + 1) * (h + 1));
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) sum[(y + 1) * (w + 1) + x + 1] = bits[y * w + x] + sum[y * (w + 1) + x + 1] + sum[(y + 1) * (w + 1) + x] - sum[y * (w + 1) + x];
+  for (let y = k; y <= h; y++)
+    for (let x = k; x <= w; x++) if (sum[y * (w + 1) + x] - sum[(y - k) * (w + 1) + x] - sum[y * (w + 1) + x - k] + sum[(y - k) * (w + 1) + x - k] === k * k) return true;
+  return false;
 }
 
 /**
