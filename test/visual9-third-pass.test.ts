@@ -21,10 +21,14 @@
 //   orange, sky blue) was lost, counted or taken for a colour change: on
 //   the lowest channel such glyphs are as dark as black ones. Where the
 //   glyphs are so in both versions, a line is also looked for by luminance.
+// - A black underline of the page's own right above a new green or red
+//   underline annotation was hidden with it: the rows left out as the
+//   annotation's line took in a row on either side, whatever was there.
 // Fixtures test/fixtures/probe9-V2-steep-SYNTHETIC-*.pdf and
 // probe9-V3-markup-*.pdf are SYNTHETIC: fpdf2 2.9 and PyMuPDF 2.1
 // (test/fixtures/gen9/v2-steep-strikes.py, v3-markup-refix.py and
-// v3-markup-third.py, v2-tinted-headings.py); probe9-V1-closing-rules-*.pdf:
+// v3-markup-third.py, v2-tinted-headings.py); probe9-V3-third-SYNTHETIC-*.pdf:
+// reportlab 5.0 and PyMuPDF 2.1 (v3-markup-third-rl.py); probe9-V1-closing-rules-*.pdf:
 // Typst 0.15 and PyMuPDF 2.1 (v1-closing-rules.py, v1-closing-rules-third.py).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -127,4 +131,16 @@ test('visual9 third pass: a grey strike through a heading in a light, saturated 
   // Control: black 0.4 pt strikes, found on the lowest channel, all listed.
   const black = await run(T + 'before.pdf', T + 'k04.pdf');
   assert.deepEqual(list(black.changes), ['Struck through: “Approved”', 'Struck through: “Pending”', 'Struck through: “Blocked”', 'Struck through: “Review”']);
+});
+
+test('visual9 third pass: an underline of the page’s own right above an underline annotation of another colour stays listed', { skip }, async () => {
+  // A black 0.8 pt underline in the page content right under a new green
+  // underline annotation's line. Before: only "Underlined (annotation)".
+  // It is listed as a change of the words' look beside the annotation (the
+  // line found there is taken for the annotation's).
+  const T = 'probe9-V3-third-SYNTHETIC-';
+  const UL = 'Underlined (annotation): “forklift scales were complete”';
+  assert.deepEqual(list((await run(T + 'base.pdf', T + 'ul-black-ulgreen.pdf')).changes), ['Text colour or weight changed', UL]);
+  // Control: the annotation alone gives its item only.
+  assert.deepEqual(list((await run(T + 'base.pdf', T + 'ul-X.pdf')).changes), [UL]);
 });

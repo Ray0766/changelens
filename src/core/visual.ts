@@ -7016,14 +7016,13 @@ function sameBesideMarkup(a: Token, b: Token, A: Prepared, B: Prepared, on: { ol
     const d = X.r.data;
     const e = Y.r.data;
     const band = (m: Markup, q: Rect, py: number) => (m.kind === 'strike' ? py >= q.y + 0.2 * q.h && py <= q.y + 0.85 * q.h : py >= q.y + 0.5 * q.h && py <= q.y + 1.4 * q.h);
-    for (let y = y0; y < y1; y++) {
-      const py = (y + 0.5) / s;
-      const here = lines.filter((m) => m.quads.some((q) => band(m, q, py) && q.x < t.x + t.w && q.x + q.w > t.x));
-      if (!here.length) continue;
-      const yo = Math.round((py - t.y + u.y) * so - 0.5);
-      if (yo < 0 || yo >= Y.r.height) continue;
+    // A pixel row's pixels that differ by more than 40 levels from the
+    // other version's, and of those, the most that one of `here` draws.
+    const rowOf = (y: number, here: Markup[]) => {
+      const yo = Math.round(((y + 0.5) / s - t.y + u.y) * so - 0.5);
       let n = 0;
       const drawn = here.map(() => 0);
+      if (y < 0 || y >= X.r.height || yo < 0 || yo >= Y.r.height) return { yo, n, drawn: 0 };
       for (let x = x0; x < x1; x++) {
         const xo = Math.round(((x + 0.5) / s - t.x + u.x) * so - 0.5);
         if (xo < 0 || xo >= Y.r.width) continue;
@@ -7035,10 +7034,25 @@ function sameBesideMarkup(a: Token, b: Token, A: Prepared, B: Prepared, on: { ol
           if (overDrawn([d[i], d[i + 1], d[i + 2]], [e[j], e[j + 1], e[j + 2]], markupColour(m))) drawn[k]++;
         });
       }
-      if (n < 0.4 * (x1 - x0) || Math.max(...drawn) < 0.7 * n) continue;
-      for (let k = -1; k <= 1; k++) {
+      return { yo, n, drawn: Math.max(...drawn) };
+    };
+    for (let y = y0; y < y1; y++) {
+      const py = (y + 0.5) / s;
+      const here = lines.filter((m) => m.quads.some((q) => band(m, q, py) && q.x < t.x + t.w && q.x + q.w > t.x));
+      if (!here.length) continue;
+      const row = rowOf(y, here);
+      if (row.yo < 0 || row.yo >= Y.r.height || row.n < 0.4 * (x1 - x0) || row.drawn < 0.7 * row.n) continue;
+      own.add(y);
+      other.add(row.yo);
+      // A row of blur on either side, where what differs there is the
+      // annotation's too, or next to nothing: not a line of the page's own
+      // in another colour right above or below the annotation's (a black
+      // underline over a green underline annotation).
+      for (const k of [-1, 1]) {
+        const next = rowOf(y + k, here);
+        if (next.n > 3 && next.drawn < 0.7 * next.n) continue;
         own.add(y + k);
-        other.add(yo + k);
+        other.add(next.yo);
       }
     }
   };
