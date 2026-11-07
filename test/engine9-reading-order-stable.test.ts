@@ -69,3 +69,44 @@ test('T1: footnote markers drawn after the footer are read on their lines in bot
   assert.equal(c.oldDoc.pages[0].outOfOrder, undefined);
   assert.equal(c.newDoc.pages[0].outOfOrder, undefined);
 });
+
+// Fourth pass: markers whose place on the page a real edit moves. The
+// probes are made by test/fixtures/gen9/probe9-T1d.mjs.
+
+test('T1: footnote markers read the same in both versions when a one-word edit re-wraps the line they stand on', async () => {
+  // "March" -> "April" brings "The readings" up a line: markers 4 and 5 now
+  // stand on one baseline, drawn one after the other, and 5 at the end of
+  // the line under a short line. Each is set against its word, so it is read
+  // with that word in both versions, whatever lines stand around it.
+  const r = await pair('rewrap-before', 'rewrap-april');
+  assert.deepEqual(listed(r), ['Changed “March” → “April”']);
+  for (const d of [r.oldDoc, r.newDoc]) {
+    const t = lineTexts(d);
+    assert.ok(t.some((l) => /calibrated in (March|April)\. ?4 The/.test(l)), JSON.stringify(t));
+    assert.ok(t.some((l) => /readings ?5( are|$)/.test(l)), JSON.stringify(t));
+    assert.ok(t.some((l) => /out of service\. ?6$/.test(l)), JSON.stringify(t));
+  }
+  const all = await pair('rewrap-before', 'rewrap-all');
+  assert.deepEqual(listed(all), ['Changed “The” → “All”']);
+  // Control: the same pages with the footer declared last, markers drawn in
+  // reading order: the same change, nothing placed.
+  const c = await pair('rewrapend-before', 'rewrapend-april');
+  assert.deepEqual(listed(c), ['Changed “March” → “April”']);
+  assert.equal(c.newDoc.pages[0].outOfOrder, undefined);
+});
+
+test('T1: a marker raised 0.7 em at 85 % is read on its line in both versions, and a raised marker does not join two paragraphs', async () => {
+  // Chromium rounds the raise to 6.0 pt in one version and 6.75 pt in the
+  // other: about half the marker's height inside its line either way. Set
+  // against its word, it is on its line with a quarter of its height there.
+  const r = await pair('raise7-before', 'raise7-after');
+  assert.deepEqual(listed(r), ['Added a paragraph', 'Changed “March” → “April”']);
+  for (const d of [r.oldDoc, r.newDoc]) assert.ok(lineTexts(d).some((l) => /out of service\. ?6$/.test(l)), JSON.stringify(lineTexts(d)));
+  assert.deepEqual(r.oldDoc.pages[0].outOfOrder, r.newDoc.pages[0].outOfOrder);
+  // Raised 0.8 em, the markers are placed too. The gap to the line above is
+  // measured without a placed marker, so the inserted paragraph stays a
+  // paragraph of its own ("Added a paragraph", not "Added 19 words").
+  const h = await pair('raise8-before', 'raise8-after');
+  assert.deepEqual(listed(h), ['Added a paragraph', 'Changed “March” → “April”']);
+  assert.ok(lineTexts(h.newDoc).some((l) => /in spring\. ?1 The flow/.test(l)), JSON.stringify(lineTexts(h.newDoc)));
+});

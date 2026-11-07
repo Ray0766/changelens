@@ -207,12 +207,16 @@ interface Reordered {
  *    in the bottom margin after a paragraph gap, and the next column and
  *    the real footer come after it.)
  * A line drawn after that footer, outside the bottom margin, is placed
+ * (in parts, where text drawn before the footer stands between its runs:
+ * see lateUnits)
  *  - into a line drawn before the footer that it stands on (its baseline,
  *    or for smaller text its height: see onLine), at its x, where it does
  *    not overprint that line's glyphs, and either fills a gap inside the
- *    line, or the lines just before and after that line in the stream reach
- *    across its whole width (a cell of the same table or a word of the same
- *    paragraph, not another column); or
+ *    line, is set smaller than the line against one of its glyph runs (a
+ *    footnote marker after its word, see attached), or the lines just
+ *    before and after that line in the stream reach across its whole width
+ *    (a cell of the same table or a word of the same paragraph, not another
+ *    column); or
  *  - into a table row whose first cell is on its baseline, where another row
  *    of the same table has a cell under or over it (see rowCell); or else
  *  - between two lines drawn one after the other before the footer, one
@@ -253,46 +257,93 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number, zo
   // Lines drawn before the footer, in stream order (blank lines skipped).
   const before: number[] = [];
   for (let k = 0; k < footer; k++) if (boxes[k]) before.push(k);
-  /** Late lines merged into a line drawn before the footer, by that line. */
-  const into = new Map<number, number[]>();
-  /** Late lines put after a line drawn before the footer, by that line. */
-  const after = new Map<number, number[]>();
-  const add = (m: Map<number, number[]>, at: number, k: number) => {
+  /** Late runs merged into a line drawn before the footer, by that line. */
+  const into = new Map<number, TextRun[]>();
+  /** Late runs put after a line drawn before the footer, as lines of their own, by that line. */
+  const after = new Map<number, { top: number; runs: TextRun[] }[]>();
+  const add = <T>(m: Map<number, T[]>, at: number, v: T) => {
     const list = m.get(at);
-    if (list) list.push(k);
-    else m.set(at, [k]);
+    if (list) list.push(v);
+    else m.set(at, [v]);
   };
-  const moved = new Set<number>();
+  /** Late runs placed, and the late lines they came from. */
+  const moved = new Set<TextRun>();
+  const touched = new Set<number>();
   const kept = new Set<number>();
+  const pageBox = { x: 0, y: 0, w: width, h: height };
   for (let k = footer + 1; k < lines.length; k++) {
-    const late = boxes[k];
-    if (!late || late.zone === 'bottom') continue;
-    let target = sharedBaseline(late, before, boxes);
-    if (target < 0) target = rowCell(late, before, boxes);
-    if (target >= 0 && !zoneMerges && boxes[target]!.zone) target = -1;
-    const gap = target < 0 ? gapAbove(late, before, boxes) : -1;
-    if (target >= 0) add(into, target, k);
-    else if (gap >= 0) add(after, gap, k);
-    else {
-      if (!late.zone && late.top >= floor) kept.add(k);
-      continue;
+    const box = boxes[k];
+    if (!box || box.zone === 'bottom') continue;
+    const units = lateUnits(lines[k], box, before, boxes);
+    const left: TextRun[] = [];
+    for (const runs of units) {
+      const late = units.length === 1 ? box : lineBox({ page: lines[k].page, runs }, pageBox);
+      if (!late || late.zone === 'bottom') {
+        left.push(...runs);
+        continue;
+      }
+      let target = sharedBaseline(late, before, boxes);
+      if (target < 0) target = rowCell(late, before, boxes);
+      if (target >= 0 && !zoneMerges && boxes[target]!.zone) target = -1;
+      const gap = target < 0 ? gapAbove(late, before, boxes) : -1;
+      if (target >= 0) for (const r of runs) add(into, target, r);
+      else if (gap >= 0) add(after, gap, { top: late.top, runs });
+      else {
+        left.push(...runs);
+        continue;
+      }
+      for (const r of runs) moved.add(r);
+      touched.add(k);
     }
-    moved.add(k);
+    const rest = left.length === lines[k].runs.length ? box : lineBox({ page: lines[k].page, runs: left }, pageBox);
+    if (rest && !rest.zone && rest.top >= floor) kept.add(k);
   }
-  if (!moved.size && !kept.size) return none;
+  if (!touched.size && !kept.size) return none;
   const out: RawLine[] = [];
   const merged: string[] = [];
   lines.forEach((line, k) => {
-    if (moved.has(k)) return;
-    const extra = into.get(k)?.flatMap((j) => lines[j].runs);
+    const runs = touched.has(k) ? line.runs.filter((r) => !moved.has(r)) : line.runs;
+    const extra = into.get(k);
     if (extra) {
-      const m: RawLine = { page: line.page, runs: mergeRuns(line.runs, extra), retyped: new Set(extra) };
+      const m: RawLine = { page: line.page, runs: mergeRuns(runs, extra), retyped: new Set(extra) };
       if (boxes[k]!.zone) merged.push(rawSignature(m, width, height) ?? '');
       out.push(m);
-    } else out.push(kept.has(k) ? { ...line, late: true } : line);
-    for (const j of (after.get(k) ?? []).sort((a, b) => boxes[a]!.top - boxes[b]!.top)) out.push({ ...lines[j], retyped: new Set(lines[j].runs) });
+    } else if (runs.some((r) => r.str.trim() !== '')) out.push(kept.has(k) ? { ...line, runs, late: true } : runs === line.runs ? line : { ...line, runs });
+    for (const a of (after.get(k) ?? []).sort((p, q) => p.top - q.top)) out.push({ page: line.page, runs: a.runs, retyped: new Set(a.runs) });
   });
-  return { lines: out, placed: moved.size, zoneMerges: merged };
+  return { lines: out, placed: touched.size, zoneMerges: merged };
+}
+
+/**
+ * A late line's runs in the parts that are placed apart: the line is split
+ * where text drawn before the footer stands between two of its runs. Two
+ * footnote markers drawn one after the other on one baseline ("March.⁴ The
+ * readings⁵") are two places in a line, not one phrase, and each is placed
+ * as it would be alone, so that a re-wrap that brings them onto one line
+ * does not change where either is read. A blank run goes with the run
+ * before it.
+ */
+function lateUnits(line: RawLine, late: LineBox, before: number[], boxes: (LineBox | null)[]): TextRun[][] {
+  const between = (x0: number, x1: number) =>
+    x1 > x0 &&
+    before.some((k) => {
+      const f = boxes[k]!;
+      return heightIn(late, f) >= 0.25 && f.inked.some((r) => overlapX(runSpan(r), { x0, x1 }) > 0.25 * Math.min(f.size, late.size));
+    });
+  const units: TextRun[][] = [];
+  let cur: TextRun[] = [];
+  let prev: TextRun | null = null;
+  for (const r of line.runs) {
+    const inked = r.str.trim() !== '';
+    if (inked && prev && between(prev.x + prev.w, r.x)) {
+      units.push(cur);
+      cur = [];
+    }
+    cur.push(r);
+    if (inked) prev = r;
+  }
+  units.push(cur);
+  return units;
 }
 
 /**
@@ -332,6 +383,9 @@ function readingOrder(doc: DocText): Reordered[] {
   );
 }
 
+/** The share of a late line's height that lies inside line `e`'s. */
+const heightIn = (late: LineBox, e: LineBox) => (Math.min(e.bottom, late.bottom) - Math.max(e.top, late.top)) / (late.bottom - late.top || 1);
+
 /**
  * Whether a late line stands on line `e`: on its baseline (within 0.35 em),
  * or, for text set smaller than the line (a footnote marker, a superscript
@@ -344,26 +398,46 @@ function readingOrder(doc: DocText): Reordered[] {
  */
 function onLine(late: LineBox, e: LineBox): boolean {
   if (Math.abs(e.baseline - late.baseline) <= 0.35 * Math.max(e.size, late.size)) return true;
-  return late.size <= 0.85 * e.size && Math.min(e.bottom, late.bottom) - Math.max(e.top, late.top) >= 0.5 * (late.bottom - late.top);
+  return late.size <= 0.85 * e.size && heightIn(late, e) >= 0.5;
+}
+
+/**
+ * Whether a late run set smaller than line `e` is set against one of the
+ * line's glyph runs: it starts within a word space (0.4 em of the line's
+ * size) of the end of one, or ends that close to the start of one. A
+ * footnote marker after its word, an exponent or an index stands there
+ * because of the word it belongs to: a re-wrap moves it along with the
+ * word, so it is read with that word in both versions, whatever lines stand
+ * around it.
+ */
+function attached(late: LineBox, e: LineBox): boolean {
+  if (late.size > 0.85 * e.size) return false;
+  const tol = 0.4 * e.size;
+  return e.inked.some((r) => Math.abs(late.x0 - (r.x + r.w)) <= tol || Math.abs(r.x - late.x1) <= tol);
 }
 
 /**
  * The line drawn before the footer that a late line belongs to (-1 if
- * none): on that line (see onLine; of several, the nearest baseline), no
- * glyphs overprinted, and either inside the line's span or within the width
- * of the lines just before and after it in the stream.
+ * none): on that line, no glyphs overprinted, and either inside the line's
+ * span, set against one of its glyph runs (see attached), or within the
+ * width of the lines just before and after it in the stream. It stands on
+ * the line as onLine says, or, set against one of its runs, with a quarter
+ * of its height inside the line's (a marker raised more than half an em).
+ * Of several lines, one it is set against comes first, then the nearest
+ * baseline.
  */
 function sharedBaseline(late: LineBox, before: number[], boxes: (LineBox | null)[]): number {
   let best = -1;
-  let bestD = Infinity;
+  let bestRank = Infinity;
   for (let n = 0; n < before.length; n++) {
     const e = boxes[before[n]]!;
     const size = Math.max(e.size, late.size);
-    const d = Math.abs(e.baseline - late.baseline);
-    if (d >= bestD || !onLine(late, e)) continue;
+    const close = attached(late, e);
+    const rank = (close ? 0 : 1e6) + Math.abs(e.baseline - late.baseline);
+    if (rank >= bestRank || !(onLine(late, e) || (close && heightIn(late, e) >= 0.25))) continue;
     if (e.inked.some((r) => overlapX(runSpan(r), late) > 0.25 * Math.min(e.size, late.size))) continue;
     const inside = late.x0 >= e.x0 && late.x1 <= e.x1;
-    if (!inside) {
+    if (!inside && !close) {
       const width = late.x1 - late.x0;
       const reaches = (j: number) => {
         const o = j >= 0 && j < before.length ? boxes[before[j]]! : null;
@@ -372,7 +446,7 @@ function sharedBaseline(late: LineBox, before: number[], boxes: (LineBox | null)
       if (!reaches(n - 1) || !reaches(n + 1)) continue;
     }
     best = before[n];
-    bestD = d;
+    bestRank = rank;
   }
   return best;
 }
@@ -841,7 +915,14 @@ export function buildDocModel(doc: DocText): DocModel {
       // With a wide line spacing (double spacing, loose CJK layouts) a line
       // that carries on the sentence of the line above stays in its
       // paragraph although the gap is large.
-      const gap = prev ? rect.y - (prev.rect.y + prev.rect.h) : Infinity;
+      // A smaller run placed into the line by restoreReadingOrder (a
+      // footnote marker or an exponent drawn after the footer) stands above
+      // or below the line's text: the gap to the line above is measured
+      // without it, as it is on a page where it is not placed, so that a
+      // raised marker does not join a paragraph to the one above it.
+      const body = toks.flatMap((t) => t.chars).filter((c) => !c.virtual && !(rl.retyped?.has(c.run) && c.run.fontSize <= 0.85 * size));
+      const flow = body.length ? charsRect(body) : rect;
+      const gap = prev ? flow.y - (prev.rect.y + prev.rect.h) : Infinity;
       const newBlock =
         !prev ||
         prev.angle !== frame.angle ||
@@ -889,7 +970,7 @@ export function buildDocModel(doc: DocText): DocModel {
       const zone = marginZone(rect, turn({ x: 0, y: 0, w: page.width, h: page.height }, frame, -1));
       if (zone) line.zone = zone;
       lines.push(line);
-      prev = { rect, size, angle: frame.angle, last: toks[toks.length - 1] };
+      prev = { rect: flow, size, angle: frame.angle, last: toks[toks.length - 1] };
     }
   }
 
