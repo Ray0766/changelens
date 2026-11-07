@@ -128,3 +128,17 @@ test('T3: the context keeps a full-width sign that starts it', async () => {
   assert.deepEqual(ctx('延长到'), ['－20℃以下时泵的启动时间延长到']);
   assert.deepEqual(ctx(''), ['行，－20℃以下时泵的启动时间']);
 });
+
+test('T3: a full-width minus or plus right after a character is the sign of the figure after it', async () => {
+  // fpdf2 (gen9/probe9-T3f.py). Chinese text puts no space before the sign
+  // ("本期扣款－1,200元"); the change is of a negative amount.
+  const r = await probe('minus');
+  assert.deepEqual(listed(r), ['Number changed: －1,200 → －1,500 (+25%)', 'Number changed: 8,800 → 8,500 (-3.4%)']);
+  assert.deepEqual([r.changes[0].numeric?.fromValue, r.changes[0].numeric?.toValue], [-1200, -1500]);
+  assert.equal(around(r, 'Number changed: －1,200 → －1,500 (+25%)').contextBefore, '本期扣款');
+  // A sign that itself changes is a change of sign, not of a mark.
+  assert.deepEqual(listed(await probe('minussign')), ['Number changed: －20 → ＋20 (sign changed)']);
+  // Control: after a month (a figure and its unit) the mark joins a range,
+  // and the figure after it keeps no sign.
+  assert.deepEqual(listed(await probe('minusrange')), ['Number changed: 5 → 6 (+20%)']);
+});
