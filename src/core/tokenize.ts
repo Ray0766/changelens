@@ -278,9 +278,12 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number, zo
   // single words set smaller than the lines they stand on, each set against
   // its line, and a marker under a line of words in the text's size is no
   // line of that block. A note of one word per line in the text's size is
-  // still a block.
+  // still a block, and so is a note in a smaller size whose lines are words
+  // ("held", "until") or a few Chinese characters: a marker is a figure,
+  // letter or symbol of one or two characters ("1", "12", "*", "[3]").
   const late = lines.map((_, k) => k).filter((k) => k > footer && boxes[k]);
-  const marker = (x: LineBox) => singleWord(x) && before.some((k) => x.size <= 0.85 * boxes[k]!.size && heightIn(x, boxes[k]!) >= 0.25);
+  const marker = (x: LineBox) =>
+    singleWord(x) && MARKER.test(x.inked[0].str.trim()) && before.some((k) => x.size <= 0.85 * boxes[k]!.size && heightIn(x, boxes[k]!) >= 0.25);
   const stacked = new Set<number>();
   for (let n = 0; n + 1 < late.length; n++) {
     const a = boxes[late[n]]!;
@@ -446,6 +449,9 @@ function attached(late: LineBox, e: LineBox): boolean {
  * wider).
  */
 const singleWord = (b: LineBox) => b.inked.length === 1 && !/\s/.test(b.inked[0].str.trim()) && b.x1 - b.x0 <= 6 * b.size;
+
+/** The text of a footnote marker: one or two figures, letters or symbols, in brackets or not. */
+const MARKER = /^[([]?[\p{L}\p{N}*†‡§¶]{1,2}[)\]]?$/u;
 
 /**
  * The line drawn before the footer that a late line belongs to (-1 if

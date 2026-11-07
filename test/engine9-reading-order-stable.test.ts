@@ -249,3 +249,25 @@ test('T1: a narrow side note of one word, or a few Chinese characters, per line 
   // are still placed on their lines (see the footnote-list test above).
   assert.deepEqual(listed(await pair('fnlist-one', 'fnlist-two')), ['Added a paragraph', 'Added “2”', 'Added “2 Hose sets are sold in pairs only.”']);
 });
+
+test('T1: a narrow side note set smaller than the text, one word or a few Chinese characters per line, is read as a block', async () => {
+  // Chromium (gen9/probe9-T1f.mjs): a note 3.2 em wide in 9 pt, or 4.5 em
+  // wide in Chinese at 8 pt, floated right against a justified 11 pt
+  // paragraph. Its lines ("held", "until", "次到访") are single words set
+  // smaller than the lines they stand on, but no footnote markers, which
+  // are figures, letters or symbols of one or two characters: the note's
+  // lines are a block drawn last, not words set against the paragraph.
+  for (const [a, b, edit] of [
+    ['snote-before', 'snote-body', 'Added “and eastern”'],
+    ['snote-before', 'snote-note', 'Changed “held” → “final”'],
+    ['sznote-before', 'sznote-body', 'Added “和东区”'],
+  ]) {
+    const r = await pair(a, b);
+    assert.deepEqual(listed(r), [edit], b);
+    for (const d of [r.oldDoc, r.newDoc]) assert.equal(d.pages[0].outOfOrder?.placed ?? 0, 0, b);
+  }
+  // Control: the markers of a footnote list, one under the other, are still
+  // placed against their footnotes (see the footnote-list test above).
+  assert.deepEqual(listed(await pair('fnlist-one', 'fnlist-two')), ['Added a paragraph', 'Added “2”', 'Added “2 Hose sets are sold in pairs only.”']);
+  assert.deepEqual(listed(await pair('rlfn-one', 'rlfn-two')), ['Added a paragraph', 'Added “2”', 'Added “2 Hose sets are sold in pairs only.”']);
+});
