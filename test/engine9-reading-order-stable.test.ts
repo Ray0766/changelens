@@ -12,7 +12,7 @@ import { extractText } from '../src/pdf/extract.ts';
 import { buildDocModel } from '../src/core/tokenize.ts';
 import { compareDocs } from '../src/core/compare.ts';
 import { describeChange } from '../src/core/describe.ts';
-import type { CompareResult, DocModel } from '../src/core/types.ts';
+import type { CompareResult, DocModel, TextRun } from '../src/core/types.ts';
 
 const fixtures = new URL('./fixtures/', import.meta.url).pathname;
 const load = async (name: string) => buildDocModel(await extractText(await openPdf(`${fixtures}probe9-T1-${name}.pdf`), name));
@@ -109,4 +109,30 @@ test('T1: a marker raised 0.7 em at 85 % is read on its line in both versions, a
   const h = await pair('raise8-before', 'raise8-after');
   assert.deepEqual(listed(h), ['Added a paragraph', 'Changed “March” → “April”']);
   assert.ok(lineTexts(h.newDoc).some((l) => /in spring\. ?1 The flow/.test(l)), JSON.stringify(lineTexts(h.newDoc)));
+});
+
+test('T1: a marker drawn apart from its word is not listed as moved when a re-wrap moves the word', async () => {
+  // "service⁸." is one text run around the marker, so the marker is not
+  // placed: it stays a line of its own at the end of the page. "autumn" ->
+  // "late autumn" moves "service." 13 mm to the right, and the marker with it.
+  const r = await pair('punct-before', 'punct-late');
+  assert.deepEqual(listed(r), ['Added “late”']);
+  // Control: a small line that moves away from the word it was set against
+  // is listed as moved.
+  const page = (markerX: number, words: string) => {
+    const runs: TextRun[] = [];
+    const run = (str: string, x: number, baseline: number, size = 11): TextRun => ({ str, x, y: baseline - 0.9 * size, w: str.length * 0.5 * size, h: 1.1 * size, baseline, fontSize: size, font: 'Body-Regular', family: 'sans-serif', eol: true, angle: 0 });
+    ['Alpha beta gamma delta epsilon', 'Zeta eta theta iota kappa', words, 'Lambda mu nu xi omicron', 'Pi rho sigma tau upsilon'].forEach((s, k) => {
+      runs.push(run(s, 56, 90 + 16 * k));
+      if (k === 2) runs.push(run('8', markerX, 90 + 16 * k - 6, 7));
+    });
+    return buildDocModel({ name: 'm', pages: [{ index: 0, width: 595, height: 842, runs }] });
+  };
+  const end = (s: string) => 56 + s.length * 5.5;
+  const words = 'Phi chi psi omega final';
+  const edited = 'Phi chi psi long omega final';
+  // The word moved by the edit, and the marker with it: no move listed.
+  assert.deepEqual(listed(compareDocs(page(end(words), words), page(end(edited), edited))), ['Added “long”']);
+  // The marker moved 44 pt to the right, away from its word.
+  assert.deepEqual(listed(compareDocs(page(end(words), words), page(end(words) + 44, words))), ['“8” moved 16 mm to the right']);
 });

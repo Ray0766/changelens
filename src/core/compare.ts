@@ -2805,7 +2805,7 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
       ...detectFormatting(ctx, opsOfInPlace(renumberedLabels(renumbered, A, B)), refitted),
     ];
     changes.push(...aggregateFormatting(formats, ctx, pairs), ...turned.turns);
-    changes.push(...detectPositions(ctx, pairs));
+    changes.push(...detectPositions(ctx, pairs, newOfOld));
   }
   const map = pageMap(oldDoc, newDoc, A, B, pairs);
   for (const [o, n] of manual) {
@@ -2865,9 +2865,13 @@ export function compareDocs(oldDoc: DocModel, newDoc: DocModel, opts: Partial<Di
  * least counts. A line that re-flowed into the other column or another part
  * of the page (its vertical position jumped far more than the page's lines
  * did, and it now runs in a column with the line before or after it) did
- * not move sideways.
+ * not move sideways. Nor did a line set smaller than a word of another line
+ * and against it (see setAgainst) when it stands against the same word in
+ * both versions: a footnote marker or an exponent that was drawn apart from
+ * its word (after the footer, or raised so far that it is a line of its
+ * own) moves when a re-wrap moves the word, as the word does.
  */
-function detectPositions(ctx: Ctx, pairs: Int32Array): Change[] {
+function detectPositions(ctx: Ctx, pairs: Int32Array, newOfOld: Int32Array): Change[] {
   const { A, oldDoc, newDoc } = ctx;
   const byOldLine = new Map<number, number[]>();
   for (let p = 0; p < pairs.length; p += 2) {
@@ -2935,6 +2939,9 @@ function detectPositions(ctx: Ctx, pairs: Int32Array): Change[] {
       const lo = oldDoc.lines[m.oldLine];
       const ln = newDoc.lines[m.newLine];
       if (Math.abs(m.dy - typicalDy) > Math.max(36, 3 * lo.rect.h) && inColumn(m.newLine)) continue;
+      const a = setAgainst(oldDoc, lo);
+      const b = setAgainst(newDoc, ln);
+      if (a.some((t, k) => t >= 0 && b[k] >= 0 && newOfOld[t] === b[k])) continue;
       const words = newDoc.tokens.slice(ln.start, ln.end).filter((t) => t.kind !== 'punct');
       const newSide: Side = { pages: [ln.page], rects: [{ page: ln.page, rect: ln.rect }], text: ln.text, start: ln.start, end: ln.end };
       out.push({
@@ -2953,6 +2960,39 @@ function detectPositions(ctx: Ctx, pairs: Int32Array): Change[] {
     }
   }
   return out;
+}
+
+/**
+ * The words of other lines that line `l` is set against, as document token
+ * indices [before, after] (-1 where none): the word that ends within 0.4 em
+ * of the line's start and the word that starts within 0.4 em of its end, on
+ * the same band of the page, each set larger than the line (by 1 / 0.85 at
+ * least, as a footnote marker, an exponent or an index is).
+ */
+function setAgainst(doc: DocModel, l: Line): [number, number] {
+  const own = doc.tokens.slice(l.start, l.end);
+  if (!own.length) return [-1, -1];
+  const size = Math.max(...own.map((t) => t.size));
+  const found: [number, number] = [-1, -1];
+  const best = [Infinity, Infinity];
+  for (const t of doc.tokens) {
+    if (t.page !== l.page || t.line === l.id || t.furniture || 0.85 * t.size < size) continue;
+    const tol = 0.4 * t.size;
+    const last = t.rects[t.rects.length - 1];
+    const first = t.rects[0];
+    const band = (r: Rect) => Math.min(r.y + r.h, l.rect.y + l.rect.h) - Math.max(r.y, l.rect.y) > 0;
+    const d0 = Math.abs(l.rect.x - (last.x + last.w));
+    if (d0 <= tol && d0 < best[0] && band(last)) {
+      found[0] = t.i;
+      best[0] = d0;
+    }
+    const d1 = Math.abs(first.x - (l.rect.x + l.rect.w));
+    if (d1 <= tol && d1 < best[1] && band(first)) {
+      found[1] = t.i;
+      best[1] = d1;
+    }
+  }
+  return found;
 }
 
 /**
