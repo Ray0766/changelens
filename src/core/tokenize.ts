@@ -275,9 +275,12 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number, zo
   // centre), drawn one after the other, not both a single word: the lines
   // of a block drawn last (a side note), not text set against the words of
   // a line (see attached). Footnote markers drawn one under the other are
-  // single words, each set against its line, and a marker under a line of
-  // words in the text's size is no line of that block.
+  // single words set smaller than the lines they stand on, each set against
+  // its line, and a marker under a line of words in the text's size is no
+  // line of that block. A note of one word per line in the text's size is
+  // still a block.
   const late = lines.map((_, k) => k).filter((k) => k > footer && boxes[k]);
+  const marker = (x: LineBox) => singleWord(x) && before.some((k) => x.size <= 0.85 * boxes[k]!.size && heightIn(x, boxes[k]!) >= 0.25);
   const stacked = new Set<number>();
   for (let n = 0; n + 1 < late.length; n++) {
     const a = boxes[late[n]]!;
@@ -285,7 +288,7 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number, zo
     const size = Math.max(a.size, b.size);
     const step = Math.abs(b.baseline - a.baseline);
     const over = Math.abs(a.x0 - b.x0) <= 0.5 * size || (Math.abs(a.size - b.size) <= 0.15 * size && overlapX(a, b) >= 0.5 * Math.min(a.x1 - a.x0, b.x1 - b.x0));
-    if (over && step > 0.5 * size && step <= 2 * size && !(singleWord(a) && singleWord(b))) stacked.add(late[n]).add(late[n + 1]);
+    if (over && step > 0.5 * size && step <= 2 * size && !(marker(a) && marker(b))) stacked.add(late[n]).add(late[n + 1]);
   }
   for (let k = footer + 1; k < lines.length; k++) {
     const box = boxes[k];

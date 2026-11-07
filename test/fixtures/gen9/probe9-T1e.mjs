@@ -28,6 +28,13 @@
 //       ends with a footnote marker, so the marker, drawn next, stands under
 //       the positioned line; -short shortens the positioned line, which then
 //       ends before the marker's x
+//   probe9-T1-wnote-before / -body / -note
+//       a narrow side note (6.5em) floated left, text-align: right, 0 pt
+//       from a paragraph, one word per line in the paragraph's size; -body
+//       and -note as for rnote
+//   probe9-T1-znote-before / -body
+//       a Chinese side note 6em wide, the same way, its lines of at most six
+//       characters; -body inserts 和东部 in the paragraph
 import { createRequire } from 'node:module';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -49,6 +56,17 @@ const note = ({ align, body = false, edit = false }) => `<!doctype html><html><h
  </style></head><body><footer>SYNTHETIC sample, fictitious board</footer><h1 style="font-size:14pt">SYNTHETIC station report</h1>
  <div class="note">Note: the SYNTHETIC readings for station 4 are provisional until the district office confirms the ${edit ? 'new' : 'calibration'} certificate.</div>
  <p>${flow(body)}</p><p>${flow(false)}</p></body></html>`;
+
+const zflow = (ed) =>
+  `合成样例（SYNTHETIC）：水务局于春季检查了北部${ed ? '和东部' : ''}各站点，并记录四号站的流量为每分钟一千二百五十升。维修人员更换了加药管线上的两个磨损密封件，并按计划记录了每个法兰螺栓的扭矩。出口总管未发现泄漏，仪表已于三月完成校准。读数由区办公室保存十年。`;
+const narrow = ({ zh = false, body = false, edit = false }) => `<!doctype html><html><head><meta charset="utf-8"><style>
+ body { font: 11pt/1.4 'Liberation Sans', 'WenQuanYi Zen Hei', sans-serif; margin: 0; }
+ footer { position: fixed; bottom: 0; left: 0; font-size: 8pt; }
+ .note { float: left; position: relative; width: ${zh ? '6em' : '6.5em'}; margin-right: 0pt; text-align: right; }
+ p { margin: 0 0 10pt 0; }
+ </style></head><body><footer>SYNTHETIC sample, fictitious board</footer><h1 style="font-size:14pt">SYNTHETIC station report</h1>
+ <div class="note">${zh ? `注：四号站读数为暂定值，待区办公室确认${edit ? '新的' : '校准'}证书后生效。` : `Note: SYNTHETIC readings provisional pending ${edit ? 'new' : 'calibration'} certificate.`}</div>
+ <p>${(zh ? zflow : flow)(body)}</p><p>${(zh ? zflow : flow)(false)}</p></body></html>`;
 
 const intro = 'This SYNTHETIC price sheet lists the spare parts for the pump station, valid from 1 March.';
 const ins = 'Inserted paragraph: prices for the western district follow in a separate SYNTHETIC sheet.';
@@ -80,6 +98,11 @@ const docs = {
   'probe9-T1-fnlist-two': fnlist(true),
   'probe9-T1-sumline-before': sumline('Positioned summary: the SYNTHETIC board inspected all stations.'),
   'probe9-T1-sumline-short': sumline('Positioned summary: the SYNTHETIC board.'),
+  'probe9-T1-wnote-before': narrow({}),
+  'probe9-T1-wnote-body': narrow({ body: true }),
+  'probe9-T1-wnote-note': narrow({ edit: true }),
+  'probe9-T1-znote-before': narrow({ zh: true }),
+  'probe9-T1-znote-body': narrow({ zh: true, body: true }),
 };
 const browser = await chromium.launch();
 const tab = await browser.newPage();

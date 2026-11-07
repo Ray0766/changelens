@@ -228,3 +228,24 @@ test('T1: a footnote marker drawn under a positioned line of words is read on it
   for (const d of [r.oldDoc, r.newDoc]) assert.ok(lineTexts(d).some((l) => /per minute\. ?1$/.test(l)), JSON.stringify(lineTexts(d)));
   assert.deepEqual(r.oldDoc.pages[0].outOfOrder, r.newDoc.pages[0].outOfOrder);
 });
+
+test('T1: a narrow side note of one word, or a few Chinese characters, per line is read as a block', async () => {
+  // Chromium (gen9/probe9-T1e.mjs): a note 6 to 6.5 em wide floated left,
+  // text-align: right, right against a paragraph, in the paragraph's size.
+  // Each of its lines is a single word (or at most six Chinese characters)
+  // that ends a word space from where the paragraph line beside it starts.
+  // They are the lines of a block drawn last, not markers set against those
+  // lines: an insertion in the paragraph is the insertion alone.
+  for (const [a, b, edit, line] of [
+    ['wnote-before', 'wnote-body', 'Added “and eastern”', 'provisional'],
+    ['znote-before', 'znote-body', 'Added “和东部”', '注：四号站读'],
+  ]) {
+    const r = await pair(a, b);
+    assert.deepEqual(listed(r), [edit], b);
+    for (const d of [r.oldDoc, r.newDoc]) assert.ok(lineTexts(d).includes(line), JSON.stringify(lineTexts(d)));
+  }
+  assert.deepEqual(listed(await pair('wnote-before', 'wnote-note')), ['Changed “calibration” → “new”']);
+  // Control: footnote markers, single words set smaller than their lines,
+  // are still placed on their lines (see the footnote-list test above).
+  assert.deepEqual(listed(await pair('fnlist-one', 'fnlist-two')), ['Added a paragraph', 'Added “2”', 'Added “2 Hose sets are sold in pairs only.”']);
+});
