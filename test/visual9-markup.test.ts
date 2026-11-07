@@ -257,27 +257,32 @@ test('V3-markup: the round-5 case lists each annotation once, by name, with a no
   const r = await run(cases + 'holdout5-j-audit-annotations/before.pdf', cases + 'holdout5-j-audit-annotations/after.pdf');
   assert.deepEqual(list(r), [
     'Stamp added (annotation): “FOR COMMENT”',
-    'Deleted “87”',
-    'Added “82”',
+    // The two values re-typed by a PDF editor are stored after the footer;
+    // the text stage puts them back in place (engine9-reading-order), so
+    // each is one change.
+    'Number changed: 87 → 82 (-5.7%)',
     'Highlighted (annotation): “Calibration records for two tor…”',
     'Note added (annotation): “Reviewer: grade F1 as major? The records were m…”',
     'Struck through (annotation): “The finding is considered minor.”',
     'Underlined (annotation): “within 30 days of receiving thi…”',
-    'Deleted “October”',
-    'Added “April”',
+    'Changed “October” → “April”',
     'Graphic or image changed',
   ]);
-  assert.equal(r.changes[5].new.text, 'The finding is considered minor.');
+  assert.equal(r.changes[4].new.text, 'The finding is considered minor.');
   assert.equal(counted(r), 0);
   const en = reportNotices('en', r);
   assert.deepEqual(en, [
+    {
+      level: 'info',
+      text: 'New version p. 1–2: 2 lines of text are stored after the page footer, out of reading order, as PDF editors store re-typed text and browsers store positioned text; ChangeLens placed them by their position on the page and compared them there.',
+    },
     {
       level: 'warn',
       text: 'New version p. 1–2: 6 annotations (1 stamp, 1 highlight, 1 strike-out, 1 free-text note, 1 underline, 1 ink drawing). Their text (a stamp’s or a note’s own text, pop-up comments) is not compared as text; in the visual check, highlights, strike-outs and underlines are compared on the words they cover, other annotations as images only.',
     },
   ]);
   assert.equal(
-    reportNotices('zh', r)[0].text,
+    reportNotices('zh', r).find((n) => n.level === 'warn')?.text,
     '新版第 1–2 页有 6 个批注（1 个图章、1 处高亮、1 处删除线、1 个文本框批注、1 处下划线、1 处手绘）。批注中的文字（图章或文本框自身的文字、弹出式评论）不作为文字比较；在版式比较中，高亮、删除线和下划线按所覆盖的文字比较，其他批注只按图像比较。',
   );
   // Without the visual stage, the notice stays.
