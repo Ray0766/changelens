@@ -637,6 +637,8 @@ const HYPHENS = new Set(['-', '\u2010', SHY]);
 const SIGNS = new Set(['-', '\u2212', '\u2013', '+']);
 const OPENERS = new Set(['(', '[', '{', '=', ':', '$', '€', '£', '¥']);
 const CURRENCY = new Set(['$', '€', '£', '¥', '₹', '₩', '¢', '₽', '₺']);
+/** Words that name a table, figure, formula or ordinal before its number in Chinese and Japanese ("表－2", "図－3", "第－1"). */
+const NUMBERED = new Set(['表', '図', '图', '圖', '式', '第']);
 /** Spaces that group thousands ("1 234 567"); PDF.js often reports NBSP and NNBSP as plain spaces. */
 const GROUP_SPACE = new Set([' ', '\u00a0', '\u2009', '\u202f']);
 
@@ -867,11 +869,15 @@ function tokenizeChars(chars: Char[]): Tok[] {
     // "−€62.40": a sign in front of a currency symbol belongs to the amount too.
     // Chinese and Japanese text has no space before it ("本期扣款－1,200元"):
     // after a character there it is a sign too, but not after a figure's
-    // unit, where it joins a range ("11月－12月", "3页-5页"), nor as an en dash.
+    // unit of one or two characters, where it joins a range ("11月－12月",
+    // "3页-5页", "3小时－5小时", "3か月－6か月"), not after a word that
+    // names a numbered table or figure ("表－2", "図－3"), and not as an en
+    // dash.
     const viaCurrency = SIGNS.has(c.n) && CURRENCY.has(chars[k + 1]?.n ?? '') && DIGIT.test(chars[k + 2]?.n ?? '');
     if (SIGNS.has(c.n) && (viaCurrency || DIGIT.test(chars[k + 1]?.n ?? ''))) {
       const prev = chars[k - 1]?.n;
-      const afterCJK = !!prev && classify(prev) === 'cjk' && c.n !== '\u2013' && !DIGIT.test(chars[k - 2]?.n ?? '');
+      const unit = DIGIT.test(chars[k - 2]?.n ?? '') || (DIGIT.test(chars[k - 3]?.n ?? '') && classify(chars[k - 2]?.n ?? '') === 'cjk');
+      const afterCJK = !!prev && classify(prev) === 'cjk' && c.n !== '\u2013' && !unit && !NUMBERED.has(prev);
       if (!prev || space || OPENERS.has(prev) || afterCJK) {
         const d = k + (viaCurrency ? 2 : 1);
         const j = numberEnd(chars, d, d + 1);

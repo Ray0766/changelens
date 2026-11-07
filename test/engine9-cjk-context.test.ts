@@ -142,3 +142,20 @@ test('T3: a full-width minus or plus right after a character is the sign of the 
   // and the figure after it keeps no sign.
   assert.deepEqual(listed(await probe('minusrange')), ['Number changed: 5 → 6 (+20%)']);
 });
+
+test('T3: a mark after a unit of two characters joins a range, and one after a table number is no sign', async () => {
+  // fpdf2 (gen9/probe9-T3f.py). "3小时－5小时" is a range: the bound after
+  // the mark keeps no sign, and the mark stays in the context.
+  const h = await probe('minushours');
+  assert.deepEqual(listed(h), ['Number changed: 5 → 6 (+20%)']);
+  assert.deepEqual([h.changes[0].numeric?.fromValue, h.changes[0].numeric?.toValue], [5, 6]);
+  assert.equal(h.changes[0].contextBefore, '单次停机时间为3小时－');
+  // "表－2" names a table: its number is not negative.
+  const t = await probe('minusref');
+  assert.deepEqual(listed(t), ['Number changed: 2 → 3 (+50%)']);
+  assert.deepEqual([t.changes[0].numeric?.fromValue, t.changes[0].numeric?.toValue], [2, 3]);
+  // Control: where nothing points to a range or a reference, the mark after
+  // a character is still the sign of the figure.
+  assert.deepEqual(listed(await probe('minus')), ['Number changed: －1,200 → －1,500 (+25%)', 'Number changed: 8,800 → 8,500 (-3.4%)']);
+  assert.deepEqual(listed(await probe('minussign')), ['Number changed: －20 → ＋20 (sign changed)']);
+});
