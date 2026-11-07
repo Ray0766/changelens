@@ -859,18 +859,29 @@ function writtenTogether(doc: DocModel, T: Token[], k: number): boolean {
   // The right edge of the column: the lines of the paragraph that stand
   // above or below this one, and the lines nearby on the page that start
   // where it starts in the same size (a short line or a table row in a
-  // column of text; not a heading or a title over two columns).
+  // column of text; not a heading or a title over two columns). Where the
+  // line is not the widest at its x on the page (a title or a note in
+  // another size runs further), one of those lines that wraps onto a line
+  // of its own paragraph must also reach about as far: a line that ends
+  // where no other line wrapped is not known to have run full (a field
+  // block whose first line is its longest, under a wider title).
   let edge = right(la);
+  let wrapped = false;
+  let wider = false;
   for (const dir of [-1, 1]) {
     for (let j = la.id + dir; Math.abs(j - la.id) <= 40; j += dir) {
       const l = doc.lines[j];
       if (!l || l.page !== la.page) break;
+      const atX = Math.abs(l.rect.x - la.rect.x) <= em;
+      if (atX && right(l) > right(la) + 2 * em) wider = true;
       const above = l.block === la.block && l.rect.x < right(la) && right(l) > la.rect.x;
-      const column = Math.abs(l.rect.x - la.rect.x) <= em && Math.abs(size(l) - size(la)) <= 0.15 * Math.max(size(l), size(la));
-      if (above || column) edge = Math.max(edge, right(l));
+      const column = atX && Math.abs(size(l) - size(la)) <= 0.15 * Math.max(size(l), size(la));
+      if (!above && !column) continue;
+      edge = Math.max(edge, right(l));
+      if (doc.lines[j + 1]?.block === l.block && right(l) >= right(la) - 2 * em) wrapped = true;
     }
   }
-  return right(la) >= edge - 2 * em;
+  return (wrapped || !wider) && right(la) >= edge - 2 * em;
 }
 
 /**

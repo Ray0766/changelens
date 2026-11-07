@@ -94,3 +94,17 @@ test('T3: a date wrapped after 年 at the edge of a narrow column under a wider 
   // Control: under a title shorter than the column.
   assert.deepEqual(listed(await probe('wrapshort')), ['Number changed: 2026年11月30日 → 2026年12月30日']);
 });
+
+test('T3: a short field line under a wider title is not taken for a line that ran full to its column', async () => {
+  // fpdf2 (gen9/probe9-T3e.py): "检定年度 2026年" / "11月 首次检定", broken by
+  // hand, is the only 10 pt text on the page, and its first line is its
+  // longest. The 14 pt title and the 8 pt note run further, and no line
+  // wraps there, so nothing says the first line ran full: the month is not
+  // joined with the year above it.
+  assert.deepEqual(listed(await probe('field')), ['Number changed: 11 → 12 (+9.1%)']);
+  // Control: a 10 pt paragraph above sets the edge, as before.
+  assert.deepEqual(listed(await probe('fieldbody')), ['Number changed: 11 → 12 (+9.1%)']);
+  // Control: a date wrapped at the edge of a narrow column under a wider
+  // title, where the line below also ran full, is still one date.
+  assert.deepEqual(listed(await probe('wrapwide')), ['Number changed: 2026年11月30日 → 2026年12月30日']);
+});
