@@ -6886,7 +6886,7 @@ function drawnByMarkup(X: Prepared, rx: Rect, Y: Prepared, ry: Rect, list: Marku
   // (a dot recoloured from red to dark red or black): within one
   // quadrilateral's core only, not where two overlap and tint twice.
   const darker = (was: (number | null)[], p: number[], fx: number, fy: number) => {
-    const hs = lit.filter((h, m) => inside(cores[m], fx, fy, 0));
+    const hs = lit.filter((_h, m) => inside(cores[m], fx, fy, 0));
     if (hs.length !== 1 || lit.reduce((n, h) => n + h.quads.filter((q) => inside([q], fx, fy, 1 / s)).length, 0) !== 1) return false;
     return was.some((v, k) => v !== null && p[k] < v * hs[0].f[k] - 24);
   };
