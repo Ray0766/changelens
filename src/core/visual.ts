@@ -1672,13 +1672,15 @@ function onTint(side: Prepared, rect: Rect): boolean {
 }
 
 /**
- * Whether the glyphs of a word are set in a light, saturated colour (an
- * amber, a bright green, orange or sky blue heading, Office's light green
- * #92d050, whose lowest channel is 80): of the box's pixels dark in their
- * lowest channel (96 or less, see luminance), a dozen or more, the median
- * is lighter by 0.3 or more in luminance. In the lowest
- * channel such glyphs are as dark as black ones, and a grey line through
- * them reads as half a line (see lineIn's ink unit): a pair of boxes whose
+ * Whether the glyphs of a word are set in a light or mid, saturated colour
+ * (an amber, a bright green, orange or sky blue heading, Office's light
+ * green #92d050, whose lowest channel is 80, or the olive (87,124,47) a
+ * browser writes for it, red, a mid green or blue): of the box's pixels
+ * dark in their lowest channel (96 or less, see luminance), a dozen or
+ * more, the median is lighter by 48 levels (about 0.19) or more in
+ * luminance. Black, grey, navy and pure blue glyphs are not. In the lowest
+ * channel such glyphs are darker than a grey line, and a grey line through
+ * them reads as half a line or less (see lineIn's ink unit): a pair of boxes whose
  * glyphs are so in both versions is measured by luminance, in which the
  * glyphs are about as dark as the line. Not where only one version's are
  * (a yellow strike drawn over black text has such pixels too).
@@ -1694,7 +1696,7 @@ function inkTinted(side: Prepared, rect: Rect): boolean {
     }
   if (lift.length < 12) return false;
   lift.sort((p, q) => p - q);
-  return lift[lift.length >> 1] >= 77;
+  return lift[lift.length >> 1] >= 48;
 }
 
 /**
