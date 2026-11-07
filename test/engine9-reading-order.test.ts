@@ -67,7 +67,7 @@ test('T1: re-typed values appended after the footer are listed once, in place, a
   const note = notices('en', r).find((n) => n.text.includes('after the page footer'));
   assert.equal(
     note?.text,
-    'New version p. 1–2: 6 lines of text are stored after the page footer, out of reading order, as PDF editors store re-typed text; ChangeLens placed them by their position on the page and compared them there.',
+    'New version p. 1–2: 6 lines of text are stored after the page footer, out of reading order, as PDF editors store re-typed text and browsers store positioned text; ChangeLens placed them by their position on the page and compared them there.',
   );
   assert.equal(note?.level, 'info');
   assert.deepEqual(r.coverage.new.outOfOrder, [
