@@ -213,7 +213,7 @@ const en = {
   noteChanged: '{what} changed (annotation): “{from}” → “{to}”',
   noteChangedLook: '{what} changed (annotation): “{text}”',
   noteBeside: '{graphic} — {note}',
-  noticeAnnotations: '{side} {pages}: {n} {n:annotation|annotations} ({list}). Their text (a stamp’s or a note’s own text, pop-up comments) is not compared as text; in the visual check, highlights, strike-outs and underlines are compared on the words they cover, other annotations as images only.',
+  noticeAnnotations: '{side} {pages}: {n} {n:annotation|annotations} ({list}). {n:Its|Their} text (a stamp’s or a note’s own text, pop-up comments) is not compared as text; in the visual check, highlights, strike-outs and underlines are compared on the words they cover, other annotations as images only.',
   noticeAnnotationsUnread: '{side} {pages}: {n} more text-markup {n:annotation|annotations} than are read per page {n:was|were} compared as images only, not on the words {n:it covers|they cover}.',
   annotHighlight: '{n} {n:highlight|highlights}',
   annotStrikeOut: '{n} {n:strike-out|strike-outs}',
