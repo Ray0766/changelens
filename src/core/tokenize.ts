@@ -271,8 +271,10 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number, zo
   const kept = new Set<number>();
   const pageBox = { x: 0, y: 0, w: width, h: height };
   // Late lines one under the other that start at one x, drawn one after the
-  // other: the lines of a block drawn last (a side note), not text set
-  // against the words of a line (see attached).
+  // other, not both a single word: the lines of a block drawn last (a side
+  // note), not text set against the words of a line (see attached).
+  // Footnote markers drawn one under the other are single words, each set
+  // against its line.
   const late = lines.map((_, k) => k).filter((k) => k > footer && boxes[k]);
   const stacked = new Set<number>();
   for (let n = 0; n + 1 < late.length; n++) {
@@ -280,7 +282,7 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number, zo
     const b = boxes[late[n + 1]]!;
     const size = Math.max(a.size, b.size);
     const step = Math.abs(b.baseline - a.baseline);
-    if (Math.abs(a.x0 - b.x0) <= 0.5 * size && step > 0.5 * size && step <= 2 * size) stacked.add(late[n]).add(late[n + 1]);
+    if (Math.abs(a.x0 - b.x0) <= 0.5 * size && step > 0.5 * size && step <= 2 * size && !(singleWord(a) && singleWord(b))) stacked.add(late[n]).add(late[n + 1]);
   }
   for (let k = footer + 1; k < lines.length; k++) {
     const box = boxes[k];
@@ -426,6 +428,14 @@ function attached(late: LineBox, e: LineBox): boolean {
   const tol = 0.4 * e.size;
   return e.inked.some((r) => Math.abs(late.x0 - (r.x + r.w)) <= tol || Math.abs(r.x - late.x1) <= tol);
 }
+
+/**
+ * Whether a line is a single word or figure: one run, with no space inside
+ * it, at most 6 em wide (a footnote marker, a badge, a re-typed value), not
+ * a line of words (Chinese or Japanese text, which has no spaces, runs
+ * wider).
+ */
+const singleWord = (b: LineBox) => b.inked.length === 1 && !/\s/.test(b.inked[0].str.trim()) && b.x1 - b.x0 <= 6 * b.size;
 
 /**
  * The line drawn before the footer that a late line belongs to (-1 if

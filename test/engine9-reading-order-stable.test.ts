@@ -169,3 +169,25 @@ test('T1: a marker drawn apart from its word is not listed as moved when a re-wr
   // The marker moved 44 pt to the right, away from its word.
   assert.deepEqual(listed(compareDocs(page(end(words), words), page(end(words) + 44, words))), ['“8” moved 16 mm to the right']);
 });
+
+test('T1: the markers of a footnote list drawn after the footer read the same in both versions when a footnote is added', async () => {
+  // Chromium (<sup> markers in a 9 pt list) and reportlab (6.5 pt markers
+  // drawn last, before each footnote line), gen9/probe9-T1e.*. With two
+  // footnotes, the list's markers stand one under the other at one x: they
+  // are single words, each set against its footnote, not a block drawn
+  // last. A paragraph is inserted at the top as well.
+  for (const [a, b] of [
+    ['fnlist-one', 'fnlist-two'],
+    ['rlfn-one', 'rlfn-two'],
+  ]) {
+    const r = await pair(a, b);
+    assert.deepEqual(listed(r), ['Added a paragraph', 'Added “2”', 'Added “2 Hose sets are sold in pairs only.”'], a);
+    for (const d of [r.oldDoc, r.newDoc]) assert.ok(lineTexts(d).includes('1 Calibration certificates are kept by the SYNTHETIC district office.'), JSON.stringify(lineTexts(d)));
+    assert.ok(lineTexts(r.newDoc).includes('2 Hose sets are sold in pairs only.'), JSON.stringify(lineTexts(r.newDoc)));
+  }
+  // Control: the lines of a side note at one x are still a block, not words
+  // set against the lines that end where the note starts.
+  const f = await pair('float-before', 'float-after');
+  assert.deepEqual(listed(f), ['Added “and eastern”']);
+  for (const d of [f.oldDoc, f.newDoc]) assert.ok(!lineTexts(d).some((l) => /per minute.*provisional/.test(l)), JSON.stringify(lineTexts(d)));
+});
