@@ -1,4 +1,5 @@
-# Fix round 9, fifth pass: generator of the second verifier of the visual fourth pass, kept as written.
+# Fix round 9, fifth pass: generator of the second verifier of the visual fourth pass, with the
+# fixer's darker dots (dot-darkred, dot-black, dot-grey) added.
 # Run in this order: v3-markup-fifth-fp.py OUT, -mu.py OUT, -pp.py OUT (and -size.py OUT); the fixtures
 # test/fixtures/probe9-V3-fifth-SYNTHETIC-<name>.pdf are OUT/SYNTHETIC-<name>.pdf renamed.
 # SYNTHETIC counter-probes for drawnByMarkup (multiply model) and seeThroughAlike (tri-state).
@@ -56,4 +57,7 @@ page('bar-lighter', bar={2: (0.92, 0.92, 0.92)})         # light grey bar lighte
 page('ink-red', ink={(3, 1): (0.55, 0.0, 0.0)})          # row 3 text black -> dark red
 page('ink-navy', ink={(4, 1): (0.0, 0.0, 0.42)})         # row 4 text black -> navy
 page('ink-grey', ink={(5, 1): (0.32, 0.32, 0.32)})       # row 5 text black -> dark grey
+page('dot-darkred', dot={0: (0.45, 0.0, 0.0)})         # red -> dark red in row 0 (darker in every channel)
+page('dot-black', dot={0: (0.0, 0.0, 0.0)})             # red -> black in row 0
+page('dot-grey', dot={0: (0.35, 0.35, 0.35)})          # red -> dark grey in row 0
 print('ok')

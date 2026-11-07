@@ -6856,9 +6856,11 @@ function highlightTint(X: Prepared, rx: Rect, h: Markup): { quads: Rect[]; c: nu
  * over them. Nor is the region where such a graphic is small beside a long
  * highlighted row (a status dot in a highlighted table row), whatever the
  * share: where the pixels within a highlight's quadrilaterals that it leaves
- * unexplained because they are lighter than the other version's (beyond the
- * 24 levels) fill a block of 2 × 2 pt, which no highlight in multiply blend
- * draws and no glyph edge a fraction of a pixel off fills.
+ * unexplained because they are lighter than the other version's, or darker
+ * than its tint makes them within one quadrilateral (beyond the 24 levels;
+ * red to dark red or black), fill a block of 2 × 2 pt, which no highlight
+ * in multiply blend draws and no glyph edge a fraction of a pixel off
+ * fills.
  */
 function drawnByMarkup(X: Prepared, rx: Rect, Y: Prepared, ry: Rect, list: Markup[], others: Markup[]): boolean {
   const on = list.filter((m) => m.quads.some((q) => intersects(expand(q, 3), rx)));
@@ -6877,13 +6879,22 @@ function drawnByMarkup(X: Prepared, rx: Rect, Y: Prepared, ry: Rect, list: Marku
   const y1 = Math.min(X.r.height, Math.ceil((rx.y + rx.h) * s));
   const W = Math.max(0, x1 - x0);
   // Pixels inside a highlight's quadrilaterals that it leaves unexplained
-  // because they are lighter than the other version's (see the block test
-  // below); not at an edge or in the rounded ends, of this highlight or of
-  // the other version's, whose cover is told only in part.
+  // because they are lighter than the other version's, or darker than its
+  // tint makes them (see the block test below); not at an edge or in the
+  // rounded ends, of this highlight or of the other version's, whose cover
+  // is told only in part.
   const brighter = new Uint8Array(W * Math.max(0, y1 - y0));
   let nBright = 0;
   const cores = lit.map((h) => h.quads.map((r) => expand(r, -1 / s)));
   const underCores = under.map((u) => u.quads.map((r) => expand(r, -1 / so)));
+  // Darker than the one highlight over it tints the other version's pixel
+  // (a dot recoloured from red to dark red or black): within one
+  // quadrilateral's core only, not where two overlap and tint twice.
+  const darker = (was: (number | null)[], p: number[], fx: number, fy: number) => {
+    const hs = lit.filter((h, m) => inside(cores[m], fx, fy, 0));
+    if (hs.length !== 1 || lit.reduce((n, h) => n + h.quads.filter((q) => inside([q], fx, fy, 1 / s)).length, 0) !== 1) return false;
+    return was.some((v, k) => v !== null && p[k] < v * hs[0].f[k] - 24);
+  };
   for (let y = y0; y < y1; y++)
     for (let x = x0; x < x1; x++) {
       const xo = Math.round(((x + 0.5) / s - rx.x + ry.x) * so - 0.5);
@@ -6918,7 +6929,7 @@ function drawnByMarkup(X: Prepared, rx: Rect, Y: Prepared, ry: Rect, list: Marku
         return overDrawn(p, a, b);
       });
       if (fits) ok++;
-      else if (was.some((v, k) => v !== null && p[k] > v + 24) && cores.some((qs) => inside(qs, fx, fy, 0)) && !under.some((u, m) => inside(u.quads, gx, gy, 3) && !inside(underCores[m], gx, gy, 0))) {
+      else if ((was.some((v, k) => v !== null && p[k] > v + 24) || darker(was, p, fx, fy)) && cores.some((qs) => inside(qs, fx, fy, 0)) && !under.some((u, m) => inside(u.quads, gx, gy, 3) && !inside(underCores[m], gx, gy, 0))) {
         brighter[(y - y0) * W + (x - x0)] = 1;
         nBright++;
       }

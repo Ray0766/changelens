@@ -4,8 +4,9 @@
 //   a long row (a status dot turned from red to green or orange in a
 //   highlighted table row) was hidden on both sides: its pixels, which the
 //   highlight's multiply model rejects, were under 3 % of the row's. A
-//   block of 2 × 2 pt of pixels lighter than the other version's, which no
-//   highlight draws, now keeps the region listed whatever its share.
+//   block of 2 × 2 pt of pixels lighter than the other version's, or darker
+//   than the highlight's tint makes them (red to dark red or black), which
+//   no highlight draws, now keeps the region listed whatever its share.
 // - A dash in pale orange, yellow or pink 2.5–4 pt below the rule that
 //   closes a table fragment at a moved page break, or a light grey tick
 //   across it over a tinted last row, was folded with the rule: such marks
@@ -73,6 +74,12 @@ test('visual9 fifth pass: a status dot recoloured under a highlight across its w
   // The highlight removed, the dot back to red.
   const rev = await run(H + 'hl-dot-orange-Y.pdf', H + 'hl-base.pdf');
   assert.deepEqual(list(rev.changes), ['Graphic or image changed', HL.replace('Highlighted', 'Highlight removed')]);
+  // Darker in every channel: red to dark red, red to black.
+  for (const after of ['hl-dot-darkred-Y', 'hl-dot-black-Y40']) {
+    const r = await run(H + 'hl-base.pdf', H + after + '.pdf');
+    assert.deepEqual(list(r.changes), ['Graphic or image changed', HL], after);
+    assert.ok(at(r.changes[0], 'old', 202, 136) && at(r.changes[0], 'new', 202, 136), after);
+  }
   // A 12 pt dot under a highlight over a 372 pt row.
   const big = await run(H + 'hs-r6.0-base.pdf', H + 'hs-r6.0-green-row.pdf');
   assert.deepEqual(list(big.changes), ['Graphic or image changed', HL]);

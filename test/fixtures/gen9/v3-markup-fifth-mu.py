@@ -1,4 +1,5 @@
-# Fix round 9, fifth pass: generator of the second verifier of the visual fourth pass, kept as written.
+# Fix round 9, fifth pass: generator of the second verifier of the visual fourth pass, with the
+# fixer's darker dots added (last loop).
 # Run in this order: v3-markup-fifth-fp.py OUT, -mu.py OUT, -pp.py OUT (and -size.py OUT); the fixtures
 # test/fixtures/probe9-V3-fifth-SYNTHETIC-<name>.pdf are OUT/SYNTHETIC-<name>.pdf renamed.
 # SYNTHETIC: PyMuPDF 2.1 highlight annotations (multiply blend) on the fpdf2 inspection list.
@@ -34,4 +35,6 @@ for hl in ('Y', 'Y50'):
     add('ink-red', [3], hl)
     add('ink-navy', [4], hl)
     add('ink-grey', [5], hl)
+for hl in ('Y', 'Y40'):
+    for c in ('dot-darkred', 'dot-black', 'dot-grey'): add(c, [0], hl)
 print('ok')
