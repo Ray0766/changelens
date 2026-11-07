@@ -26,6 +26,10 @@
 //       full size) inside paragraphs; -outlet deletes "outlet", -new adds
 //       "new", either of which moves "readings" from the end of its line
 //       into the line or back
+//   probe9-T1-float-before / -after
+//       a side note floated right with no margin (position: relative) beside
+//       a ragged paragraph, whose lines end right where the note's lines
+//       start; -after inserts "and eastern" in the paragraph
 //   probe9-T1-punct-before / -late
 //       markers set right before a full stop ("out of service⁸."), where the
 //       text on either side of the marker is one text run, so the marker is
@@ -74,6 +78,16 @@ const words = (ed) => [
   `No leaks were found at the ${ed === 'outlet' ? '' : 'outlet '}manifold, and the ${ed === 'new' ? 'new ' : ''}gauges were calibrated in March. The ${span('readings')} are kept by the district office for ten ${span('years')}.`,
   `The next inspection is planned for the autumn, when the reservoir level is lowest and the pumps can be taken out of ${span('service')}.`,
 ];
+const flow = (ed) =>
+  `The SYNTHETIC water board inspected the northern ${ed ? 'and eastern ' : ''}stations in spring and logged the flow at station 4 as 1,250 litres per minute on each visit. Crews replaced two worn seals on the dosing line and recorded the torque on each flange bolt, as the plan requires for the outlet manifold. No leaks were found at the outlet manifold, and the gauges were calibrated in March. The readings are kept by the district office for ten years.`;
+const float = (ed) => `<!doctype html><html><head><meta charset="utf-8"><style>
+    body { font: 11pt/16pt 'Liberation Sans', sans-serif; margin: 0; }
+    footer { position: fixed; bottom: 0; left: 0; font-size: 8pt; }
+    .note { float: right; position: relative; width: 35%; margin-left: 0; }
+    p { margin: 0 0 10pt 0; }
+    </style></head><body><footer>SYNTHETIC sample, fictitious board</footer><h1 style="font-size:14pt">SYNTHETIC station report</h1>
+    <div class="note">Note: the SYNTHETIC readings for station 4 are provisional until the district office confirms the calibration certificate for the outlet gauge.</div>
+    <p>${flow(ed)}</p><p>${flow(false)}</p></body></html>`;
 const sans = "'Liberation Sans', sans-serif";
 const serif = "'Liberation Serif', serif";
 const docs = {
@@ -89,6 +103,8 @@ const docs = {
   'probe9-T1-word-before': page({ font: sans, paras: words() }),
   'probe9-T1-word-outlet': page({ font: sans, paras: words('outlet') }),
   'probe9-T1-word-new': page({ font: sans, paras: words('new') }),
+  'probe9-T1-float-before': float(false),
+  'probe9-T1-float-after': float(true),
   'probe9-T1-punct-before': page({ font: sans, paras: punct() }),
   'probe9-T1-punct-late': page({ font: sans, paras: punct('late autumn') }),
 };

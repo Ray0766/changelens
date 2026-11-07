@@ -270,23 +270,35 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number, zo
   const touched = new Set<number>();
   const kept = new Set<number>();
   const pageBox = { x: 0, y: 0, w: width, h: height };
+  // Late lines one under the other that start at one x, drawn one after the
+  // other: the lines of a block drawn last (a side note), not text set
+  // against the words of a line (see attached).
+  const late = lines.map((_, k) => k).filter((k) => k > footer && boxes[k]);
+  const stacked = new Set<number>();
+  for (let n = 0; n + 1 < late.length; n++) {
+    const a = boxes[late[n]]!;
+    const b = boxes[late[n + 1]]!;
+    const size = Math.max(a.size, b.size);
+    const step = Math.abs(b.baseline - a.baseline);
+    if (Math.abs(a.x0 - b.x0) <= 0.5 * size && step > 0.5 * size && step <= 2 * size) stacked.add(late[n]).add(late[n + 1]);
+  }
   for (let k = footer + 1; k < lines.length; k++) {
     const box = boxes[k];
     if (!box || box.zone === 'bottom') continue;
     const units = lateUnits(lines[k], box, before, boxes);
     const left: TextRun[] = [];
     for (const runs of units) {
-      const late = units.length === 1 ? box : lineBox({ page: lines[k].page, runs }, pageBox);
-      if (!late || late.zone === 'bottom') {
+      const unit = units.length === 1 ? box : lineBox({ page: lines[k].page, runs }, pageBox);
+      if (!unit || unit.zone === 'bottom') {
         left.push(...runs);
         continue;
       }
-      let target = sharedBaseline(late, before, boxes);
-      if (target < 0) target = rowCell(late, before, boxes);
+      let target = sharedBaseline(unit, before, boxes, !stacked.has(k));
+      if (target < 0) target = rowCell(unit, before, boxes);
       if (target >= 0 && !zoneMerges && boxes[target]!.zone) target = -1;
-      const gap = target < 0 ? gapAbove(late, before, boxes) : -1;
+      const gap = target < 0 ? gapAbove(unit, before, boxes) : -1;
       if (target >= 0) for (const r of runs) add(into, target, r);
-      else if (gap >= 0) add(after, gap, { top: late.top, runs });
+      else if (gap >= 0) add(after, gap, { top: unit.top, runs });
       else {
         left.push(...runs);
         continue;
@@ -423,15 +435,17 @@ function attached(late: LineBox, e: LineBox): boolean {
  * the line as onLine says, or, set smaller than the line and against one of
  * its runs, with a quarter of its height inside the line's (a marker raised
  * more than half an em). Of several lines, one it is set against comes
- * first, then the nearest baseline.
+ * first, then the nearest baseline. A line of a block drawn last (`loose`
+ * false) is not placed by what it is set against: a side note floated
+ * beside ragged text can stand a word space from the end of any line.
  */
-function sharedBaseline(late: LineBox, before: number[], boxes: (LineBox | null)[]): number {
+function sharedBaseline(late: LineBox, before: number[], boxes: (LineBox | null)[], loose: boolean): number {
   let best = -1;
   let bestRank = Infinity;
   for (let n = 0; n < before.length; n++) {
     const e = boxes[before[n]]!;
     const size = Math.max(e.size, late.size);
-    const close = attached(late, e);
+    const close = loose && attached(late, e);
     const rank = (close ? 0 : 1e6) + Math.abs(e.baseline - late.baseline);
     if (rank >= bestRank || !(onLine(late, e) || (close && late.size <= 0.85 * e.size && heightIn(late, e) >= 0.25))) continue;
     if (e.inked.some((r) => overlapX(runSpan(r), late) > 0.25 * Math.min(e.size, late.size))) continue;

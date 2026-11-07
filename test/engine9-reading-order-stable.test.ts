@@ -114,6 +114,20 @@ test('T1: a word drawn after the footer reads the same in both versions when an 
   for (const d of [r.oldDoc, r.newDoc]) assert.deepEqual(lineTexts(d).filter((l) => lone.test(l)), []);
 });
 
+test('T1: the lines of a side note drawn after the footer are not read into the lines that end where the note starts', async () => {
+  // A note floated right with no margin beside ragged text: some lines of
+  // the paragraph end within a word space of where the note's lines start.
+  // The note's lines stand one under the other at one x, so they are a
+  // block, not words set against the paragraph's.
+  const r = await pair('float-before', 'float-after');
+  assert.deepEqual(listed(r), ['Added “and eastern”']);
+  for (const d of [r.oldDoc, r.newDoc]) {
+    const t = lineTexts(d);
+    assert.ok(t.includes('for station 4 are provisional until'), JSON.stringify(t));
+    assert.ok(!t.some((l) => /per minute.*provisional/.test(l)), JSON.stringify(t));
+  }
+});
+
 test('T1: a marker raised 0.7 em at 85 % is read on its line in both versions, and a raised marker does not join two paragraphs', async () => {
   // Chromium rounds the raise to 6.0 pt in one version and 6.75 pt in the
   // other: about half the marker's height inside its line either way. Set
