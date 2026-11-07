@@ -270,11 +270,11 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number, zo
   const touched = new Set<number>();
   const kept = new Set<number>();
   const pageBox = { x: 0, y: 0, w: width, h: height };
-  // Late lines one under the other that start at one x, drawn one after the
-  // other, not both a single word: the lines of a block drawn last (a side
-  // note), not text set against the words of a line (see attached).
-  // Footnote markers drawn one under the other are single words, each set
-  // against its line.
+  // Late lines one under the other that overlap horizontally (they start at
+  // one x, end at one x or share a centre), drawn one after the other, not
+  // both a single word: the lines of a block drawn last (a side note), not
+  // text set against the words of a line (see attached). Footnote markers
+  // drawn one under the other are single words, each set against its line.
   const late = lines.map((_, k) => k).filter((k) => k > footer && boxes[k]);
   const stacked = new Set<number>();
   for (let n = 0; n + 1 < late.length; n++) {
@@ -282,7 +282,8 @@ function restoreReadingOrder(lines: RawLine[], width: number, height: number, zo
     const b = boxes[late[n + 1]]!;
     const size = Math.max(a.size, b.size);
     const step = Math.abs(b.baseline - a.baseline);
-    if (Math.abs(a.x0 - b.x0) <= 0.5 * size && step > 0.5 * size && step <= 2 * size && !(singleWord(a) && singleWord(b))) stacked.add(late[n]).add(late[n + 1]);
+    const over = Math.abs(a.x0 - b.x0) <= 0.5 * size || overlapX(a, b) >= 0.5 * Math.min(a.x1 - a.x0, b.x1 - b.x0);
+    if (over && step > 0.5 * size && step <= 2 * size && !(singleWord(a) && singleWord(b))) stacked.add(late[n]).add(late[n + 1]);
   }
   for (let k = footer + 1; k < lines.length; k++) {
     const box = boxes[k];
@@ -422,9 +423,13 @@ function onLine(late: LineBox, e: LineBox): boolean {
  * (a badge, a tooltip anchor) stands there because of the text it belongs
  * to: a re-wrap moves it along with that text, so it is read there in both
  * versions, whatever lines stand around it. A column drawn last stands a
- * column gap away from the lines beside it.
+ * column gap away from the lines beside it. Text in the line's size counts
+ * only as a single word (see singleWord): a line of words in that size is
+ * the line of a note or a column beside the line, whose edge can stand a
+ * word space from where the line ends or starts.
  */
 function attached(late: LineBox, e: LineBox): boolean {
+  if (late.size > 0.85 * e.size && !singleWord(late)) return false;
   const tol = 0.4 * e.size;
   return e.inked.some((r) => Math.abs(late.x0 - (r.x + r.w)) <= tol || Math.abs(r.x - late.x1) <= tol);
 }

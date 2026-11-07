@@ -191,3 +191,29 @@ test('T1: the markers of a footnote list drawn after the footer read the same in
   assert.deepEqual(listed(f), ['Added “and eastern”']);
   for (const d of [f.oldDoc, f.newDoc]) assert.ok(!lineTexts(d).some((l) => /per minute.*provisional/.test(l)), JSON.stringify(lineTexts(d)));
 });
+
+test('T1: a right-aligned or centred side note drawn after the footer is not read into the lines it stands beside', async () => {
+  // Chromium and reportlab (gen9/probe9-T1e.*): a note right-aligned or
+  // centred 1 to 2 pt from a paragraph, so each of its lines ends a word
+  // space from where the paragraph line beside it starts. Its lines end at
+  // one x or share a centre: a block drawn last. A line of words in the
+  // paragraph's size is not set against the paragraph's words either.
+  for (const [a, b] of [
+    ['rnote-before', 'rnote-body'],
+    ['cnote-before', 'cnote-body'],
+    ['rlnote-before', 'rlnote-body'],
+  ]) {
+    const r = await pair(a, b);
+    assert.deepEqual(listed(r), ['Added “and eastern”'], b);
+    for (const d of [r.oldDoc, r.newDoc]) {
+      const t = lineTexts(d);
+      assert.ok(t.includes('office confirms the calibration') && t.includes('certificate.'), JSON.stringify(t));
+      assert.ok(!t.some((l) => /Note: the SYNTHETIC ./.test(l)), JSON.stringify(t));
+    }
+  }
+  // An edit in the note is the word it is.
+  assert.deepEqual(listed(await pair('rnote-before', 'rnote-note')), ['Changed “calibration” → “new”']);
+  // Control: a word styled position: relative, at full size, is still read
+  // where it is set against the words of its line (see the test above).
+  assert.deepEqual(listed(await pair('word-before', 'word-new')), ['Added “new”']);
+});
