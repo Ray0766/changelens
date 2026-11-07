@@ -450,8 +450,13 @@ function attached(late: LineBox, e: LineBox): boolean {
  */
 const singleWord = (b: LineBox) => b.inked.length === 1 && !/\s/.test(b.inked[0].str.trim()) && b.x1 - b.x0 <= 6 * b.size;
 
-/** The text of a footnote marker: one or two figures, letters or symbols, in brackets or not. */
-const MARKER = /^[([]?[\p{L}\p{N}*†‡§¶]{1,2}[)\]]?$/u;
+/**
+ * The text of a footnote marker, in brackets or not: up to three figures,
+ * one Latin letter, a small roman numeral, or up to three of * † ‡ § ¶.
+ * Not two letters (a two-letter word) and not Chinese or Japanese
+ * characters, which a narrow note set two to a line also gives.
+ */
+const MARKER = /^[([]?(?:\p{N}{1,3}|[A-Za-z]|[ivx]{2,4}|[*†‡§¶]{1,3})[.)\]]?$/u;
 
 /**
  * The line drawn before the footer that a late line belongs to (-1 if

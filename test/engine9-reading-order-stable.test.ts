@@ -271,3 +271,24 @@ test('T1: a narrow side note set smaller than the text, one word or a few Chines
   assert.deepEqual(listed(await pair('fnlist-one', 'fnlist-two')), ['Added a paragraph', 'Added “2”', 'Added “2 Hose sets are sold in pairs only.”']);
   assert.deepEqual(listed(await pair('rlfn-one', 'rlfn-two')), ['Added a paragraph', 'Added “2”', 'Added “2 Hose sets are sold in pairs only.”']);
 });
+
+test('T1: a narrow note of two Chinese characters or two-letter words per line is no list of footnote markers', async () => {
+  // Fifth pass: a note set smaller than the text, floated beside a
+  // paragraph, with lines such as "暂时" or "be" was taken for footnote
+  // markers one under the other, so it skipped the block guard and was read
+  // into the paragraph on a re-wrap. A marker is figures, one Latin letter,
+  // a small roman numeral or a few symbols. Probes from
+  // gen9/probe9-T1m.mjs (Chromium) and gen9/probe9-T1m.py (reportlab).
+  for (const [a, b, edit] of [
+    ['m2note-before', 'm2note-ins', 'Added “和东区”'],
+    ['m3note-before', 'm3note-ins', 'Added “and eastern”'],
+    ['r2note-before', 'r2note-ins', 'Added “和东区”'],
+  ]) {
+    assert.deepEqual(listed(await pair(a, b)), [edit], b);
+  }
+  // Controls: real markers of three figures and roman numerals are still
+  // placed against their words.
+  assert.deepEqual(listed(await pair('r1big-before', 'r1big-add')), ['Added “123”', 'Added 9 words']);
+  assert.deepEqual(listed(await pair('m1roman-before', 'm1roman-word')), ['Changed “litres” → “carefully”']);
+  assert.deepEqual(listed(await pair('fnlist-one', 'fnlist-two')), ['Added a paragraph', 'Added “2”', 'Added “2 Hose sets are sold in pairs only.”']);
+});
