@@ -1,0 +1,229 @@
+// Sibling lists keep apart labels in different roles (fix round 8). Headings
+// and the steps under them, an outer list and the list nested in one of its
+// items, a table's row numbers and the figures of another column, and a
+// figure that a wrapped line starts with in the text column all look like
+// "N." labels. Read as one list, they hid a heading renumbered by hand (the
+// steps above it "explained" it), and they broke the numbered run of the
+// real list, so every automatic renumbering was listed. The PDFs are the
+// round-7 adversarial probes (synthetic; Chromium, reportlab, and
+// python-docx via LibreOffice), copied to test/fixtures/probe8-*.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { openPdf } from '../src/node/pdf.ts';
+import { extractText } from '../src/pdf/extract.ts';
+import { buildDocModel } from '../src/core/tokenize.ts';
+import { compareDocs } from '../src/core/compare.ts';
+import { describeChange } from '../src/core/describe.ts';
+import type { CompareResult, DocText, TextRun } from '../src/core/types.ts';
+
+const fixtures = new URL('./fixtures/', import.meta.url).pathname;
+/** Compares probe8-<before>-before.pdf with probe8-<after>-after.pdf. */
+async function probe(after: string, before = after): Promise<CompareResult> {
+  const a = buildDocModel(await extractText(await openPdf(`${fixtures}probe8-${before}-before.pdf`), 'before.pdf'));
+  const b = buildDocModel(await extractText(await openPdf(`${fixtures}probe8-${after}-after.pdf`), 'after.pdf'));
+  return compareDocs(a, b);
+}
+const listed = (r: CompareResult) => r.changes.map((c) => describeChange('en', c));
+const numbers = (r: CompareResult) => r.changes.filter((c) => c.numeric).map((c) => describeChange('en', c));
+const minor = (r: CompareResult) => r.minor.map((c) => describeChange('en', c));
+
+test('a heading renumbered by hand is listed although steps were inserted or deleted above it (R1-01)', async () => {
+  // Chromium: step 3 inserted in section 2, heading "3. Records" changed to "4." by hand.
+  const p01 = await probe('r1-01-p01');
+  assert.deepEqual(numbers(p01), ['Number changed: 3 → 4']);
+  assert.deepEqual(minor(p01), ['List renumbered: 2 → 3']);
+  // Controls: the step alone; the heading alone.
+  const p01c = await probe('r1-01-p01c', 'r1-01-p01');
+  assert.equal(p01c.changes.length, 1, JSON.stringify(listed(p01c)));
+  assert.equal(p01c.changes[0].kind, 'insert');
+  assert.deepEqual(minor(p01c), ['List renumbered: 2 → 3']);
+  assert.deepEqual(listed(await probe('r1-01-p01h', 'r1-01-p01')), ['Number changed: 3 → 4']);
+  // A step deleted, heading "4." changed to "3." by hand (the page reads 1, 2, 3, 3, 5).
+  const v01d = await probe('r1-01-v01d');
+  assert.deepEqual(numbers(v01d), ['Number changed: 4 → 3']);
+  assert.deepEqual(minor(v01d), ['List renumbered: 3 → 2']);
+  const v01dc = await probe('r1-01-v01dc', 'r1-01-v01d');
+  assert.deepEqual(numbers(v01dc), []);
+  assert.deepEqual(minor(v01dc), ['List renumbered: 3 → 2']);
+  // LibreOffice, typed labels: a step inserted as 2 (3 → 4 follows), heading "4." changed to "5.".
+  const w01m = await probe('r1-01-w01m');
+  assert.deepEqual(numbers(w01m), ['Number changed: 4 → 5']);
+  assert.deepEqual(minor(w01m), ['List renumbered: 2 → 3', 'List renumbered: 3 → 4']);
+  // Bare row numbers in a "No." table under bare heading numbers: row 2 inserted, heading 3 → 4 by hand.
+  // The heading number names a section: no percentage (second pass; it read "(+33%)").
+  const p14 = await probe('r1-01-p14');
+  assert.deepEqual(numbers(p14), ['Number changed: 3 → 4']);
+  assert.deepEqual(minor(p14), ['List renumbered: 2 → 3']);
+  const p14r = compareDocs(
+    buildDocModel(await extractText(await openPdf(`${fixtures}probe8-r1-01-p14-after.pdf`), 'after.pdf')),
+    buildDocModel(await extractText(await openPdf(`${fixtures}probe8-r1-01-p14-before.pdf`), 'before.pdf')),
+  );
+  assert.deepEqual(numbers(p14r), ['Number changed: 4 → 3']);
+});
+
+test('a bare row or heading number keeps no percentage only when it is in a numbered run (R1-01 P14 control)', () => {
+  // One row per paragraph: a figure in the first column, the item an em or more to the right.
+  const table = (name: string, header: string, rows: [string, string][]): DocText => {
+    const runs: TextRun[] = [];
+    const cell = (str: string, x: number, y: number, eol: boolean): TextRun => ({ str, x, y: y - 9, w: str.length * 5, h: 11, baseline: y, fontSize: 10, font: 'Body', family: 'sans-serif', eol, angle: 0 });
+    runs.push(cell(header, 56, 80, false), cell('Item', 100, 80, true));
+    rows.forEach(([n, item], k) => runs.push(cell(n, 56, 110 + 20 * k, false), cell(item, 100, 110 + 20 * k, true)));
+    return { name, pages: [{ index: 0, width: 595, height: 842, runs }] };
+  };
+  const cmp = (a: DocText, b: DocText) => numbers(compareDocs(buildDocModel(a), buildDocModel(b)));
+  const items = ['Pumps', 'Valves', 'Filters'];
+  // Row numbers 1, 2, 3 with row 3 typed 4: a label.
+  assert.deepEqual(cmp(table('a', 'No.', [['1', items[0]], ['2', items[1]], ['3', items[2]]]), table('b', 'No.', [['1', items[0]], ['2', items[1]], ['4', items[2]]])), ['Number changed: 3 → 4']);
+  // The same figures headed "Qty" are quantities; figures that do not number on from 1 are values.
+  assert.deepEqual(cmp(table('a', 'Qty', [['1', items[0]], ['2', items[1]], ['3', items[2]]]), table('b', 'Qty', [['1', items[0]], ['2', items[1]], ['4', items[2]]])), ['Number changed: 3 → 4 (+33%)']);
+  assert.deepEqual(cmp(table('a', 'Stock', [['12', items[0]], ['15', items[1]], ['20', items[2]]]), table('b', 'Stock', [['12', items[0]], ['18', items[1]], ['20', items[2]]])), ['Number changed: 15 → 18 (+20%)']);
+});
+
+test('bold headings at the steps’ size in the steps’ column are not siblings of the steps (R1-01, second pass)', async () => {
+  // Chromium: as P01, but the headings are bold 10.5 pt, the size and column of the steps.
+  // A step is inserted as 2 and the heading "3. Records" is typed "4." by hand.
+  const ca1 = await probe('r1-01-ca1');
+  assert.deepEqual(numbers(ca1), ['Number changed: 3 → 4']);
+  assert.deepEqual(minor(ca1), ['List renumbered: 2 → 3']);
+  // The same with the versions swapped.
+  const rev = compareDocs(
+    buildDocModel(await extractText(await openPdf(`${fixtures}probe8-r1-01-ca1-after.pdf`), 'after.pdf')),
+    buildDocModel(await extractText(await openPdf(`${fixtures}probe8-r1-01-ca1-before.pdf`), 'before.pdf')),
+  );
+  assert.deepEqual(numbers(rev), ['Number changed: 4 → 3']);
+  assert.deepEqual(minor(rev), ['List renumbered: 3 → 2']);
+  // Control: the step alone, the headings unchanged.
+  const ca1c = await probe('r1-01-ca1c', 'r1-01-ca1');
+  assert.equal(ca1c.changes.length, 1, JSON.stringify(listed(ca1c)));
+  assert.equal(ca1c.changes[0].kind, 'insert');
+  assert.deepEqual(minor(ca1c), ['List renumbered: 2 → 3']);
+  // Control: the label of one item made bold in a list of regular labels stays in that list
+  // (it numbers on from the label above), so the renumbering after an insertion is not listed.
+  const cb7 = await probe('r1-01-cb7');
+  assert.deepEqual(numbers(cb7), []);
+  assert.ok(cb7.changes[0].new.text.startsWith('2. Pay the deposit on signing'), cb7.changes[0].new.text);
+  assert.deepEqual(minor(cb7), ['List renumbered: 2 → 3', 'List renumbered: 3 → 4']);
+  // The label made bold is listed as formatting, though its new number is a consequence (T1-L5).
+  assert.deepEqual(listed(cb7).slice(1), ['“3” now bold']);
+});
+
+test('headings that look like the steps under them are not siblings of the steps (T1-L1)', async () => {
+  // Re-verifier counter-probes (synthetic). A step is inserted as 2 and the heading "3. Records" is
+  // typed "4." by hand; the controls insert the step alone. Chromium, labels of steps and headings all
+  // bold (only the heading words are bold); Chromium, only the first step's label bold; LibreOffice
+  // Writer, a CJK font without a bold face, the headings drawn filled and stroked (text render mode 2).
+  for (const id of ['T1L1-bold', 'T1L1-first', 'T1L1-stroke']) {
+    const r = await probe(id);
+    assert.deepEqual(numbers(r), ['Number changed: 3 → 4'], id);
+    assert.deepEqual(minor(r), ['List renumbered: 2 → 3'], id);
+    const rev = compareDocs(
+      buildDocModel(await extractText(await openPdf(`${fixtures}probe8-${id}-after.pdf`), 'after.pdf')),
+      buildDocModel(await extractText(await openPdf(`${fixtures}probe8-${id}-before.pdf`), 'before.pdf')),
+    );
+    assert.deepEqual(numbers(rev), ['Number changed: 4 → 3'], `${id} reversed`);
+    const c = await probe(`${id.replace(/-(\w+)$/, '-$1c')}`, id);
+    assert.equal(c.changes.length, 1, `${id} control: ${JSON.stringify(listed(c))}`);
+    assert.deepEqual(minor(c), ['List renumbered: 2 → 3'], `${id} control`);
+  }
+  // The stroked words are read as bold labels, not as a formatting change.
+  const doc = await extractText(await openPdf(`${fixtures}probe8-T1L1-stroke-before.pdf`), 'before.pdf');
+  const runs = doc.pages[0].runs;
+  assert.ok(runs.find((x) => x.str === '目的')!.font.endsWith(',Stroke'));
+  assert.ok(!runs.find((x) => x.str.startsWith('本规程'))!.font.endsWith(',Stroke'));
+});
+
+test('a heading inserted after steps nested under the heading above renumbers the later headings (T1-L1 control)', () => {
+  // "1. Purpose", "2. Procedure" with steps 1.–2. under it, "3. Records", "4. Review": every label bold,
+  // only the heading words bold. "3. Testing" is inserted before "Records", which becomes 4, and "Review" 5.
+  const doc = (name: string, ins: boolean): DocText => {
+    const runs: TextRun[] = [];
+    let y = 80;
+    const line = (label: string, text: string, heading: boolean) => {
+      const font = heading ? 'Body-Bold' : 'Body-Regular';
+      runs.push({ str: label, x: 56, y: y - 9, w: label.length * 5, h: 11, baseline: y, fontSize: 10, font: 'Body-Bold', family: 'sans-serif', eol: false, angle: 0 });
+      runs.push({ str: text, x: 92, y: y - 9, w: text.length * 5, h: 11, baseline: y, fontSize: 10, font, family: 'sans-serif', eol: true, angle: 0 });
+      y += heading ? 26 : 18;
+    };
+    line('1.', 'Purpose', true);
+    line('2.', 'Procedure', true);
+    line('1.', 'Switch off the pump at the panel.', false);
+    line('2.', 'Close both valves and fit the locks.', false);
+    let n = 3;
+    if (ins) line(`${n++}.`, 'Testing', true);
+    line(`${n++}.`, 'Records', true);
+    line(`${n++}.`, 'Review', true);
+    return { name, pages: [{ index: 0, width: 595, height: 842, runs }] };
+  };
+  const r = compareDocs(buildDocModel(doc('a', false)), buildDocModel(doc('b', true)));
+  assert.deepEqual(listed(r), ['Added “3. Testing”']);
+  assert.deepEqual(minor(r), ['List renumbered: 3 → 4', 'List renumbered: 4 → 5']);
+});
+
+test('headings after a step list are renumbered after an inserted section (R1-05)', async () => {
+  // Word numbering via LibreOffice: headings at 62 pt, steps at 71 pt, the same size.
+  const q08 = await probe('r1-05-q08');
+  assert.deepEqual(numbers(q08), []);
+  assert.deepEqual(minor(q08), ['List renumbered: 2 → 3', 'List renumbered: 3 → 4', 'List renumbered: 4 → 5', 'List renumbered: 5 → 6']);
+  // reportlab: bold 12 pt headings, 10 pt steps at another indent; the control has no steps.
+  for (const id of ['r1-05-w05', 'r1-05-w05c']) {
+    const r = await probe(id);
+    assert.equal(r.changes.length, 1, `${id}: ${JSON.stringify(listed(r))}`);
+    assert.equal(r.ignored.renumbered, 4, id);
+  }
+});
+
+test('a nested numbered list does not break the outer list’s renumbering (R6-01, R7-02)', async () => {
+  // A 60-item <ol>, item 4 holding a nested 1.–3.; an item inserted as 2 and 10 → 15 days.
+  for (const id of ['r6-01-ol', 'r6-01-flat']) {
+    const r = await probe(id);
+    assert.deepEqual(numbers(r), ['Number changed: 10 → 15 (+50%)'], id);
+    assert.equal(r.ignored.renumbered, 59, id);
+  }
+  // Word multilevel numbering via LibreOffice: 30 obligations, no. 6 with sub-items.
+  const lo = await probe('r6-01-lo');
+  assert.deepEqual(numbers(lo), ['Number changed: 14 → 21 (+50%)']);
+  assert.equal(lo.ignored.renumbered, 28);
+  // Steps 2 and 4 with nested sub-steps 1.–3.; a step inserted as 2. Control: no nested numbers.
+  for (const id of ['r7-02-nest', 'r7-02-nestctl']) {
+    const r = await probe(id);
+    assert.equal(r.changes.length, 1, `${id}: ${JSON.stringify(listed(r))}`);
+    assert.deepEqual(minor(r), ['List renumbered: 2 → 3', 'List renumbered: 3 → 4', 'List renumbered: 4 → 5', 'List renumbered: 5 → 6'], id);
+  }
+  // Section headings each followed by a list that starts again at 1; a section inserted as 2.
+  const head = await probe('r7-02-headlist');
+  assert.equal(head.changes.length, 1, JSON.stringify(listed(head)));
+  assert.deepEqual(minor(head), ['List renumbered: 2 → 3', 'List renumbered: 3 → 4', 'List renumbered: 4 → 5']);
+  // Right-aligned markers ("9." and "10." end at the same x) stay one list.
+  const ol = await probe('r7-02-ol');
+  assert.equal(ol.changes.length, 1, JSON.stringify(listed(ol)));
+  assert.equal(ol.ignored.renumbered, 11);
+});
+
+test('figures in another column of a numbered table are not row numbers (R1-03)', async () => {
+  // reportlab: No. | Activity | Days, with wrapping Activity cells; a row inserted as 3. Control: no wrapping.
+  for (const id of ['r1-03-w03', 'r1-03-w03c']) {
+    const r = await probe(id);
+    assert.equal(r.changes.length, 1, `${id}: ${JSON.stringify(listed(r))}`);
+    assert.equal(r.ignored.renumbered, 10, id);
+  }
+  // python-docx via LibreOffice: 30 rows, a row inserted as 4; the row pushed past the page
+  // break, under the repeated header row, is renumbered too (R1-13).
+  const q09t = await probe('r1-03-q09t');
+  assert.equal(q09t.changes.length, 1, JSON.stringify(listed(q09t)));
+  assert.ok(q09t.changes[0].new.text.startsWith('4 Interview notes, IT team'), q09t.changes[0].new.text);
+  assert.equal(q09t.ignored.renumbered, 27);
+});
+
+test('a figure that starts a wrapped line in the text column does not break the clause list (R6-02)', async () => {
+  // reportlab, 500 clauses with hanging labels: clause 6 wraps before "50."; a clause inserted as 3, 30 → 45 days.
+  const stray = await probe('r6-02-stray');
+  assert.deepEqual(numbers(stray), ['Number changed: 30 → 45 (+50%)']);
+  assert.equal(stray.ignored.renumbered, 498);
+  const ctrl = await probe('r6-02-ctrl');
+  assert.deepEqual(numbers(ctrl), ['Number changed: 30 → 45 (+50%)']);
+  assert.equal(ctrl.ignored.renumbered, 498);
+  // Chromium <ol> of 60 clauses, clause 7 ending on a line "120."; a clause inserted as 2, 14 → 21 days.
+  const ol = await probe('r6-02-ol');
+  assert.deepEqual(numbers(ol), ['Number changed: 14 → 21 (+50%)']);
+  assert.equal(ol.ignored.renumbered, 59);
+});

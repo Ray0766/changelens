@@ -1,0 +1,72 @@
+{
+  "description": "Synthetic sample. Master supply agreement between two invented companies (EN, LibreOffice Writer, 4 → 4 pages). Edits: the running header changes from “DRAFT 3 FOR DISCUSSION” to “EXECUTION VERSION” on every page; the unchanged force-majeure paragraph moves from section 5 (page 2) to section 14 (page 4); the Incoterm changes from DAP to FCA; the payment term changes from 45 to 60 days; a sentence about the warranty of replacement products is added; the liability cap changes from EUR 2,500,000 to EUR 1,500,000; and the survival sentence in the termination section is deleted. Consequences that are not edits: the text of pages 2–4 re-flows and page breaks move, because the moved paragraph leaves page 2 and lands on page 4 (section 7, for example, starts on old page 3 but on new page 2). Section numbers do not change (clauses inside sections are unnumbered run-in headings).",
+  "synthetic": true,
+  "set": "held-out-3",
+  "blind": true,
+  "author": "c",
+  "producer": "LibreOffice Writer 24.2 (flat ODT converted with soffice --convert-to pdf)",
+  "truth": [
+    {
+      "type": "furniture",
+      "old": "DRAFT 3 FOR DISCUSSION",
+      "new": "EXECUTION VERSION",
+      "oldPage": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "newPage": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "maxItems": 4,
+      "note": "Running header, same change on every page; one aggregated item or one per page are both fine."
+    },
+    {
+      "type": "replace",
+      "old": "DAP (Delivered at Place)",
+      "new": "FCA (Free Carrier)",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "number",
+      "old": "45",
+      "new": "60",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Payment term in days (section 4, Invoices)."
+    },
+    {
+      "type": "move",
+      "old": "Neither party is liable for any delay or failure",
+      "new": "Neither party is liable for any delay or failure",
+      "oldPage": 2,
+      "newPage": 4,
+      "note": "Whole force-majeure paragraph, text unchanged, from section 5 to section 14."
+    },
+    {
+      "type": "insert",
+      "new": "Replacement Products carry a new warranty period starting on their own date of delivery.",
+      "oldPage": 3,
+      "newPage": 2,
+      "note": "Section 7 is on old page 3 and, after the force-majeure paragraph left page 2, on new page 2."
+    },
+    {
+      "type": "number",
+      "old": "2,500,000",
+      "new": "1,500,000",
+      "oldPage": 3,
+      "newPage": 3
+    },
+    {
+      "type": "delete",
+      "old": "Sections 8, 9, 10 and 13 survive termination.",
+      "oldPage": 3,
+      "newPage": 3
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "rules": {
+    "snippets": "strict",
+    "boundaryCarets": false
+  },
+  "totals": {
+    "changelens": {
+      "found": 88,
+      "located": 87,
+      "separate": 88,
+      "total": 119,
+      "extra": 191,
+      "items": 278
+    }
+  }
+}

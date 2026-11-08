@@ -1,0 +1,48 @@
+{
+  "description": "Tender response pack assembled with pypdf from parts made by three producers: the cover letter, the insurance summary and (after only) a clarification note made with reportlab (the note in reportlab's non-embedded Helvetica); the technical proposal (2 pages), maintenance plan and method statement for night works made with python-docx and LibreOffice Writer; the price schedule and the product data sheet printed by Chromium. pypdf stamps a pack footer \"TR-0417 response · Brackwater Lighting Co. · page X of N\" on every page. Edits in the after version: a one-page \"Clarification No. 1\" inserted after the cover letter; the price schedule part replaced by a revised export (amount of item 3 changed, a new item 6 row, total recalculated); the insurance summary page moved from the end of the pack to directly after the price schedule. Consequences, not listed: the technical proposal and the price schedule shift by one page (old p. 2-4 → new p. 3-5) and the other three annexes by two (old p. 5-7 → new p. 7-9), and the stamped \"page X of N\" changes on every page (N 8 → 9); the parts' own footers (\"Technical proposal — page 1\") do not change. The cover letter still lists the annexes in the old order (unchanged text).",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "insert",
+      "new": "Clarification No. 1",
+      "oldPage": 1,
+      "newPage": 2,
+      "maxItems": 7,
+      "note": "Inserted after old page 1. Whole inserted page (reportlab, Helvetica): heading, reference line, four paragraphs and a signature line; one item per paragraph is acceptable."
+    },
+    {
+      "type": "number",
+      "old": "18,400.00",
+      "new": "21,150.00",
+      "oldPage": 4,
+      "newPage": 5,
+      "note": "Price schedule item 3 \"Installation and connection of luminaires\"."
+    },
+    {
+      "type": "insert",
+      "new": "Night-time traffic management 6 nights 4,200.00",
+      "oldPage": 4,
+      "newPage": 5,
+      "note": "New table row, item 6, in the replaced price schedule part."
+    },
+    {
+      "type": "number",
+      "old": "91,100.00",
+      "new": "98,050.00",
+      "oldPage": 4,
+      "newPage": 5,
+      "note": "Total (excl. VAT), recalculated by the bidder for the two price edits; listed because a reviewer must check the new total."
+    },
+    {
+      "type": "move",
+      "old": "Insurance summary",
+      "new": "Insurance summary",
+      "oldPage": 8,
+      "newPage": 6,
+      "maxItems": 5,
+      "note": "The whole one-page insurance summary (heading, reference line, paragraph, 5-row table, paragraph) moved from the last page to directly after the price schedule, unchanged. Moving it past the three other annex pages (3 pages) is the smaller description. One move item per block of the page is acceptable."
+    }
+  ]
+}

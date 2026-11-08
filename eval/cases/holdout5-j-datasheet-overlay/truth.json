@@ -1,0 +1,104 @@
+{
+  "description": "Two-page product datasheet (fictitious flow meter) typeset with Typst 0.15 (Inter 9.5 pt, justified and hyphenated, shaded specification table, a bar chart drawn as Typst rectangles, a footnote), then edited with PyMuPDF 2.1. All edits are content-stream edits and none adds an annotation. The before file has Typst's two invisible /Link annotations for the footnote (marker to footnote and back); the redaction of the footnote text also removed the back-link, so the after file keeps only the link on the in-text marker. Redaction (no fill) + re-inserted text: the running header 'Rev. B' becomes 'Rev. C' on both pages (Helvetica 8 pt); the line 'Document no. DS-UFM80-004' is removed and set again in Inter (embedded again by PyMuPDF), right-aligned to the right margin; the minimum operating temperature '−20' (U+2212) is re-typed as '-10' with an ASCII hyphen-minus because Helvetica has no U+2212; the heading '3 Electrical connection' is re-typed with the same words in Times-Bold (base-14) instead of Inter Bold; the footnote text on p. 2 is redacted, leaving its separator rule and the superscript marker in the body text. Drawn: the DN100 bar of the response-time chart is lengthened from 1.6 s to 2.1 s by drawing a longer filled rectangle of the same colour over it. Added with insert_htmlbox: a firmware note in the white space under the installation list. Consequences, not listed: re-typed text sits at the end of each content stream; the dangling footnote marker '1' after 'motor cables' is left as it was.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "furniture",
+      "old": "Rev. B",
+      "new": "Rev. C",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Running header revision letter, p. 1."
+    },
+    {
+      "type": "furniture",
+      "old": "Rev. B",
+      "new": "Rev. C",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Running header revision letter, p. 2 (same edit as p. 1)."
+    },
+    {
+      "type": "position",
+      "old": "Document no. DS-UFM80-004",
+      "new": "Document no. DS-UFM80-004",
+      "oldPage": 1,
+      "newPage": 1,
+      "oldRect": [
+        62.4,
+        98.0,
+        138.5,
+        11.5
+      ],
+      "newRect": [
+        394.4,
+        98.0,
+        138.5,
+        11.5
+      ],
+      "note": "Same words, same typeface and size (Inter re-embedded by PyMuPDF, so the PDF font name differs from Typst's 'Inter-Regular-Identity-H' subset), moved from the left margin to the right margin, about 332 pt to the right."
+    },
+    {
+      "type": "number",
+      "old": "−20",
+      "new": "-10",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Operating temperature '−20 °C to +60 °C' -> '-10 °C to +60 °C'. Old sign is U+2212, new sign is ASCII '-'; both are negative."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 1,
+      "newPage": 1,
+      "oldRect": [
+        123.1,
+        463.0,
+        163.3,
+        9.0
+      ],
+      "newRect": [
+        123.1,
+        463.0,
+        214.3,
+        9.0
+      ],
+      "note": "Chart bar DN100 longer (1.6 s -> 2.1 s); no value labels on the bars, the axis is unchanged."
+    },
+    {
+      "type": "format",
+      "old": "3 Electrical connection",
+      "new": "3 Electrical connection",
+      "oldPage": 2,
+      "newPage": 2,
+      "oldRect": [
+        62.4,
+        70.9,
+        128.7,
+        13.9
+      ],
+      "newRect": [
+        62.4,
+        70.9,
+        111.8,
+        13.9
+      ],
+      "note": "Font substitution on unchanged text: heading re-typed in Times-Bold instead of Inter Bold, same size and baseline. newRect is the narrower Times-Bold text (ends at x 174.2; the Inter Bold original ended at x 191.1)."
+    },
+    {
+      "type": "delete",
+      "old": "Use shielded twisted-pair cable and connect the shield",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Footnote text (with its number) removed at the page bottom; the in-text marker stays."
+    },
+    {
+      "type": "insert",
+      "new": "2.4 or later is required for the low",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Note added with insert_htmlbox (Nimbus Sans 9 pt, 'Note:' bold) between the installation list and section 5. Snippet avoids 'firmware', 'flow' and 'off': PDF.js expands the htmlbox ligatures, pdftotext keeps them as U+FB01/U+FB02/U+FB00."
+    }
+  ]
+}

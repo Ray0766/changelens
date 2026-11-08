@@ -1,0 +1,394 @@
+import type { Change, CompareResult, Side } from './types.ts';
+import { t, type Lang } from './i18n.ts';
+import { SHIFT_PT } from './visual.ts';
+
+export function truncate(s: string, n: number): string {
+  const chars = Array.from(s.replace(/\s+/g, ' ').trim());
+  return chars.length <= n ? chars.join('') : chars.slice(0, n - 1).join('') + '…';
+}
+
+/**
+ * The end of `s` in at most `n` characters, after "…", starting at a word
+ * where there are spaces: the context just before a change keeps the words
+ * next to it ("…beträgt EUR", not "Die Gesamtvergütung einschl…").
+ */
+export function truncateStart(s: string, n: number): string {
+  const chars = Array.from(s.replace(/\s+/g, ' ').trim());
+  if (chars.length <= n) return chars.join('');
+  let tail = chars.slice(chars.length - (n - 1)).join('');
+  const space = tail.indexOf(' ');
+  if (chars[chars.length - n] !== ' ' && space > 0 && space < tail.length - 1) tail = tail.slice(space + 1);
+  return '…' + tail.trimStart();
+}
+
+export function pageLabel(lang: Lang, pages: number[]): string {
+  if (pages.length === 0) return '';
+  const a = pages[0] + 1;
+  const b = pages[pages.length - 1] + 1;
+  return a === b ? t(lang, 'page', { n: a }) : t(lang, 'pages', { a, b });
+}
+
+function sidePages(s: Side): number[] {
+  if (s.pages.length) return s.pages;
+  return s.caret ? [s.caret.page] : [];
+}
+
+/** "p. 3 → p. 4", or "p. 3" when both sides are on the same page number. */
+export function locationLabel(lang: Lang, c: Change): string {
+  const o = pageLabel(lang, sidePages(c.old));
+  const n = pageLabel(lang, sidePages(c.new));
+  if (!o) return n;
+  if (!n) return o;
+  return o === n ? o : `${o} → ${n}`;
+}
+
+export function percentChange(from: number | null, to: number | null): string | null {
+  if (from === null || to === null || from === 0) return null;
+  const pct = ((to - from) / Math.abs(from)) * 100;
+  if (!Number.isFinite(pct) || Math.abs(pct) < 0.05) return null;
+  const s = (Math.abs(pct) >= 10 ? pct.toFixed(0) : pct.toFixed(1)).replace(/\.0$/, '');
+  return (pct > 0 ? '+' : '') + s + '%';
+}
+
+type CountKey = (w: 'addedWords' | 'deletedWords' | 'rewrote') => 'addedWords' | 'deletedWords' | 'rewrote' | 'addedChars' | 'deletedChars' | 'rewroteChars';
+
+const percentUnit = (s: string) => /[%％]$/.test(s.trim());
+
+/** "+2.5", "-0.25", "+0.025": a difference shown with at most four decimals (rates such as "0,125 %" have three). */
+function signed(d: number): string {
+  const s = (Math.round(Math.abs(d) * 10000) / 10000).toString();
+  return (d > 0 ? '+' : d < 0 ? '-' : '') + s;
+}
+
+/**
+ * What to add after "a → b": the sign flip, the change in percentage points
+ * for rates, or the relative change. When both values are negative ("(1,200)"
+ * → "(1,500)" or "-1,200" → "-1,500"), the relative change of the amount's
+ * size is shown, the same in both notations.
+ */
+function numberNote(lang: Lang, from: string, to: string, a: number | null, b: number | null): string | null {
+  if (a === null || b === null) return null;
+  // A sign flip is the important fact; a percentage would only confuse.
+  if (a !== 0 && b !== 0 && Math.sign(a) !== Math.sign(b)) return t(lang, 'signChanged');
+  if (percentUnit(from) || percentUnit(to)) {
+    // "12.5% → 15%" is +2.5 percentage points, not +20%.
+    if (!percentUnit(from) || !percentUnit(to) || Math.abs(b - a) < 1e-9) return null;
+    return t(lang, 'percentPoints', { n: signed(b - a) });
+  }
+  if (a < 0 && b < 0) return percentChange(-a, -b);
+  return percentChange(a, b);
+}
+
+function describeReplace(lang: Lang, c: Change, countKey: CountKey): string {
+  if (c.numeric) {
+    const base = t(lang, 'numberChanged', { from: c.numeric.from, to: c.numeric.to });
+    const note = numberNote(lang, c.numeric.from, c.numeric.to, c.numeric.fromValue, c.numeric.toValue);
+    return note ? (lang === 'zh' ? `${base}（${note}）` : `${base} (${note})`) : base;
+  }
+  // A rule or leader that only got longer or shorter: quoting both would show
+  // the same truncated "____…" twice, so give the lengths.
+  const run = (s: string) => /^(.)\1*$/u.exec(s)?.[1];
+  const ch = run(c.old.text);
+  if (c.size === 0 && ch && ch === run(c.new.text))
+    return t(lang, 'ruleLength', { char: ch, from: Array.from(c.old.text).length, to: Array.from(c.new.text).length });
+  // Short text, or only punctuation (a rule, dot leaders): quote it.
+  if ((Array.from(c.old.text).length <= 40 && Array.from(c.new.text).length <= 40) || c.size === 0)
+    return t(lang, 'changedText', { from: truncate(c.old.text, 40), to: truncate(c.new.text, 40) });
+  return t(lang, countKey('rewrote'), { n: c.size });
+}
+
+/** One-line, plain-language description of a change. */
+export function describeChange(lang: Lang, c: Change): string {
+  const text = describeKind(lang, c);
+  // A value typed into a form field, not page text.
+  return c.field ? t(lang, 'inFormField', { text }) : text;
+}
+
+function describeKind(lang: Lang, c: Change): string {
+  const short = 48;
+  const countKey = (words: 'addedWords' | 'deletedWords' | 'rewrote') =>
+    c.cjk ? (({ addedWords: 'addedChars', deletedWords: 'deletedChars', rewrote: 'rewroteChars' }) as const)[words] : words;
+  // A list label shown as a tracked change ("4.3[4.4]").
+  if (c.consequence === 'renumber' && c.kind !== 'replace') return t(lang, 'renumberedRedline', { text: truncate(c.kind === 'delete' ? c.old.text : c.new.text, short) });
+  if (c.consequence === 'repeatedLine')
+    return t(lang, c.kind === 'insert' ? 'repeatedLineAdded' : 'repeatedLineRemoved', { text: truncate(c.kind === 'insert' ? c.new.text : c.old.text, short) });
+  if (c.consequence === 'closingRule') return t(lang, c.new.rects.length ? 'closingRuleAdded' : 'closingRuleRemoved', { text: truncate(c.new.rects.length ? c.new.text : c.old.text, 32) });
+  switch (c.kind) {
+    case 'insert':
+      if (c.duplicateOf !== undefined) return t(lang, 'duplicateOf', { page: pageLabel(lang, [c.duplicateOf]) });
+      // Short content is clearer quoted than summarised (e.g. one table row).
+      if (Array.from(c.new.text).length <= short) return t(lang, 'addedText', { text: c.new.text });
+      if (c.wholeParagraphs) return c.wholeParagraphs === 1 ? t(lang, 'addedParagraph') : t(lang, 'addedParagraphs', { n: c.wholeParagraphs });
+      // Only punctuation (e.g. a signature rule): quote it rather than count 0 words.
+      if (c.size === 0) return t(lang, 'addedText', { text: truncate(c.new.text, short) });
+      return t(lang, countKey('addedWords'), { n: c.size });
+    case 'delete':
+      if (Array.from(c.old.text).length <= short) return t(lang, 'deletedText', { text: c.old.text });
+      if (c.wholeParagraphs) return c.wholeParagraphs === 1 ? t(lang, 'deletedParagraph') : t(lang, 'deletedParagraphs', { n: c.wholeParagraphs });
+      if (c.size === 0) return t(lang, 'deletedText', { text: truncate(c.old.text, short) });
+      return t(lang, countKey('deletedWords'), { n: c.size });
+    case 'replace': {
+      if (c.consequence === 'renumber') return t(lang, 'renumbered', { from: c.old.text, to: c.new.text });
+      const places = c.places ? (lang === 'zh' ? `（${t(lang, 'inPlaces', { n: c.places })}）` : ` (${t(lang, 'inPlaces', { n: c.places })})`) : '';
+      return describeReplace(lang, c, countKey) + places;
+    }
+    case 'move': {
+      // Edits inside the moved text are listed as their own changes.
+      const edited = !!c.moveEdits;
+      if (c.wholeParagraphs === 1) return t(lang, edited ? 'movedEditedParagraph' : 'movedParagraph');
+      if (c.wholeParagraphs) return t(lang, edited ? 'movedEditedParagraphs' : 'movedParagraphs', { n: c.wholeParagraphs });
+      return t(lang, edited ? 'movedEditedText' : 'movedText', { text: truncate(c.new.text, 32) });
+    }
+    case 'format': {
+      const f = c.format ?? {};
+      const parts: string[] = [];
+      if (f.boldAdded) parts.push(t(lang, 'nowBold'));
+      if (f.boldRemoved) parts.push(t(lang, 'noLongerBold'));
+      if (f.italicAdded) parts.push(t(lang, 'nowItalic'));
+      if (f.italicRemoved) parts.push(t(lang, 'noLongerItalic'));
+      if (f.sizeFrom !== undefined) parts.push(t(lang, 'sizeChanged', { from: f.sizeFrom, to: f.sizeTo ?? '' }));
+      if (f.fontFrom) parts.push(t(lang, 'fontChanged', { from: f.fontFrom, to: f.fontTo ?? '' }));
+      if (f.turnTo !== undefined) parts.push(t(lang, 'turned', { from: t(lang, readsKey(f.turnFrom ?? 0)), to: t(lang, readsKey(f.turnTo)) }));
+      const sep = lang === 'zh' ? '，' : ', ';
+      if (c.places) {
+        const head = t(lang, 'formatChanged');
+        return lang === 'zh' ? `${head}：${parts.join(sep)}（${t(lang, 'inPlaces', { n: c.places })}）` : `${head}: ${parts.join(sep)} (${t(lang, 'inPlaces', { n: c.places })})`;
+      }
+      const what = truncate(c.new.text, 32);
+      return lang === 'zh' ? `「${what}」${parts.join(sep)}` : `“${what}” ${parts.join(sep)}`;
+    }
+    case 'position': {
+      const mm = Math.round((Math.abs(c.shift?.dx ?? 0) * 25.4) / 72);
+      const dir = (c.shift?.dx ?? 0) > 0 ? 'right' : 'left';
+      return t(lang, dir === 'right' ? 'movedRight' : 'movedLeft', { text: truncate(c.new.text, 32), mm });
+    }
+    case 'overflow': {
+      const e = c.overflow?.edge ?? 'margin';
+      const key = ({ right: 'overflowRight', left: 'overflowLeft', top: 'overflowTop', bottom: 'overflowBottom', margin: 'overflowMargin' } as const)[e];
+      return t(lang, key);
+    }
+    case 'graphic':
+      if (c.minor) return t(lang, 'minorShift', { n: SHIFT_PT });
+      if (c.pageChange) return describePage(lang, c);
+      if (c.format?.markup) return describeMarkup(lang, c);
+      if (c.note) return describeNote(lang, c);
+      if (c.format?.decoration) {
+        const d = c.format.decoration;
+        const key = d.line === 'strike' ? (d.added ? 'strikeAdded' : 'strikeRemoved') : d.added ? 'underlineAdded' : 'underlineRemoved';
+        return t(lang, key, { text: truncate((d.added ? c.new : c.old).text, 32) });
+      }
+      if (c.format) return t(lang, 'colorChanged');
+      if (!c.old.rects.length) return t(lang, 'graphicAdded');
+      if (!c.new.rects.length) return t(lang, 'graphicRemoved');
+      return t(lang, 'graphicChanged');
+  }
+}
+
+/** A text-markup annotation added, removed or recoloured on words (see FormatDetail.markup). */
+function describeMarkup(lang: Lang, c: Change): string {
+  const m = c.format!.markup!;
+  const kind = ({ strike: 'Strike', underline: 'Underline', squiggly: 'Squiggly', highlight: 'Highlight' } as const)[m.kind];
+  const change = ({ added: 'Added', removed: 'Removed', recoloured: 'Recoloured' } as const)[m.change];
+  return t(lang, `markup${kind}${change}`, { text: truncate((m.change === 'removed' ? c.old : c.new).text, 32) });
+}
+
+/**
+ * A graphic drawn by a stamp, a free-text note or a comment annotation (see
+ * Change.note), with its text; one that holds other graphic changes as
+ * well (noteChange.beside), as a graphic change with the note's.
+ */
+function describeNote(lang: Lang, c: Change): string {
+  const what = t(lang, ({ stamp: 'noteStamp', freetext: 'noteFreetext', comment: 'noteComment' } as const)[c.note!]);
+  const [o, n] = [c.old.rects.length > 0, c.new.rects.length > 0];
+  const change = c.noteChange?.change ?? (n && !o ? 'added' : o && !n ? 'removed' : 'changed');
+  const note =
+    change === 'added'
+      ? t(lang, 'noteAdded', { what, text: truncate(c.new.text, 48) })
+      : change === 'removed'
+        ? t(lang, 'noteRemoved', { what, text: truncate(c.old.text, 48) })
+        : c.old.text && c.new.text && c.old.text !== c.new.text
+          ? t(lang, 'noteChanged', { what, from: truncate(c.old.text, 40), to: truncate(c.new.text, 40) })
+          : t(lang, 'noteChangedLook', { what, text: truncate(c.new.text || c.old.text, 48) });
+  if (!c.noteChange?.beside) return note;
+  return t(lang, 'noteBeside', { graphic: t(lang, !o ? 'graphicAdded' : !n ? 'graphicRemoved' : 'graphicChanged'), note });
+}
+
+/** "6 annotations (1 stamp, 1 highlight, …)": the subtypes counted on the pages of one version (see PageAnnotations.counts). */
+function annotationList(lang: Lang, counts: Map<string, number>): string {
+  const named: Record<string, 'annotHighlight' | 'annotStrikeOut' | 'annotUnderline' | 'annotSquiggly' | 'annotStamp' | 'annotFreeText' | 'annotText' | 'annotInk'> = {
+    Highlight: 'annotHighlight',
+    StrikeOut: 'annotStrikeOut',
+    Underline: 'annotUnderline',
+    Squiggly: 'annotSquiggly',
+    Stamp: 'annotStamp',
+    FreeText: 'annotFreeText',
+    Text: 'annotText',
+    Ink: 'annotInk',
+  };
+  return [...counts]
+    .map(([type, n]) => (named[type] ? t(lang, named[type], { n }) : t(lang, 'annotOther', { n, type: truncate(type, 24) })))
+    .join(lang === 'zh' ? '、' : ', ');
+}
+
+/** The direction a text reads in (degrees clockwise from left to right). */
+function readsKey(deg: number): 'reads0' | 'reads90' | 'reads180' | 'reads270' {
+  const q = ((Math.round(deg / 90) % 4) + 4) % 4;
+  return (['reads0', 'reads90', 'reads180', 'reads270'] as const)[q];
+}
+
+function describePage(lang: Lang, c: Change): string {
+  if (c.pageChange === 'added') return t(lang, c.blankPage ? 'pageAddedBlank' : 'pageAddedNoText');
+  if (c.pageChange === 'removed') return t(lang, c.blankPage ? 'pageRemovedBlank' : 'pageRemovedNoText');
+  const size = (s: Side) => {
+    const r = s.rects[0]?.rect;
+    return r ? `${Math.round(r.w)} × ${Math.round(r.h)} pt` : '';
+  };
+  // Turned without a change of size (upside down): the size says nothing.
+  const text = c.turned && size(c.old) === size(c.new) ? t(lang, 'pageTurned', { deg: c.turned }) : t(lang, 'pageResized', { from: size(c.old), to: size(c.new) });
+  if (!c.places) return text;
+  return lang === 'zh' ? `${text}（${t(lang, 'inPlaces', { n: c.places })}）` : `${text} (${t(lang, 'inPlaces', { n: c.places })})`;
+}
+
+/** Short badge label for the change type. */
+export function kindLabel(lang: Lang, c: Change): string {
+  if (c.minor) return t(lang, 'kind_minor');
+  if (c.numeric) return t(lang, 'kind_number');
+  if (c.kind === 'graphic' && c.format?.appearanceChanged) return t(lang, 'kind_format');
+  return t(lang, `kind_${c.kind}` as const);
+}
+
+/**
+ * Excerpt shown under the description: the changed text with context. For a
+ * move, `old` is the wording before the move; it differs from `new` when the
+ * move has `moveEdits`.
+ */
+export function excerpt(c: Change): { before: string; old: string; new: string; after: string } {
+  return {
+    before: truncateStart(c.contextBefore, 40),
+    old: truncate(c.old.text, 160),
+    new: truncate(c.new.text, 160),
+    after: truncate(c.contextAfter, 40),
+  };
+}
+
+export interface Notice {
+  level: 'warn' | 'info';
+  text: string;
+  /** Lets the UI offer a "Show" action for filtered differences. */
+  action?: 'furniture' | 'minor' | 'pair';
+}
+
+function pageRuns(lang: Lang, pages: number[]): string {
+  // "p. 2, 5–7"
+  const sorted = [...new Set(pages)].sort((a, b) => a - b);
+  const parts: string[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
+    parts.push(i === j ? String(sorted[i] + 1) : `${sorted[i] + 1}–${sorted[j] + 1}`);
+    i = j;
+  }
+  return lang === 'zh' ? `第 ${parts.join('、')} 页` : `p. ${parts.join(', ')}`;
+}
+
+/** What was not compared or was filtered out — shown so nothing is hidden silently. */
+export function notices(lang: Lang, r: CompareResult): Notice[] {
+  const out: Notice[] = [];
+  const side = (s: 'old' | 'new') => t(lang, s === 'old' ? 'oldVersion' : 'newVersion');
+  const manual = r.pageLinks.filter((l) => l.manual);
+  const images = r.pageLinks.filter((l) => l.image);
+  const paired = (s: 'old' | 'new', p: number) => [...manual, ...images].some((l) => (s === 'old' ? l.oldPage : l.newPage) === p);
+  // A page without text reported as added or removed is explained by that change.
+  const pageChanged = (s: 'old' | 'new', p: number) => r.changes.some((c) => (c.pageChange === 'added' || c.pageChange === 'removed') && c[s].pages.includes(p));
+  for (const s of ['old', 'new'] as const) {
+    const cov = r.coverage?.[s];
+    if (!cov) continue;
+    // Pages without text that were neither paired (by hand or by position) nor reported as added/removed.
+    const textless = cov.textless.filter((p) => !paired(s, p) && !pageChanged(s, p));
+    if (textless.length) out.push({ level: 'warn', text: t(lang, 'noticeTextless', { side: side(s), pages: pageRuns(lang, textless) }), action: 'pair' });
+    if (cov.unreadable.length)
+      out.push({ level: 'warn', text: t(lang, 'noticeUnreadable', { side: side(s), pages: pageRuns(lang, cov.unreadable.map((u) => u.page)), n: cov.unreadable.reduce((n, u) => n + u.count, 0) }) });
+    if (cov.privateUse?.length)
+      out.push({ level: 'info', text: t(lang, 'noticePrivateUse', { side: side(s), pages: pageRuns(lang, cov.privateUse.map((u) => u.page)), n: cov.privateUse.reduce((n, u) => n + u.count, 0) }) });
+    // Form fields whose values were compared as images only.
+    const fields = (cov.fieldsUnread ?? []).filter((u) => u.count > 0);
+    if (fields.length)
+      out.push({ level: 'warn', text: t(lang, 'noticeFieldsUnread', { side: side(s), pages: pageRuns(lang, fields.map((u) => u.page)), n: fields.reduce((n, u) => n + u.count, 0) }) });
+    const unreadable = (cov.fieldsUnread ?? []).filter((u) => u.count < 0);
+    if (unreadable.length) out.push({ level: 'warn', text: t(lang, 'noticeFieldsUnreadable', { side: side(s), pages: pageRuns(lang, unreadable.map((u) => u.page)) }) });
+    // Text stored after the footer (re-typed by a PDF editor), placed by its position.
+    const placed = (cov.outOfOrder ?? []).filter((u) => u.placed > 0);
+    if (placed.length) out.push({ level: 'info', text: t(lang, 'noticeOutOfOrder', { side: side(s), pages: pageRuns(lang, placed.map((u) => u.page)), n: placed.reduce((n, u) => n + u.placed, 0) }) });
+  }
+  // Annotations other than form fields' widgets and links: how many of
+  // which kind, and that their text is not compared as text. A warning
+  // where one shows or carries text (a stamp, a note, a comment's pop-up)
+  // and the two versions do not carry the same texts (of the same kinds).
+  const carried = (doc: CompareResult['oldDoc'] | undefined) =>
+    (doc?.pages ?? [])
+      .flatMap((pg) => [...(pg.annotations?.contents ?? []), ...(pg.annotations?.notes ?? []).map((n) => `${n.kind}\u0000${n.text}`)])
+      .sort()
+      .join('\u0001');
+  const sameTexts = carried(r.oldDoc) === carried(r.newDoc);
+  for (const s of ['old', 'new'] as const) {
+    const doc = s === 'old' ? r.oldDoc : r.newDoc;
+    const counts = new Map<string, number>();
+    const pages: number[] = [];
+    const unreadPages: number[] = [];
+    let withText = 0;
+    let unread = 0;
+    for (const pg of doc?.pages ?? []) {
+      const an = pg.annotations;
+      if (!an) continue;
+      pages.push(pg.index);
+      for (const [k, n] of Object.entries(an.counts)) counts.set(k, (counts.get(k) ?? 0) + n);
+      withText += an.withText;
+      if (an.unread) {
+        unread += an.unread;
+        unreadPages.push(pg.index);
+      }
+    }
+    const n = [...counts.values()].reduce((x, y) => x + y, 0);
+    if (n) out.push({ level: withText && !sameTexts ? 'warn' : 'info', text: t(lang, 'noticeAnnotations', { side: side(s), pages: pageRuns(lang, pages), n, list: annotationList(lang, counts) }) });
+    if (unread) out.push({ level: 'warn', text: t(lang, 'noticeAnnotationsUnread', { side: side(s), pages: pageRuns(lang, unreadPages), n: unread }) });
+  }
+  for (const s of ['old', 'new'] as const) {
+    const skipped = r.coverage?.[s]?.visualSkipped ?? [];
+    if (skipped.length) out.push({ level: 'warn', text: t(lang, 'noticeVisualSkipped', { side: side(s), pages: pageRuns(lang, skipped) }) });
+  }
+  const partly = r.coverage?.new.partlyCompared ?? [];
+  if (partly.length) {
+    const quote = (w: string) => (lang === 'zh' ? `「${w}」` : `“${w}”`);
+    const words = partly.flatMap((u) => u.words).slice(0, 3);
+    const n = partly.reduce((n, u) => n + u.count, 0);
+    // Words counted only for a faint line, all of them or some.
+    const faint = partly.reduce((n, u) => n + (u.faint ?? 0), 0);
+    const key = !faint ? 'noticePartlyCompared' : faint === n ? 'noticePartlyFaint' : 'noticePartlyFaintToo';
+    out.push({
+      level: 'warn',
+      text: t(lang, key, { side: side('new'), pages: pageRuns(lang, partly.map((u) => u.page)), n, words: words.map(quote).join(lang === 'zh' ? '、' : ', ') }),
+    });
+  }
+  for (const u of r.coverage?.new.uncertain ?? []) out.push({ level: 'warn', text: t(lang, 'noticeUncertain', { pages: pageRuns(lang, [u.page]), pct: Math.round(u.matched * 100) + '%' }), action: 'pair' });
+  if (r.stats?.unalignedTokens) out.push({ level: 'warn', text: t(lang, 'noticeUnaligned') });
+  for (const l of manual) out.push({ level: 'info', text: t(lang, 'noticePaired', { pair: pairLabel(lang, l.oldPage, l.newPage) }) });
+  if (images.length)
+    out.push({ level: 'info', text: t(lang, 'noticeImagePaired', { pairs: images.map((l) => pairLabel(lang, l.oldPage, l.newPage)).join(lang === 'zh' ? '、' : ', ') }), action: 'pair' });
+  if (r.ignored?.furniture) out.push({ level: 'info', text: t(lang, 'noticeFurniture', { n: r.ignored.furniture }), action: 'furniture' });
+  if (r.ignored?.renumbered) out.push({ level: 'info', text: t(lang, 'noticeRenumberedItems', { n: r.ignored.renumbered }), action: 'minor' });
+  if (r.ignored?.repeatedLines)
+    out.push({ level: 'info', text: r.ignored.closingRules ? t(lang, 'noticeRepeatedLinesRules', { n: r.ignored.repeatedLines, m: r.ignored.closingRules }) : t(lang, 'noticeRepeatedLines', { n: r.ignored.repeatedLines }), action: 'minor' });
+  if (r.ignored?.minorShifts) out.push({ level: 'info', text: t(lang, 'noticeMinor', { n: r.ignored.minorShifts, pt: SHIFT_PT }), action: 'minor' });
+  if (r.ignored?.caseOnly) out.push({ level: 'info', text: t(lang, 'noticeCase', { n: r.ignored.caseOnly }) });
+  if (r.options.ignorePunctuation) out.push({ level: 'info', text: t(lang, 'noticePunct') });
+  return out;
+}
+
+export function countLabel(lang: Lang, n: number): string {
+  return n === 1 ? t(lang, 'oneChange') : t(lang, 'changesCount', { n });
+}
+
+/** "Old p. 2 ↔ new p. 3" */
+export function pairLabel(lang: Lang, oldPage: number, newPage: number): string {
+  return t(lang, 'pairLabel', { old: oldPage + 1, new: newPage + 1 });
+}

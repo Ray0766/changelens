@@ -1,0 +1,86 @@
+{
+  "description": "Bilingual (English / Chinese) one-page equipment loan request form made with reportlab as an AcroForm (11 text fields, 2 checkboxes) and filled with pypdf; pypdf writes the appearance streams of the text fields, and the checkbox states are set through /V and /AS. The form is not flattened: the filled values are drawn by the widget annotations, not by the page content stream. The after version is the same template filled again with four values changed. The README does not claim support for PDF form fields.",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "14",
+      "new": "21",
+      "oldPage": 1,
+      "newPage": 1,
+      "oldRect": [
+        235,
+        408,
+        300,
+        18
+      ],
+      "newRect": [
+        235,
+        408,
+        300,
+        18
+      ],
+      "note": "Text field \"Loan period (days)\". Field value, not page content. The README does not claim support for PDF form fields."
+    },
+    {
+      "type": "number",
+      "old": "250.00",
+      "new": "400.00",
+      "oldPage": 1,
+      "newPage": 1,
+      "oldRect": [
+        235,
+        435,
+        300,
+        18
+      ],
+      "newRect": [
+        235,
+        435,
+        300,
+        18
+      ],
+      "note": "Text field \"Deposit (EUR)\". Field value, not page content. The README does not claim support for PDF form fields."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 1,
+      "newPage": 1,
+      "oldRect": [
+        235,
+        466,
+        13,
+        13
+      ],
+      "newRect": [
+        235,
+        466,
+        13,
+        13
+      ],
+      "note": "Checkbox \"Insurance required\" changed from unticked to ticked. The README does not claim support for PDF form fields."
+    },
+    {
+      "type": "replace",
+      "old": "Ana Duarte",
+      "new": "Tomas Reid",
+      "oldPage": 1,
+      "newPage": 1,
+      "oldRect": [
+        235,
+        627,
+        300,
+        18
+      ],
+      "newRect": [
+        235,
+        627,
+        300,
+        18
+      ],
+      "note": "Text field \"Collected by\". Field value, not page content. The README does not claim support for PDF form fields."
+    }
+  ]
+}

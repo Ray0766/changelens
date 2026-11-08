@@ -1,0 +1,26 @@
+{
+  "description": "中英文混排：版本号、框架名、周数修改，删除一段。",
+  "synthetic": true,
+  "set": "tuning",
+  "truth": [
+    {
+      "type": "number",
+      "old": "2.2",
+      "new": "2.1"
+    },
+    {
+      "type": "replace",
+      "old": "React",
+      "new": "Vue"
+    },
+    {
+      "type": "number",
+      "old": "10",
+      "new": "12"
+    },
+    {
+      "type": "delete",
+      "old": "备件清单以外的配件"
+    }
+  ]
+}

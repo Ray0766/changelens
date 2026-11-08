@@ -1,0 +1,610 @@
+{
+  "rules": {
+    "snippets": "strict",
+    "boundaryCarets": false,
+    "afterRound4": false
+  },
+  "results": {
+    "holdout5-h-annual-technical-report": {
+      "changelens": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 9,
+        "extra": 16,
+        "items": 21
+      },
+      "misses": [
+        {
+          "truth": 2,
+          "text": "number \"October 0.38 0.42\" → \"October 0.38 0.48\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "replace \"sampled quarterly\" → \"sampled monthly\"",
+          "why": "not found"
+        },
+        {
+          "truth": 6,
+          "text": "replace \"verified by the external auditor\" → \"verified by the internal audit team\"",
+          "why": "not found"
+        },
+        {
+          "truth": 9,
+          "text": "number \"20.8 −1.8\" → \"20.8 −2.6\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-h-bilingual-sla": {
+      "changelens": {
+        "found": 6,
+        "located": 6,
+        "separate": 6,
+        "total": 9,
+        "extra": 3,
+        "items": 9
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"availability of 99.5%\" → \"availability of 99.9%\"",
+          "why": "not found"
+        },
+        {
+          "truth": 6,
+          "text": "replace \"人民币壹拾贰万捌仟元整\" → \"人民币壹拾叁万陆仟伍佰元整\"",
+          "why": "not found"
+        },
+        {
+          "truth": 8,
+          "text": "replace \"五个工作日内\" → \"五个自然日内\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-h-dienstleistungsvertrag": {
+      "changelens": {
+        "found": 2,
+        "located": 2,
+        "separate": 2,
+        "total": 9,
+        "extra": 5,
+        "items": 7
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"beginnt am 01.04.2026\" → \"beginnt am 01.05.2026\"",
+          "why": "not found"
+        },
+        {
+          "truth": 2,
+          "text": "replace \"innerhalb von vier Stunden\" → \"innerhalb von zwei Stunden\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "number \"8.400,00 EUR\" → \"9.150,00 EUR\"",
+          "why": "not found"
+        },
+        {
+          "truth": 6,
+          "text": "format \"Änderungen und Ergänzungen dieses Vertrages bedürfen der Schriftform.\" → \"Änderungen und Ergänzungen dieses Vertrages bedürfen der Schriftform.\"",
+          "why": "not found"
+        },
+        {
+          "truth": 7,
+          "text": "furniture \"Stand 12.02.2026\" → \"Stand 03.03.2026\"",
+          "why": "not found"
+        },
+        {
+          "truth": 8,
+          "text": "furniture \"Stand 12.02.2026\" → \"Stand 03.03.2026\"",
+          "why": "not found"
+        },
+        {
+          "truth": 9,
+          "text": "furniture \"Stand 12.02.2026\" → \"Stand 03.03.2026\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-h-pruefbericht": {
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 8,
+        "extra": 6,
+        "items": 10
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"(20,0 ± 0,5) °C\" → \"(20,0 ± 1,0) °C\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "number \"±0,05 42,47\" → \"±0,05 42,44\"",
+          "why": "not found"
+        },
+        {
+          "truth": 4,
+          "text": "replace \"0,007 i. O.\" → \"0,007 n. i. O.\"",
+          "why": "not found"
+        },
+        {
+          "truth": 7,
+          "text": "replace \"Alle geprüften Merkmale liegen innerhalb der zulässigen Toleranzen.\" → \"Das Merkmal M7 liegt außerhalb der zulässigen Toleranz.\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-h-rapport-annuel": {
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 8,
+        "extra": 4,
+        "items": 8
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "replace \"1,42 GWh\" → \"1,42 MWh\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "number \"−1,2 % −4,2 %\" → \"−1,2 % 4,2 %\"",
+          "why": "not found"
+        },
+        {
+          "truth": 4,
+          "text": "number \"= −0,8 K\" → \"= −1,3 K\"",
+          "why": "not found"
+        },
+        {
+          "truth": 7,
+          "text": "replace \"« conformité partielle »\" → \"« non-conformité »\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-h-services-agreement": {
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 8,
+        "extra": 5,
+        "items": 9
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "replace \"commercially reasonable efforts\" → \"use best efforts\"",
+          "why": "not found"
+        },
+        {
+          "truth": 2,
+          "text": "number \"GBP 14,250\" → \"GBP 15,400\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "number \"at 4 per cent per annum\" → \"at 6 per cent per annum\"",
+          "why": "not found"
+        },
+        {
+          "truth": 8,
+          "text": "replace \"affiliates without the Customer’s consent\" → \"affiliates only with the Customer’s prior written consent\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-i-nouhinsho-jpy": {
+      "changelens": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 8,
+        "extra": 3,
+        "items": 8
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"2026年11月10日\" → \"2026年11月12日\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "number \"200 枚\" → \"250 枚\"",
+          "why": "not found"
+        },
+        {
+          "truth": 5,
+          "text": "number \"△1,500\" → \"△2,000\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-i-payslip-cny": {
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 8,
+        "extra": 4,
+        "items": 8
+      },
+      "misses": [
+        {
+          "truth": 3,
+          "text": "number \"**** 4471\" → \"**** 8803\"",
+          "why": "not found"
+        },
+        {
+          "truth": 4,
+          "text": "number \"Special deductions 2,000.00\" → \"Special deductions 3,000.00\"",
+          "why": "not found"
+        },
+        {
+          "truth": 7,
+          "text": "number \"CNY 17,637.40\" → \"CNY 17,737.40\"",
+          "why": "not found"
+        },
+        {
+          "truth": 8,
+          "text": "replace \"人民币壹万柒仟陆佰叁拾柒元肆角整\" → \"人民币壹万柒仟柒佰叁拾柒元肆角整\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-i-pricelist-gbp": {
+      "changelens": {
+        "found": 6,
+        "located": 6,
+        "separate": 6,
+        "total": 8,
+        "extra": 3,
+        "items": 9
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"valid from 01/01/2027\" → \"valid from 01/02/2027\"",
+          "why": "not found"
+        },
+        {
+          "truth": 5,
+          "text": "format \"Anvil loppers 70 cm, ratchet\" → \"Anvil loppers 70 cm, ratchet\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-i-rechnung-eur": {
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 8,
+        "extra": 36,
+        "items": 40
+      },
+      "misses": [
+        {
+          "truth": 2,
+          "text": "number \"puderfrei 10 Karton\" → \"puderfrei 12 Karton\"",
+          "why": "not found"
+        },
+        {
+          "truth": 5,
+          "text": "number \"3.295,35 €\" → \"3.512,15 €\"",
+          "why": "not found"
+        },
+        {
+          "truth": 6,
+          "text": "number \"626,12 €\" → \"667,31 €\"",
+          "why": "not found"
+        },
+        {
+          "truth": 7,
+          "text": "number \"3.921,47 €\" → \"4.179,46 €\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-i-releve-chf": {
+      "changelens": {
+        "found": 2,
+        "located": 2,
+        "separate": 2,
+        "total": 8,
+        "extra": 5,
+        "items": 7
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"CHF 5'000.00\" → \"CHF 2'000.00\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "replace \"prime octobre\" → \"prime novembre\"",
+          "why": "not found"
+        },
+        {
+          "truth": 4,
+          "text": "position \"85.40\" → \"85.40\"",
+          "why": "not found"
+        },
+        {
+          "truth": 5,
+          "text": "number \"43.30-\" → \"5.00 127.50\"",
+          "why": "not found"
+        },
+        {
+          "truth": 6,
+          "text": "replace \"en notre faveur\" → \"en votre faveur\"",
+          "why": "not found"
+        },
+        {
+          "truth": 7,
+          "text": "number \"CHF 43.30\" → \"CHF 127.50\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-i-statement-gbp": {
+      "changelens": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 8,
+        "extra": 3,
+        "items": 8
+      },
+      "misses": [
+        {
+          "truth": 2,
+          "text": "number \"Sandpaper rolls 30/09/2026\" → \"Sandpaper rolls 15/10/2026\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "number \"150.00 DR\" → \"150.00 CR\"",
+          "why": "not found"
+        },
+        {
+          "truth": 4,
+          "text": "replace \"Goods returned - damaged\" → \"Goods returned - wrong size\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-j-audit-annotations": {
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 8,
+        "extra": 5,
+        "items": 9
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"87\" → \"82\"",
+          "why": "not found"
+        },
+        {
+          "truth": 4,
+          "text": "format \"The finding is considered minor.\" → \"The finding is considered minor.\"",
+          "why": "not found"
+        },
+        {
+          "truth": 6,
+          "text": "format \"within 30 days of receiving this report\" → \"within 30 days of receiving this report\"",
+          "why": "not found"
+        },
+        {
+          "truth": 7,
+          "text": "replace \"October 2027\" → \"April\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-j-datasheet-overlay": {
+      "changelens": {
+        "found": 1,
+        "located": 1,
+        "separate": 1,
+        "total": 8,
+        "extra": 5,
+        "items": 6
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "furniture \"Rev. B\" → \"Rev. C\"",
+          "why": "not found"
+        },
+        {
+          "truth": 2,
+          "text": "furniture \"Rev. B\" → \"Rev. C\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "position \"Document no. DS-UFM80-004\" → \"Document no. DS-UFM80-004\"",
+          "why": "not found"
+        },
+        {
+          "truth": 4,
+          "text": "number \"−20\" → \"-10\"",
+          "why": "not found"
+        },
+        {
+          "truth": 6,
+          "text": "format \"3 Electrical connection\" → \"3 Electrical connection\"",
+          "why": "not found"
+        },
+        {
+          "truth": 7,
+          "text": "delete \"Use shielded twisted-pair cable and connect the shield\"",
+          "why": "not found"
+        },
+        {
+          "truth": 8,
+          "text": "insert → \"2.4 or later is required for the low\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-j-handbook-pages": {
+      "changelens": {
+        "found": 4,
+        "located": 2,
+        "separate": 3,
+        "total": 7,
+        "extra": 3,
+        "items": 6
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "delete \"Until the tablet roll-out is complete\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "insert → \"Crews must wear the equipment listed below\"",
+          "why": "wrong page"
+        },
+        {
+          "truth": 4,
+          "text": "insert → \"5A Lone working\"",
+          "why": "wrong page"
+        },
+        {
+          "truth": 4,
+          "text": "insert → \"5A Lone working\"",
+          "why": "not a separate item"
+        },
+        {
+          "truth": 6,
+          "text": "number \"48.00\" → \"52.00\"",
+          "why": "not found"
+        },
+        {
+          "truth": 7,
+          "text": "number \"0.32\" → \"0.35\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-j-invoice-incremental": {
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 7,
+        "extra": 4,
+        "items": 8
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"30 November 2026\" → \"18 November 2026\"",
+          "why": "not found"
+        },
+        {
+          "truth": 2,
+          "text": "number \"1,240.00\" → \"1,420.00\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "replace \"2045 1189 03\" → \"9932 0457 18\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-j-lease-redact": {
+      "changelens": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 7,
+        "extra": 5,
+        "items": 8
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"1,850.00\" → \"1,975.00\"",
+          "why": "not found"
+        },
+        {
+          "truth": 2,
+          "text": "number \"1 March 2027\" → \"15 March 2027\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "replace \"Consumer\" → \"Retail\"",
+          "why": "not found"
+        },
+        {
+          "truth": 5,
+          "text": "replace \"March to May 2027\" → \"April to June 2027\"",
+          "why": "not found"
+        }
+      ]
+    },
+    "holdout5-j-zh-quote-htmlbox": {
+      "changelens": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 8,
+        "extra": 3,
+        "items": 8
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"有效期至：2026年11月30日\" → \"有效期至：2026年12月31日\"",
+          "why": "not found"
+        },
+        {
+          "truth": 2,
+          "text": "replace \"每季度上门巡检\" → \"每月上门巡检\"",
+          "why": "not found"
+        },
+        {
+          "truth": 3,
+          "text": "number \"4 小时内派工程师\" → \"6 小时内派工程师\"",
+          "why": "not found"
+        }
+      ]
+    }
+  },
+  "totals": {
+    "changelens": {
+      "found": 72,
+      "located": 70,
+      "separate": 71,
+      "total": 144,
+      "extra": 118,
+      "items": 189
+    }
+  }
+}

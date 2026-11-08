@@ -1,0 +1,6 @@
+# Producers of blind round 5 (eval/make-holdout5-{h,i,j}.py), as used by the authors.
+typst==0.15.0
+fpdf2==2.9.0
+pymupdf==2.1
+fonttools==4.68.0
+pillow==13.0.0

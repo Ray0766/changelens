@@ -1,0 +1,37 @@
+{
+  "description": "Synthetic. Three pages: portrait, landscape (wide monthly table), portrait. The logo on page 1 (drawn shapes, no text) is replaced by a different logo; on the landscape page one budget in the right-most column and one responsible person change; on page 3 one word in a job title changes.",
+  "synthetic": true,
+  "set": "held-out-2",
+  "author": "b",
+  "truth": [
+    {
+      "type": "graphic",
+      "oldPage": 1,
+      "newPage": 1,
+      "oldRect": [50, 50, 56, 56],
+      "newRect": [50, 50, 56, 56],
+      "note": "The logo."
+    },
+    {
+      "type": "number",
+      "old": "7,240",
+      "new": "8,150",
+      "oldPage": 2,
+      "newPage": 2
+    },
+    {
+      "type": "replace",
+      "old": "Moreau",
+      "new": "Brennan",
+      "oldPage": 2,
+      "newPage": 2
+    },
+    {
+      "type": "replace",
+      "old": "Director",
+      "new": "Head",
+      "oldPage": 3,
+      "newPage": 3
+    }
+  ]
+}

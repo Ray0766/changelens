@@ -1,0 +1,59 @@
+{
+  "description": "Cleaning services agreement (4 pages) assembled with pypdf: pages 1, 2 and 4 come from one python-docx / LibreOffice Writer document (clauses; signature block with signature-and-stamp images and Schedule 1; Schedule 3 prices); page 3 is an image-only page without a text layer: a simulated grey-scale scan (150 dpi JPEG, 0.35° skew, paper tone and noise) of the signed \"Schedule 2 — Site access rules\" sheet. After: one sentence deleted on page 1; the Client's signature-and-stamp image added in the signature block on page 2 (the row has a fixed height, so nothing moves); the scan on page 3 replaced by a scan of the same sheet with a handwritten correction in rule 4 (\"07:00\" struck through, \"06:30\" and initials written above); the monthly price on page 4 changed. Consequence, not listed: the rest of the paragraph with the deleted sentence re-flows on page 1. Apart from the handwritten correction the two scan images are identical (same skew and noise).",
+  "synthetic": true,
+  "set": "held-out-4",
+  "blind": true,
+  "truth": [
+    {
+      "type": "delete",
+      "old": "The Supplier may subcontract window cleaning above 4 m to a specialist firm.",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Last sentence of the second paragraph of clause 1."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 2,
+      "newPage": 2,
+      "oldRect": [
+        308,
+        132.5,
+        152,
+        63
+      ],
+      "newRect": [
+        308,
+        132.5,
+        152,
+        63
+      ],
+      "note": "Signature-and-stamp image added in the \"For the Client\" column of the signature block (raster image in the Writer document); the cell was empty before."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 3,
+      "newPage": 3,
+      "oldRect": [
+        297,
+        206,
+        66,
+        30.5
+      ],
+      "newRect": [
+        297,
+        206,
+        66,
+        30.5
+      ],
+      "note": "Handwritten correction on the scanned, image-only page: \"07:00\" in rule 4 struck through, \"06:30\" and the initials \"IS\" written above. The page has no text layer; the README says scanned pages are not supported (no OCR) and that pages without text are named."
+    },
+    {
+      "type": "number",
+      "old": "3,480.00",
+      "new": "3,640.00",
+      "oldPage": 4,
+      "newPage": 4,
+      "note": "Schedule 3, regular cleaning, monthly price (EUR)."
+    }
+  ]
+}

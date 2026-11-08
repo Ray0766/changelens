@@ -1,0 +1,8 @@
+node_modules
+dist/
+dist-cli/
+public/pdfjs/
+*.log
+.DS_Store
+/report*.html
+/changes*.json

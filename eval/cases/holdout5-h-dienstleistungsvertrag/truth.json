@@ -1,0 +1,72 @@
+{
+  "description": "Three-page German IT maintenance services contract (Dienstleistungsvertrag) between two fictitious companies, typeset with Typst 0.15 with German hyphenation of long compounds, „“ quotes, umlauts and ß, small-caps party names, § clause numbering and two footnotes. Edits: the contract start date, the response time for critical faults, the monthly flat fee, a data-loss liability limitation deleted, a survival sentence inserted in the confidentiality clause, the written-form clause underlined, and the draft date in the running header on every page (one furniture item per page). Consequences only: paragraphs in § 7 and § 8 re-flow, hyphenation points move (e.g. 'fahrläs-siger', 'vor-hersehbaren'), and the governing-law paragraph moves from the top of page 3 to the end of page 2, leaving only the signature block on page 3. Producer: Typst 0.15.0 (Python package typst 0.15.0), fonts embedded in the PDF: Libertinus Serif Regular and Bold (bundled with Typst). Synthetic sample: all parties, places and figures are fictitious.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "beginnt am 01.04.2026",
+      "new": "beginnt am 01.05.2026",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "replace",
+      "old": "innerhalb von vier Stunden",
+      "new": "innerhalb von zwei Stunden",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "number",
+      "old": "8.400,00 EUR",
+      "new": "9.150,00 EUR",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "German number format (thousands point, decimal comma)."
+    },
+    {
+      "type": "delete",
+      "old": "Für den Verlust von Daten haftet der Auftragnehmer nur, soweit der Auftraggeber eine tägliche Datensicherung durchgeführt hat.",
+      "oldPage": 2
+    },
+    {
+      "type": "insert",
+      "new": "Diese Verpflichtung gilt über das Ende des Vertrages hinaus für weitere fünf Jahre fort.",
+      "newPage": 2
+    },
+    {
+      "type": "format",
+      "old": "Änderungen und Ergänzungen dieses Vertrages bedürfen der Schriftform.",
+      "new": "Änderungen und Ergänzungen dieses Vertrages bedürfen der Schriftform.",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Sentence underlined (Typst underline, drawn as five stroked 0.44 pt line segments under the text, with gaps where it skips the descenders of 'g'); words unchanged."
+    },
+    {
+      "type": "furniture",
+      "old": "Stand 12.02.2026",
+      "new": "Stand 03.03.2026",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Running header 'Entwurf · Stand …' changes on every page; one item per page."
+    },
+    {
+      "type": "furniture",
+      "old": "Stand 12.02.2026",
+      "new": "Stand 03.03.2026",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Running header, page 2."
+    },
+    {
+      "type": "furniture",
+      "old": "Stand 12.02.2026",
+      "new": "Stand 03.03.2026",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Running header, page 3."
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "description": "Two-page Japanese delivery note (納品書) for fasteners from a fictional supplier, produced with fpdf2 2.9.0 with an embedded IPAGothic subset (TrueType, Identity-H) for all text, drawn cell by cell as a full grid with the header row repeated on page 2, a Code 39 barcode of the slip number, a logo of two squares and a red square company seal (角印) drawn with rectangles. Amounts are whole yen with commas, the discount row uses the Japanese triangle convention for negatives (△1,500), dates are written 2026年11月10日. Edits: the delivery date, the plating of one bolt (亜鉛めっき → 三価クロメート), the quantity of the M8 spring washers (200 → 250, its amount follows), the discount (△1,500 → △2,000), and the recomputed subtotal, consumption tax and total. No re-flow: page breaks are unchanged.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "2026年11月10日",
+      "new": "2026年11月12日",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "納品日 (delivery date) in the info grid."
+    },
+    {
+      "type": "replace",
+      "old": "亜鉛めっき",
+      "new": "三価クロメート",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Plating in the description of B-M10-40 六角ボルト M10×40; CJK text compared character by character."
+    },
+    {
+      "type": "number",
+      "old": "200 枚",
+      "new": "250 枚",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Quantity of SW-M8 スプリングワッシャー M8（ステンレス）; snippet includes the unit cell 枚."
+    },
+    {
+      "type": "number",
+      "old": "2,400",
+      "new": "3,000",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Amount of the same row (quantity × 12)."
+    },
+    {
+      "type": "number",
+      "old": "△1,500",
+      "new": "△2,000",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Discount row 値引き（端数調整）; negative written with the Japanese triangle △ instead of a minus sign. The README does not list △ as a recognised sign."
+    },
+    {
+      "type": "number",
+      "old": "¥173,980",
+      "new": "¥174,080",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "小計"
+    },
+    {
+      "type": "number",
+      "old": "¥17,398",
+      "new": "¥17,408",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "消費税（10%）"
+    },
+    {
+      "type": "number",
+      "old": "¥191,378",
+      "new": "¥191,488",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "合計"
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "description": "Four-page English master services agreement between two fictitious companies, typeset with Typst 0.15 (justified Libertinus Serif with hyphenation, fi/ff/ffi ligatures, small-caps party names, automatic clause numbering and two footnotes). Edits: a best-efforts wording change, the monthly fee, the late-payment interest rate inside footnote 1, the Non-Solicitation clause moved from after Fees and Payment to after Limitation of Liability, a warranty disclaimer sentence deleted, a survival sentence inserted, the death and personal injury carve-out set in bold, and the subcontracting consent wording. Consequences only: clauses 7 to 11 are renumbered 6 to 10 and Non-Solicitation becomes clause 11, paragraphs re-flow and the clause text on pages 2 to 4 shifts between pages; the running header and footer are unchanged. Producer: Typst 0.15.0 (Python package typst 0.15.0), fonts embedded in the PDF: Libertinus Serif Regular and Bold (bundled with Typst). Synthetic sample: all parties, places and figures are fictitious.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "replace",
+      "old": "commercially reasonable efforts",
+      "new": "use best efforts",
+      "oldPage": 2,
+      "newPage": 2
+    },
+    {
+      "type": "number",
+      "old": "GBP 14,250",
+      "new": "GBP 15,400",
+      "oldPage": 2,
+      "newPage": 2
+    },
+    {
+      "type": "number",
+      "old": "at 4 per cent per annum",
+      "new": "at 6 per cent per annum",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Inside footnote 1 at the page bottom; the footnote marker stays 1."
+    },
+    {
+      "type": "move",
+      "old": "Neither party shall, during the Term",
+      "new": "Neither party shall, during the Term",
+      "oldPage": 2,
+      "newPage": 3,
+      "note": "Whole clause (heading 'Non-Solicitation' and its paragraph) moved; its automatic number changes 6 -> 11 as a consequence."
+    },
+    {
+      "type": "delete",
+      "old": "The Supplier does not warrant that the operation of the Platform will be uninterrupted.",
+      "oldPage": 2
+    },
+    {
+      "type": "insert",
+      "new": "These obligations survive termination of this Agreement for a period of five years.",
+      "newPage": 2,
+      "note": "'five' is set with the fi ligature; PDF.js extracts it as plain 'fi'."
+    },
+    {
+      "type": "format",
+      "old": "limits or excludes liability for death or personal injury",
+      "new": "limits or excludes liability for death or personal injury",
+      "oldPage": 3,
+      "newPage": 3,
+      "note": "Sentence opening 'Nothing in this Agreement limits or excludes liability for death or personal injury' made bold (Libertinus Serif Bold); words unchanged."
+    },
+    {
+      "type": "replace",
+      "old": "affiliates without the Customer’s consent",
+      "new": "affiliates only with the Customer’s prior written consent",
+      "oldPage": 3,
+      "newPage": 3
+    }
+  ]
+}

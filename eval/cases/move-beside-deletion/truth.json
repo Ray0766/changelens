@@ -1,0 +1,23 @@
+{
+  "description": "As move-and-edits, but the paragraph lands directly after the sentence that was deleted (top of page 2).",
+  "synthetic": true,
+  "set": "tuning",
+  "truth": [
+    {
+      "type": "move",
+      "old": "Routine inspections",
+      "new": "Routine inspections",
+      "oldPage": 1,
+      "newPage": 2
+    },
+    {
+      "type": "replace",
+      "old": "on the same day",
+      "new": "within one hour"
+    },
+    {
+      "type": "delete",
+      "old": "Certificates are renewed every year"
+    }
+  ]
+}

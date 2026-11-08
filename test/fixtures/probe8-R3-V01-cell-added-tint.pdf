@@ -1,0 +1,146 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<<
+/Producer (pypdf)
+>>
+endobj
+2 0 obj
+<<
+/Type /Pages
+/Count 1
+/Kids [ 4 0 R ]
+>>
+endobj
+3 0 obj
+<<
+/Type /Catalog
+/Pages 2 0 R
+>>
+endobj
+4 0 obj
+<<
+/Contents 5 0 R
+/MediaBox [ 0 0 595.2756 841.8898 ]
+/Resources <<
+/ExtGState <<
+/gRLs0 <<
+/ca 0.4
+>>
+>>
+/Font <<
+/F1 6 0 R
+/F1-0 6 0 R
+/F2 8 0 R
+>>
+/ProcSet [ /ImageB /ImageC /ImageI /PDF /Text ]
+>>
+/Rotate 0
+/Trans <<
+>>
+/Type /Page
+/Annots [ ]
+/Parent 2 0 R
+>>
+endobj
+5 0 obj
+<<
+/Length 1393
+>>
+stream
+q
+1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
+BT /F2 14 Tf 16.8 TL ET
+BT 1 0 0 1 50 781.8898 Tm (Invoice INV-2026-0912) Tj T* ET
+BT /F1 9.5 Tf 11.4 TL ET
+BT 1 0 0 1 50 761.8898 Tm (Synthetic sample V10. Payment within 30 days to the account shown below.) Tj T* ET
+.88 .9 .95 rg
+n 50 716.8898 495 18 re f*
+0 0 0 rg
+BT /F2 10 Tf 12 TL ET
+BT 1 0 0 1 56 721.8898 Tm (Item) Tj T* ET
+BT 1 0 0 1 403.33 721.8898 Tm (Qty) Tj T* ET
+BT 1 0 0 1 502.23 721.8898 Tm (Amount) Tj T* ET
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+BT 1 0 0 1 56 703.8898 Tm (Site visit) Tj T* ET
+BT 1 0 0 1 414.44 703.8898 Tm (1) Tj T* ET
+BT 1 0 0 1 509.42 703.8898 Tm (120.00) Tj T* ET
+.88 .9 .95 rg
+n 50 680.8898 495 18 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+BT 1 0 0 1 56 685.8898 Tm (Pump service and replacement of the shaft seal) Tj T* ET
+BT 1 0 0 1 414.44 685.8898 Tm (1) Tj T* ET
+BT 1 0 0 1 509.42 685.8898 Tm (380.00) Tj T* ET
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+BT 1 0 0 1 56 667.8898 Tm (Seal kit) Tj T* ET
+BT 1 0 0 1 414.44 667.8898 Tm (2) Tj T* ET
+BT 1 0 0 1 514.98 667.8898 Tm (64.00) Tj T* ET
+.88 .9 .95 rg
+n 50 644.8898 495 18 re f*
+0 0 0 rg
+BT /F1 10 Tf 12 TL ET
+BT 1 0 0 1 56 649.8898 Tm (Travel) Tj T* ET
+BT 1 0 0 1 414.44 649.8898 Tm (1) Tj T* ET
+BT 1 0 0 1 514.98 649.8898 Tm (45.00) Tj T* ET
+ 
+
+Q
+q
+0.0 0.0 595.2756 841.8898 re
+W
+n
+1 0 0 1 0 0 cm
+BT
+/F1-0 12 Tf
+14.4 TL
+ET
+0.85 0.2 0.2 rg
+/gRLs0 gs
+n
+280 681.8898 60 12 re
+f*
+Q
+
+endstream
+endobj
+6 0 obj
+<<
+/BaseFont /Helvetica
+/Encoding /WinAnsiEncoding
+/Name /F1
+/Subtype /Type1
+/Type /Font
+>>
+endobj
+8 0 obj
+<<
+/BaseFont /Helvetica-Bold
+/Encoding /WinAnsiEncoding
+/Name /F2
+/Subtype /Type1
+/Type /Font
+>>
+endobj
+xref
+0 9
+0000000007 65535 f 
+0000000015 00000 n 
+0000000054 00000 n 
+0000000113 00000 n 
+0000000162 00000 n 
+0000000443 00000 n 
+0000001888 00000 n 
+0000000000 00001 f 
+0000001995 00000 n 
+trailer
+<<
+/Size 9
+/Root 3 0 R
+/Info 1 0 R
+>>
+startxref
+2107
+%%EOF

@@ -1,0 +1,1129 @@
+{
+  "results": {
+    "holdout3-c-en-interim-financials": {
+      "description": "Synthetic sample. Condensed interim financial statements of an invented hotel group (EN, reportlab, 3 → 3 pages); amounts in £000 with negatives in parentheses, highlights with U+2212 minus signs and currency symbols. Edits between the audit-committee draft and the approved version: footer status “Draft for Audit Committee review” → “Approved by the Board on 28 July 2026” on every page; page 1 highlights: revenue growth +5.8% → +6.2% and free cash flow −£7.4m → −£4.7m; page 1 income statement: Other gains/(losses) 312 → (312) (sign change; the draft did not add up, the operating profit was already right and is unchanged); page 2 balance sheet: £500k reclassified from provisions to trade payables, (21,736) → (22,236) and (3,120) → (2,620) (subtotals unchanged); page 3 going-concern note: facility currency GBP → EUR, covenant 3.0 → 3.5 times EBITDA, and a new sentence about a covenant waiver. Everything else, including all totals, is unchanged.",
+      "set": "held-out-3",
+      "changelens": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 9,
+        "extra": 2,
+        "items": 8,
+        "ms": 2175.5965039999996
+      },
+      "textLines": {
+        "found": 9,
+        "located": 9,
+        "separate": 7,
+        "total": 9,
+        "extra": 0,
+        "items": 9,
+        "ms": 0.9361400000002504
+      },
+      "pixelPages": {
+        "found": 9,
+        "located": 9,
+        "separate": 9,
+        "total": 9,
+        "extra": 0,
+        "items": 9,
+        "ms": 385.49168499999996
+      },
+      "misses": [
+        {
+          "truth": 3,
+          "text": "number \"−£7.4m\" → \"−£4.7m\"",
+          "why": "not found"
+        },
+        {
+          "truth": 9,
+          "text": "insert → \"The lenders have agreed to waive the covenant test at 31 December 2026.\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "3→3",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "+5.8%",
+          "new": "+6.2%"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "−£7.4",
+          "new": "−£4.7"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "312",
+          "new": "(312)"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "(21,736)",
+          "new": "(22,236)"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "(3,120)",
+          "new": "(2,620)"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "GBP",
+          "new": "EUR"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "3.0",
+          "new": "3.5"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": ". The lenders have agreed to waive the covenant test at 31 D"
+        }
+      ]
+    },
+    "holdout3-c-en-retention-policy": {
+      "description": "Synthetic sample. Records management and data retention policy of an invented housing association (EN, reportlab, 3 → 3 pages). Edits: the policy owner “Head of Compliance” is renamed “Data Protection Officer” in all five places (document-control table, section 3 and the section 5 introduction, which is on old page 1 and new page 2; sections 7 and 9 on page 3); the version changes from 2.3 to 2.4; a sentence about contractors is added to the scope; in the retention schedule (a table that runs from page 2 onto page 3 with a repeated header row) the CCTV retention changes from 31 days to 14 days and the row “Visitor sign-in sheets” is deleted; the legal-hold sentence in section 7 becomes bold. Consequences, not edits: lines re-wrap where the longer title appears, section 5 starts on new page 2 instead of old page 1, and the page break inside the table moves (the row “Contracts executed as deeds” goes from old page 2 to new page 3).",
+      "set": "held-out-3",
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 6,
+        "extra": 5,
+        "items": 9,
+        "ms": 2487.1719139999996
+      },
+      "textLines": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 6,
+        "extra": 3,
+        "items": 12,
+        "ms": 0.9202359999999317
+      },
+      "pixelPages": {
+        "found": 6,
+        "located": 6,
+        "separate": 5,
+        "total": 6,
+        "extra": 0,
+        "items": 5,
+        "ms": 419.59690599999976
+      },
+      "misses": [
+        {
+          "truth": 3,
+          "text": "insert → \"It also covers records that contractors hold on the Association’s behalf\"",
+          "why": "not found"
+        },
+        {
+          "truth": 4,
+          "text": "number \"31 days\" → \"14 days\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "3→3",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "Head of Compliance",
+          "new": "Data Protection Officer"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "2.3",
+          "new": "2.4"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "also covers records that contractors hold on the Association"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Record type Examples Retention Trigger Disposal"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "31",
+          "new": "14"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "Visitor sign-in sheets Paper and tablet logs at office recep",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "format",
+          "numeric": false,
+          "old": "Records subject to a legal hold must not be destroyed, even ",
+          "new": "Records subject to a legal hold must not be destroyed, even "
+        }
+      ]
+    },
+    "holdout3-c-en-supply-agreement-move": {
+      "description": "Synthetic sample. Master supply agreement between two invented companies (EN, LibreOffice Writer, 4 → 4 pages). Edits: the running header changes from “DRAFT 3 FOR DISCUSSION” to “EXECUTION VERSION” on every page; the unchanged force-majeure paragraph moves from section 5 (page 2) to section 14 (page 4); the Incoterm changes from DAP to FCA; the payment term changes from 45 to 60 days; a sentence about the warranty of replacement products is added; the liability cap changes from EUR 2,500,000 to EUR 1,500,000; and the survival sentence in the termination section is deleted. Consequences that are not edits: the text of pages 2–4 re-flows and page breaks move, because the moved paragraph leaves page 2 and lands on page 4 (section 7, for example, starts on old page 3 but on new page 2). Section numbers do not change (clauses inside sections are unnumbered run-in headings).",
+      "set": "held-out-3",
+      "changelens": {
+        "found": 6,
+        "located": 6,
+        "separate": 6,
+        "total": 7,
+        "extra": 5,
+        "items": 10,
+        "ms": 2502.6480360000005
+      },
+      "textLines": {
+        "found": 6,
+        "located": 6,
+        "separate": 6,
+        "total": 7,
+        "extra": 4,
+        "items": 11,
+        "ms": 0.36664999999993597
+      },
+      "pixelPages": {
+        "found": 7,
+        "located": 5,
+        "separate": 6,
+        "total": 7,
+        "extra": 0,
+        "items": 9,
+        "ms": 443.0529779999997
+      },
+      "misses": [
+        {
+          "truth": 2,
+          "text": "replace \"DAP (Delivered at Place)\" → \"FCA (Free Carrier)\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "4→4",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "DAP (Delivered at Place",
+          "new": "FCA (Free Carrier"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "45",
+          "new": "60"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Replacement Products carry a new warranty period starting on"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "2,500,000",
+          "new": "1,500,000"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "Sections 8, 9, 10 and 13 survive termination.",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "move",
+          "numeric": false,
+          "old": "Force majeure. Neither party is liable for any delay or fail",
+          "new": "Force majeure. Neither party is liable for any delay or fail"
+        }
+      ]
+    },
+    "holdout3-c-zh-av-quote-inserted-page": {
+      "description": "合成样例 synthetic sample. 中文音视频系统集成报价单（Chromium，3 → 4 页）。修改：第1页报价日期 3日 → 10日；第2页项目优惠 -5,000.00 → -8,000.00，因此报价合计 408,220.00 → 405,220.00，合计大写同步修改；在报价汇总页与商务条款页之间插入一整页“可选项目：年度维保服务”（不计入合计）；商务条款页（旧第3页 → 新第4页）中付款节点、交货期和质保期修改。未修改但随之变化的：商务条款页的页码、页脚“共 n 页”。设备清单和服务费用未改。",
+      "set": "held-out-3",
+      "changelens": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 8,
+        "extra": 5,
+        "items": 8,
+        "ms": 1409.1738420000001
+      },
+      "textLines": {
+        "found": 8,
+        "located": 8,
+        "separate": 4,
+        "total": 8,
+        "extra": 2,
+        "items": 6,
+        "ms": 0.4912400000011985
+      },
+      "pixelPages": {
+        "found": 8,
+        "located": 8,
+        "separate": 7,
+        "total": 8,
+        "extra": 1,
+        "items": 8,
+        "ms": 322.1436640000011
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"2026年11月3日\" → \"2026年11月10日\"",
+          "why": "not found"
+        },
+        {
+          "truth": 4,
+          "text": "replace \"拾万捌仟\" → \"拾万伍仟\"",
+          "why": "not found"
+        },
+        {
+          "truth": 6,
+          "text": "replace \"设备到货后\" → \"安装调试验收合格后\"",
+          "why": "not found"
+        },
+        {
+          "truth": 7,
+          "text": "number \"30个日历日\" → \"45个日历日\"",
+          "why": "not found"
+        },
+        {
+          "truth": 8,
+          "text": "number \"36个月\" → \"24个月\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "3→4",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "3",
+          "new": "10"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "-5,000.00",
+          "new": "-8,000.00"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "408,220.00",
+          "new": "405,220.00"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "捌",
+          "new": "伍"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "可选项目：年度维保服务 质保期满后，贵司可选择购买我司年度维保服务。维保服务费用不计入上述报价合计，可在签约时或质保期满"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "设备到货",
+          "new": "安装调试验收合格"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "30",
+          "new": "45"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "36",
+          "new": "24"
+        }
+      ]
+    },
+    "holdout3-c-zh-en-board-minutes-dup-page": {
+      "description": "合成样例 synthetic sample. 中英双语董事会会议纪要 Bilingual board minutes of an invented company (Chromium, 3 → 4 pages). Edits: on page 1 the vote on resolution 1 is corrected (For 7 → 6, Abstain 1 → 2) and the English sentence about the revised capital expenditure schedule is deleted from resolution 2; page 2 (resolutions 3–5 and the key-figure table, with negative numbers) is pasted twice, so it appears as new pages 2 and 3 with identical content; on the action-item page (old 3 → new 4) the owner of A3 and the due date of A4 change and a sentence about electronic signatures is added. Consequences, not edits: the page count and the page numbers in the footer change; the action-item page moves from 3 to 4.",
+      "set": "held-out-3",
+      "changelens": {
+        "found": 5,
+        "located": 4,
+        "separate": 5,
+        "total": 7,
+        "extra": 2,
+        "items": 7,
+        "ms": 1396.1049949999997
+      },
+      "textLines": {
+        "found": 7,
+        "located": 7,
+        "separate": 6,
+        "total": 7,
+        "extra": 2,
+        "items": 8,
+        "ms": 0.305276999999478
+      },
+      "pixelPages": {
+        "found": 7,
+        "located": 7,
+        "separate": 7,
+        "total": 7,
+        "extra": 4,
+        "items": 11,
+        "ms": 395.5780400000003
+      },
+      "misses": [
+        {
+          "truth": 1,
+          "text": "number \"For 7\" → \"For 6\"",
+          "why": "not found"
+        },
+        {
+          "truth": 2,
+          "text": "number \"Abstain 1\" → \"Abstain 2\"",
+          "why": "not found"
+        },
+        {
+          "truth": 4,
+          "text": "insert → \"澄岭新材料（佛山）有限公司\"",
+          "why": "wrong page"
+        }
+      ],
+      "pages": "3→4",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "7",
+          "new": "6"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "1",
+          "new": "2"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "The CFO will circulate a revised capital expenditure schedul",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "同意公司以自有资金出资人民币 5,000 万元，在广东省佛山市设立全资子公司“澄岭新材料（佛山）有限公司”（暂定名 ， "
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "李文博 Li Wenbo",
+          "new": "郑雅琳 Zheng Yalin"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "2026-12-15",
+          "new": "2027-01-15"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "以视频方式出席的董事将以电子签名方式签署本纪要。Directors who attended by video will"
+        }
+      ]
+    },
+    "holdout3-c-zh-purchase-contract-reflow": {
+      "description": "合成样例 synthetic sample. 中文设备采购合同（LibreOffice Writer，3 → 3 页）。修改：页眉“征求意见稿”改为“签署稿”（每页）；第一条末尾新增 1.3 条（随机资料，旧版插入位置在第1页末，新版因三行不可拆分排在第2页顶部）；第二条预付款比例 30% → 20%、到货款比例 60% → 70%；第五条质量保证长段落中质保期 12个月 → 24个月；第九条争议解决由仲裁改为法院诉讼；第十条删除“本合同未尽事宜……”一句。未修改但随之变化的：新增 1.3 条使后文整体下移，第二条从第1页末移到第2页；第五条长段落在旧版完整位于第2页，新版跨第2、3页断开（质保期一句从旧第2页移到新第3页），这是重排，不是修改。合同编号、金额表及其余条款未改。",
+      "set": "held-out-3",
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 7,
+        "extra": 6,
+        "items": 9,
+        "ms": 2205.374047000001
+      },
+      "textLines": {
+        "found": 3,
+        "located": 2,
+        "separate": 2,
+        "total": 7,
+        "extra": 6,
+        "items": 8,
+        "ms": 0.24451700000099663
+      },
+      "pixelPages": {
+        "found": 7,
+        "located": 4,
+        "separate": 7,
+        "total": 7,
+        "extra": 0,
+        "items": 8,
+        "ms": 337.9073790000002
+      },
+      "misses": [
+        {
+          "truth": 5,
+          "text": "number \"12个月\" → \"24个月\"",
+          "why": "not found"
+        },
+        {
+          "truth": 6,
+          "text": "replace \"提交苏州仲裁委员会仲裁\" → \"向甲方所在地有管辖权的人民法院提起诉讼\"",
+          "why": "not found"
+        },
+        {
+          "truth": 7,
+          "text": "delete \"本合同未尽事宜，双方可另行签订补充协议，补充协议与本合同具有同等法律效力。\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "3→3",
+      "reported": [
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "1.3 乙方应随设备提供中文操作手册和维修保养手册各两套、随机备品备件清单、产品合格证及原 产地证明文件，并在最终验收前"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "30%",
+          "new": "20%"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "60%",
+          "new": "70%"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "12",
+          "new": "24"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "提",
+          "new": "向"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "交苏州仲裁委员会仲裁",
+          "new": "甲方所在地有管辖权的人民法院提起诉讼"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "本合同未尽事宜，双方可另行签 订补充协议，补充协议与本合同具有同等法律效力。",
+          "new": ""
+        }
+      ]
+    },
+    "holdout3-d-chromium-a5-manual": {
+      "description": "Synthetic. Long A5 service manual for an invented dosing pump (30+ pages, text flows continuously without forced page breaks; tables with repeated header rows, a 100-row spare-parts list, an empty maintenance-record table at the end). Edits: a new safety bullet (\"Wear a face shield ...\") is inserted in section 1.4 on page 2; near the end, the tightening torque of the rotor fixing screw changes from 6.0 to 9.0 N·m (section 12.3) and the glove material in the decommissioning steps changes from nitrile to butyl (section 13). Not edits: every page after the insertion re-flows, so lines and table rows move to other pages; the page count and the \"Page N of M\" footers may change.",
+      "set": "held-out-3",
+      "changelens": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 3,
+        "extra": 5,
+        "items": 8,
+        "ms": 9770.365705
+      },
+      "textLines": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 3,
+        "extra": 26,
+        "items": 29,
+        "ms": 0.9928260000015143
+      },
+      "pixelPages": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 3,
+        "extra": 13,
+        "items": 16,
+        "ms": 2738.9240919999975
+      },
+      "misses": [],
+      "pages": "30→30",
+      "reported": [
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "WARNING Wear a face shield when you open the discharge line,"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "Model Flow (l/h) Max. pressure (bar) Hose ID (mm) Motor (W)",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Key Function"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Code Parameter Range Default"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "Code Parameter Range Default",
+          "new": ""
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "Menu Contents",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "6.0",
+          "new": "9.0"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "nitrile",
+          "new": "butyl"
+        }
+      ]
+    },
+    "holdout3-d-chromium-zh-two-column": {
+      "description": "合成样例 / Synthetic. 两页中文园区通讯（A4，CSS 双栏排版，中英文混排：App、Wi-Fi、ParkNet-Guest、Book Club 等）。修改：第 1 页第一篇文章插入一句关于快充时长的规定（其后正文在两栏之间和跨页重新排布，不算修改）；App 名称 ParkPass 改为 ParkGo；临时停车费每小时 6 元改为 8 元；第 2 页删除一句关于篮球联赛奖励的话。Not edits: the re-flow of all following text between the two columns and from page 1 to page 2; the page footers.",
+      "set": "held-out-3",
+      "changelens": {
+        "found": 3,
+        "located": 3,
+        "separate": 3,
+        "total": 4,
+        "extra": 4,
+        "items": 7,
+        "ms": 1401.6841770000028
+      },
+      "textLines": {
+        "found": 2,
+        "located": 2,
+        "separate": 2,
+        "total": 4,
+        "extra": 3,
+        "items": 5,
+        "ms": 0.18326900000101887
+      },
+      "pixelPages": {
+        "found": 4,
+        "located": 4,
+        "separate": 3,
+        "total": 4,
+        "extra": 1,
+        "items": 4,
+        "ms": 206.99783000000025
+      },
+      "misses": [
+        {
+          "truth": 3,
+          "text": "number \"6 元\" → \"8 元\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "position",
+          "numeric": false,
+          "old": "ParkNet-Guest 的单次连接时长由 2 小时延长至 4",
+          "new": "ParkNet-Guest 的单次连接时长由 2 小时延长至 4"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "ParkPass",
+          "new": "ParkGo"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "直流快充桩单次充电时长不超过 90 分钟，超过后将按临时停车标准另行计费。"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "6",
+          "new": "8"
+        },
+        {
+          "kind": "position",
+          "numeric": false,
+          "old": "第三届园区篮球联赛报名截至 11 月 25 日，每支队",
+          "new": "第三届园区篮球联赛报名截至 11 月 25 日，每支队"
+        },
+        {
+          "kind": "position",
+          "numeric": false,
+          "old": "伍 8 至 12 人，比赛于 12 月的周六下午在园区体育",
+          "new": "伍 8 至 12 人，比赛于 12 月的周六下午在园区体育"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "冠军队伍将获得园区咖啡厅全年八折优惠。",
+          "new": ""
+        }
+      ]
+    },
+    "holdout3-d-impress-steering-deck": {
+      "description": "Synthetic. Steering-group slide deck for an invented tram project, exported from LibreOffice Impress (7 -> 8 landscape slides, drawn shapes for the status dots and the bar chart). Edits: the spending figure on slide 2 (41.2 -> 43.9); the status dot of \"Depot extension\" on slide 3 changes colour from amber to green (its comment is unchanged); on slide 4 the \"Track works\" bar of the vector bar chart is taller (14.6 -> 17.3 on the axis, no value label; consistent with slide 2); a new slide 5 \"Change request CR-12\" is inserted (title and three bullets); on old slide 5 / new slide 6 \"January\" becomes \"February\"; on old slide 6 / new slide 7 the date 14 November becomes 28 November. Not edits: the slide numbers in the footer of old slides 5-7 change to 6-8.",
+      "set": "held-out-3",
+      "changelens": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 6,
+        "extra": 1,
+        "items": 6,
+        "ms": 2156.372657
+      },
+      "textLines": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 6,
+        "extra": 3,
+        "items": 7,
+        "ms": 0.19991399999707937
+      },
+      "pixelPages": {
+        "found": 6,
+        "located": 4,
+        "separate": 6,
+        "total": 6,
+        "extra": 6,
+        "items": 13,
+        "ms": 350.27627299999585
+      },
+      "misses": [
+        {
+          "truth": 6,
+          "text": "number \"14 November\" → \"28 November\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "7→8",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "£41.2",
+          "new": "£43.9"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "Change request CR-12: extra stop at Quay Street ● Adds a sto"
+        },
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "January",
+          "new": "February"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "14",
+          "new": "28"
+        }
+      ]
+    },
+    "holdout3-d-reportlab-lake-plates": {
+      "description": "Synthetic. Six-page water-quality report for an invented lake, drawn with reportlab: page 2 a vector grouped bar chart, page 3 a station table with zebra shading, page 4 a full-page photo plate (raster image, no text, no footer), page 5 a vector line chart, page 6 conclusions. Edits: on page 2 the August bar of station C is taller (no value label); on page 3 the temperature anomaly of station D changes sign (−0.4 -> +0.4) and the Total P cell of station E (38) gets an amber shading, matching the unchanged table note; a new full-page depth-map plate (vector shapes, no text, no footer) is inserted as new page 5; on the oxygen chart (old page 5, new page 6) the point for 3 August is lower (5.2 -> 4.1 mg/l; no value label). Not edits: old pages 5-6 become new pages 6-7 (footer page numbers change); the photo plate on page 4 is identical in both versions.",
+      "set": "held-out-3",
+      "changelens": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 5,
+        "extra": 0,
+        "items": 5,
+        "ms": 2861.812982999996
+      },
+      "textLines": {
+        "found": 1,
+        "located": 1,
+        "separate": 1,
+        "total": 5,
+        "extra": 2,
+        "items": 3,
+        "ms": 0.1944419999999809
+      },
+      "pixelPages": {
+        "found": 5,
+        "located": 4,
+        "separate": 5,
+        "total": 5,
+        "extra": 9,
+        "items": 14,
+        "ms": 540.5450609999971
+      },
+      "misses": [],
+      "pages": "6→7",
+      "reported": [
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "−0.4",
+          "new": "+0.4"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "",
+          "new": ""
+        }
+      ]
+    },
+    "holdout3-d-writer-methods-report": {
+      "description": "Synthetic. Eight-page survey methods report from LibreOffice Writer: title page, a contents page with dot leaders and page numbers, one section per page, numbered footnotes with superscript markers at the page foot, running header and footer. Edits: in footnote 2 on page 4 the response rate 34.1 % is corrected to 31.4 %; on page 4 \"two reminders\" becomes \"one reminder\"; on page 5 the sentence about car-ownership questions is struck through (the words stay); on page 6 the sentence about households with more than six members is deleted; on page 7 a new footnote 7 is added (superscript marker after \"2022 survey.\" and the note at the page foot). Not edits: the paragraphs around the edits re-wrap; the contents page, footnotes 1-6 and all page numbers are unchanged because every section starts on a new page.",
+      "set": "held-out-3",
+      "changelens": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 5,
+        "extra": 3,
+        "items": 7,
+        "ms": 3625.8457530000014
+      },
+      "textLines": {
+        "found": 4,
+        "located": 4,
+        "separate": 4,
+        "total": 5,
+        "extra": 1,
+        "items": 5,
+        "ms": 0.20867400000133784
+      },
+      "pixelPages": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 5,
+        "extra": 1,
+        "items": 7,
+        "ms": 611.5516239999997
+      },
+      "misses": [
+        {
+          "truth": 3,
+          "text": "format \"Questions on car ownership were moved to the end of the questionnaire\" → \"Questions on car ownership were moved to the end of the questionnaire\"",
+          "why": "not found"
+        }
+      ],
+      "pages": "8→8",
+      "reported": [
+        {
+          "kind": "replace",
+          "numeric": false,
+          "old": "two reminders",
+          "new": "one reminder"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "34.1",
+          "new": "31.4"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "Questions on car ownership were moved",
+          "new": "Questions on car ownership were moved"
+        },
+        {
+          "kind": "graphic",
+          "numeric": false,
+          "old": "to the end of the questionnaire to reduce drop-outs",
+          "new": "to the end of the questionnaire to reduce drop-outs"
+        },
+        {
+          "kind": "delete",
+          "numeric": false,
+          "old": "Households with more than six members were grouped into one ",
+          "new": ""
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "7"
+        },
+        {
+          "kind": "insert",
+          "numeric": false,
+          "old": "",
+          "new": "7 Diaries without any trip on the travel day were checked by"
+        }
+      ]
+    },
+    "holdout3-d-writer-rate-card-font": {
+      "description": "Synthetic. Two-page rate card of an invented language-services company from LibreOffice Writer, with two rate tables on page 1 and terms on page 2. In the new version every style asks for the font \"Calibri\", which was not installed on the exporting machine, so LibreOffice substituted the metric-compatible Carlito; the old version uses Liberation Sans. All text is set in the new font, and lines and table rows re-flow. Edits: five rates are revised, each in a different row and column (19.40 -> 20.10, 13.60 -> 14.30, 27.50 -> 28.90 in the translation table; 370 -> 380 and 54 -> 59 in the interpreting table). Not edits: re-flow of the paragraphs and the shifted table rows caused by the font change; page 2 shows the same font change (one document-wide change).",
+      "set": "held-out-3",
+      "changelens": {
+        "found": 6,
+        "located": 6,
+        "separate": 6,
+        "total": 6,
+        "extra": 0,
+        "items": 6,
+        "ms": 867.9813939999949
+      },
+      "textLines": {
+        "found": 5,
+        "located": 5,
+        "separate": 5,
+        "total": 6,
+        "extra": 5,
+        "items": 10,
+        "ms": 0.542250000005879
+      },
+      "pixelPages": {
+        "found": 6,
+        "located": 6,
+        "separate": 3,
+        "total": 6,
+        "extra": 3,
+        "items": 6,
+        "ms": 231.79706699999952
+      },
+      "misses": [],
+      "pages": "2→2",
+      "reported": [
+        {
+          "kind": "format",
+          "numeric": false,
+          "old": "Rate card 2028",
+          "new": "Rate card 2028"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "19.40",
+          "new": "20.10"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "13.60",
+          "new": "14.30"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "27.50",
+          "new": "28.90"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "370",
+          "new": "380"
+        },
+        {
+          "kind": "replace",
+          "numeric": true,
+          "old": "54",
+          "new": "59"
+        }
+      ]
+    }
+  },
+  "totals": {
+    "changelens": {
+      "found": 55,
+      "located": 54,
+      "separate": 55,
+      "total": 73,
+      "extra": 38,
+      "items": 90,
+      "ms": 32860.13200699999
+    },
+    "textLines": {
+      "found": 57,
+      "located": 56,
+      "separate": 49,
+      "total": 73,
+      "extra": 57,
+      "items": 113,
+      "ms": 5.5854350000086015
+    },
+    "pixelPages": {
+      "found": 73,
+      "located": 65,
+      "separate": 66,
+      "total": 73,
+      "extra": 38,
+      "items": 110,
+      "ms": 6983.862598999991
+    }
+  },
+  "sets": {
+    "held-out-3": {
+      "changelens": {
+        "found": 55,
+        "located": 54,
+        "separate": 55,
+        "total": 73,
+        "extra": 38,
+        "items": 90,
+        "ms": 32860.13200699999
+      },
+      "textLines": {
+        "found": 57,
+        "located": 56,
+        "separate": 49,
+        "total": 73,
+        "extra": 57,
+        "items": 113,
+        "ms": 5.5854350000086015
+      },
+      "pixelPages": {
+        "found": 73,
+        "located": 65,
+        "separate": 66,
+        "total": 73,
+        "extra": 38,
+        "items": 110,
+        "ms": 6983.862598999991
+      }
+    }
+  },
+  "blindSkipped": 0
+}

@@ -1,0 +1,23 @@
+{
+  "description": "Paragraph 2 moved from page 1 to the end of page 2 (wholly onto the other page), one phrase changed, one sentence deleted.",
+  "synthetic": true,
+  "set": "tuning",
+  "truth": [
+    {
+      "type": "move",
+      "old": "Routine inspections",
+      "new": "Routine inspections",
+      "oldPage": 1,
+      "newPage": 2
+    },
+    {
+      "type": "replace",
+      "old": "on the same day",
+      "new": "within one hour"
+    },
+    {
+      "type": "delete",
+      "old": "Certificates are renewed every year"
+    }
+  ]
+}

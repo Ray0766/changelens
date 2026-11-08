@@ -1,0 +1,77 @@
+{
+  "description": "Three-page French annual operating report of a fictitious district heating network, typeset with Typst 0.15: a two-column summary (columns balanced with a column break), a table with booktabs-style rules, a display formula and an inline formula with a minus sign, a bar chart drawn with Typst rectangles, « » quotes with no-break spaces, narrow no-break spaces before % and in thousands, small caps and two footnotes. Edits: the unit of the pump electricity consumption, a new table row, the sign of the 2025 budget variance, the value in the inline formula, the December bar of the chart, a sentence deleted, a quoted audit finding, and a paragraph moved from the two-column summary on page 1 to the Perspectives section on page 3. Consequences only: the left summary column becomes shorter, the table grows by one row, the text on pages 1 to 3 shifts and re-flows, and the Perspectives section on page 3 grows; the chart stays at the top of page 2. Producer: Typst 0.15.0 (Python package typst 0.15.0), Libertinus Serif and New Computer Modern Math embedded by Typst. Synthetic sample: all parties, places and figures are fictitious.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "replace",
+      "old": "1,42 GWh",
+      "new": "1,42 MWh",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Only the unit changes (GWh -> MWh); in the right column of the two-column summary. Two-column layout: the README lists multi-column reading-order reconstruction only on its roadmap (Typst writes the left column before the right one in the content stream)."
+    },
+    {
+      "type": "insert",
+      "new": "Sous-stations raccordées 212 221 +9",
+      "newPage": 1,
+      "note": "New table row in Tableau 1."
+    },
+    {
+      "type": "number",
+      "old": "−1,2 % −4,2 %",
+      "new": "−1,2 % 4,2 %",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "2025 budget variance loses its minus sign (−4,2 % -> 4,2 %); the 2024 cell (−1,2 %) is unchanged context. Narrow no-break spaces before %."
+    },
+    {
+      "type": "number",
+      "old": "= −0,8 K",
+      "new": "= −1,3 K",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Inline Typst math (New Computer Modern Math): ΔT = −0,8 K -> −1,3 K; each math glyph is a separate text item, minus is U+2212. Typst math formulas are not mentioned in the README."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 2,
+      "newPage": 2,
+      "oldRect": [
+        448.7,
+        101.3,
+        21.0,
+        104.8
+      ],
+      "newRect": [
+        448.7,
+        101.3,
+        21.0,
+        104.8
+      ],
+      "note": "Bar for 'déc.' in Fig. 1 is taller (6.4 -> 7.9 GWh); no data labels, the axis labels are unchanged. Rect covers the December bar position up to the top grid line."
+    },
+    {
+      "type": "delete",
+      "old": "Aucun arrêt non programmé de plus de quatre heures n’a été enregistré au cours de l’exercice.",
+      "oldPage": 2
+    },
+    {
+      "type": "replace",
+      "old": "« conformité partielle »",
+      "new": "« non-conformité »",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Guillemets with no-break spaces inside."
+    },
+    {
+      "type": "move",
+      "old": "Le programme de raccordement des quartiers nord",
+      "new": "Le programme de raccordement des quartiers nord",
+      "oldPage": 1,
+      "newPage": 3,
+      "note": "Paragraph moved from the left column of the two-column summary (page 1) to the single-column Perspectives section (page 3), unchanged. Two-column layout: the README lists multi-column reading-order reconstruction only on its roadmap (Typst writes the left column before the right one in the content stream)."
+    }
+  ]
+}

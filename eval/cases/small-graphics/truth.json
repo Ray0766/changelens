@@ -1,0 +1,21 @@
+{
+  "description": "A 9 pt checkbox gets a tick, and a thin 0.75 pt rule is added — both must be found despite the noise tolerance.",
+  "synthetic": true,
+  "set": "tuning",
+  "truth": [
+    {
+      "type": "graphic",
+      "oldPage": 1,
+      "newPage": 1,
+      "newRect": [54, 160, 16, 16],
+      "note": "Tick in the \"Filters replaced\" checkbox."
+    },
+    {
+      "type": "graphic",
+      "oldPage": 1,
+      "newPage": 1,
+      "newRect": [56, 205, 484, 8],
+      "note": "The added 0.75 pt rule."
+    }
+  ]
+}

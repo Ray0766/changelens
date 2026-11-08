@@ -1,0 +1,78 @@
+{
+  "description": "Two-page German dimensional inspection report (Prüfbericht) for a shaft from a fictitious test lab, typeset with Typst 0.15: a two-column section with inline formulas (minus signs, µm, exponents), a ten-row results table with booktabs-style rules, a bar chart of tolerance utilisation drawn with Typst rectangles, a display formula, small caps, a footnote and a bordered release stamp. Edits: the ambient temperature tolerance, the temperature correction value in an inline formula, the measured value of M5, the M7 rating corrected from 'i. O.' to 'n. i. O.', an inserted note about the repeated M7 measurement, the M7 bar colour changed from green to red, the conclusion sentence rewritten, and the release stamp moved from the left to the right margin. Consequences only: the text below the table shifts down by one line; page breaks stay the same. Producer: Typst 0.15.0 (Python package typst 0.15.0), Libertinus Serif and New Computer Modern Math embedded by Typst. Synthetic sample: all parties, places and figures are fictitious.",
+  "synthetic": true,
+  "set": "held-out-5",
+  "blind": true,
+  "truth": [
+    {
+      "type": "number",
+      "old": "(20,0 ± 0,5) °C",
+      "new": "(20,0 ± 1,0) °C",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "In the left column of the two-column section. Two-column layout: the README lists multi-column reading-order reconstruction only on its roadmap (Typst writes the left column before the right one in the content stream)."
+    },
+    {
+      "type": "number",
+      "old": "−1,2",
+      "new": "−2,1",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Temperature correction in inline Typst math, right column: δl = −1,2 µm -> −2,1 µm (each math glyph is a separate text item, minus is U+2212). The unit is left out of the snippet because PDF.js extracts the micro sign as Greek mu U+03BC while pdftotext gives U+00B5. Two-column layout: the README lists multi-column reading-order reconstruction only on its roadmap (Typst writes the left column before the right one in the content stream). Typst math formulas are not mentioned in the README."
+    },
+    {
+      "type": "number",
+      "old": "±0,05 42,47",
+      "new": "±0,05 42,44",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Row M5, column Istmaß; tolerance cell is unchanged context."
+    },
+    {
+      "type": "replace",
+      "old": "0,007 i. O.",
+      "new": "0,007 n. i. O.",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "Row M7, column Bewertung; the measured value 0,007 is unchanged context."
+    },
+    {
+      "type": "insert",
+      "new": "Der Messpunkt M7 wurde nach erneuter Aufspannung wiederholt gemessen; das Ergebnis wurde bestätigt.",
+      "newPage": 1
+    },
+    {
+      "type": "graphic",
+      "oldPage": 2,
+      "newPage": 2,
+      "oldRect": [
+        170.9,
+        107.1,
+        242.1,
+        18.2
+      ],
+      "newRect": [
+        170.9,
+        107.1,
+        242.1,
+        18.2
+      ],
+      "note": "Bar M7 in Abbildung 1 changes colour from green (#4f7f52) to red (#c0392b); same length."
+    },
+    {
+      "type": "replace",
+      "old": "Alle geprüften Merkmale liegen innerhalb der zulässigen Toleranzen.",
+      "new": "Das Merkmal M7 liegt außerhalb der zulässigen Toleranz.",
+      "oldPage": 2,
+      "newPage": 2
+    },
+    {
+      "type": "position",
+      "old": "Prüfbericht freigegeben am 18.03.2026",
+      "new": "Prüfbericht freigegeben am 18.03.2026",
+      "oldPage": 2,
+      "newPage": 2,
+      "note": "Bordered release stamp (two lines of text in a box) moved from left-aligned to right-aligned, same vertical position; its border moves with it."
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "description": "合成样例 / Synthetic. 两页中文园区通讯（A4，CSS 双栏排版，中英文混排：App、Wi-Fi、ParkNet-Guest、Book Club 等）。修改：第 1 页第一篇文章插入一句关于快充时长的规定（其后正文在两栏之间和跨页重新排布，不算修改）；App 名称 ParkPass 改为 ParkGo；临时停车费每小时 6 元改为 8 元；第 2 页删除一句关于篮球联赛奖励的话。Not edits: the re-flow of all following text between the two columns and from page 1 to page 2; the page footers.",
+  "synthetic": true,
+  "set": "held-out-3",
+  "blind": true,
+  "author": "d",
+  "producer": "Chromium (Playwright page.pdf), A4, CSS column-count: 2, WenQuanYi Zen Hei + Liberation Sans",
+  "truth": [
+    {
+      "type": "insert",
+      "new": "直流快充桩单次充电时长不超过 90 分钟，超过后将按临时停车标准另行计费。",
+      "newPage": 1
+    },
+    {
+      "type": "replace",
+      "old": "ParkPass",
+      "new": "ParkGo",
+      "oldPage": 1,
+      "newPage": 1
+    },
+    {
+      "type": "number",
+      "old": "6 元",
+      "new": "8 元",
+      "oldPage": 1,
+      "newPage": 1,
+      "note": "访客临时停车：每小时 6 元 -> 8 元。Snippet includes the unit because the bare digit 6 also occurs elsewhere on the page."
+    },
+    {
+      "type": "delete",
+      "old": "冠军队伍将获得园区咖啡厅全年八折优惠。",
+      "oldPage": 2
+    }
+  ]
+}
